@@ -206,6 +206,16 @@ The `rust` job compiles the workspace once per edit. Restructure it; never drop 
 - **No lane-input narrowing for the Rust lane yet.** Rust tests read `docs/` (`ci.schema.json`,
   `macos-guest.md`), `bosn.toml` and `tests/fixtures/`, so a docs or fixture exclusion is
   unsafe without the per-path input evidence GATE-007 requires.
+- **The tests lane excludes Rust test sources (decided 2026-10-10).** `local-gate.toml`'s
+  `tests` lane excludes `crates/**/tests/**/*.rs`, `crates/**/tests.rs` and
+  `crates/**/*_tests.rs`, so a test-only Rust edit reuses the lane's GATE-007 pass and does
+  not rebuild the dev wheel. It is safe because those files are declared only behind
+  `#[cfg(test)]` (or are integration-test targets) and never reach the wheel, and because
+  the `rust` job also runs every tests-lane check that reads them (`lint_file_length`,
+  `lint_include_base`, `test_publish_amalgamate`). `tests/test_tests_lane_inputs.py`
+  enforces both; extend that list when a tests-lane check starts reading Rust sources.
+  The rust lane keeps the whole tree. A non-test Rust edit still rebuilds the wheel: it
+  is a real wheel input. No other lane exclusion until it has the same evidence.
 
 ## Toolchain note (host hazard)
 

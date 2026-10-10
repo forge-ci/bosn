@@ -181,6 +181,15 @@ jobs:
           python3 ci/verify_kernel_boundary.py
           soldr cargo metadata --locked --format-version 1 --no-deps > /dev/null
 
+      # The tests lane excludes Rust test sources from its input set (bosn#503),
+      # so the checks it runs over those files also run here, where the whole
+      # tree is the input. tests/test_tests_lane_inputs.py pins this list.
+      - name: Check Rust sources shared with the tests lane
+        run: |
+          python3 ci/lint_file_length.py
+          python3 ci/lint_include_base.py
+          uv run --no-project --with pytest==9.1.1 --with pyyaml==6.0.2 pytest -q -p no:cacheprovider tests/test_publish_amalgamate.py tests/test_tests_lane_inputs.py
+
       # Deliberately does not include --ignored: Docker and Hermes acceptance
       # cases retain their explicit opt-in prerequisites and dedicated proofs.
       # Only the wheel build selects bosn-python's `wheel` feature; here
