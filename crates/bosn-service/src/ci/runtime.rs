@@ -22,7 +22,6 @@ use super::{
     reply::*,
     report,
     scheduler::{Admission, Scheduler},
-    spare::SpareKeeper,
     store::{INDEX_STRIDE, LogFilter, LogQuery, LogWriter, Settings, Store},
     ui::UiHandle,
     widget::{LaunchTrigger, WidgetPresence, WidgetState},
@@ -36,7 +35,6 @@ mod persist;
 mod plan;
 mod runners;
 mod shared;
-mod spare;
 mod widget;
 use observer::*;
 use persist::{RecordWriter, Save};
@@ -108,8 +106,6 @@ pub struct CiRuntime {
     kick: async_engine::Sender<()>,
     registry: RegistryActor,
     backend: Arc<dyn ActEngineBackend>,
-    /// The one prepared spare engine (#410).
-    spares: Arc<SpareKeeper>,
     /// The engine concurrent runs share (#547).
     shared: Arc<super::shared_engine::SharedEngine>,
     feed: Feed,
@@ -174,7 +170,6 @@ impl CiRuntime {
             store,
             state: Arc::new(Mutex::new(state)),
             kick,
-            spares: Arc::new(SpareKeeper::new(registry.clone(), Arc::clone(&backend))),
             shared: Arc::new(super::shared_engine::SharedEngine::new(
                 registry.clone(),
                 Arc::clone(&backend),
@@ -244,6 +239,7 @@ impl CiRuntime {
                     .await,
             ),
             CiRequest::Runners { action } => wire(self.runners(action).await),
+            CiRequest::Doctor => wire(self.doctor().await),
             CiRequest::UiGrant { path } => wire(self.ui_grant(path).await),
             CiRequest::WidgetHello {
                 pid,
@@ -426,8 +422,6 @@ impl CiRuntime {
         };
         match admitted {
             Admitted::Queued(reply) => {
-                // This daemon runs CI: keep a spare engine from now on.
-                self.spares.want();
                 self.kick();
                 self.maybe_launch_widget(LaunchTrigger::Activity);
                 Ok(reply)
@@ -464,11 +458,7 @@ impl CiRuntime {
             .collect();
         ListReply {
             runs,
-            runners: runner_status(
-                &state.scheduler,
-                self.widget_presence(),
-                self.spares.status(),
-            ),
+            runners: runner_status(&state.scheduler, self.widget_presence()),
         }
     }
 
@@ -633,7 +623,6 @@ impl CiRuntime {
             })
             .detach();
         }
-        self.maybe_prepare_spare();
     }
 
     async fn execute(&self, record: RunRecord, cancel: CancellationSource) {
@@ -730,8 +719,7 @@ impl CiRuntime {
     ) -> Result<EngineReport, String> {
         self.localize_checkouts(record, observer);
         let deadline = async_engine::Deadline::after(Duration::from_secs(record.timeout_secs));
-        let token = cancel.token();
-        let planned = self.plan(record, deadline, &token);
+        let planned = self.plan(record, deadline);
         let Ok(plan) = async_engine::timeout_at(deadline, planned).await else {
             // Nothing exists on the host yet: an engine is only created
             // once the plan is complete.
@@ -829,11 +817,7 @@ impl CiRuntime {
     }
 }
 
-fn runner_status(
-    scheduler: &Scheduler,
-    widget: WidgetPresence,
-    spare: Option<SpareStatus>,
-) -> RunnerStatus {
+fn runner_status(scheduler: &Scheduler, widget: WidgetPresence) -> RunnerStatus {
     RunnerStatus {
         limit: scheduler.limit(),
         running: scheduler.running(),
@@ -843,7 +827,6 @@ fn runner_status(
         act_version: ACT_VERSION.into(),
         execution_pins: super::pins::execution_pins(),
         widget,
-        spare,
     }
 }
 

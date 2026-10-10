@@ -116,27 +116,6 @@ pub struct RunnerStatus {
     pub execution_pins: Option<bosn_core::act::ActPins>,
     /// Whether the desktop widget is running.
     pub widget: super::widget::WidgetPresence,
-    /// The prepared spare engine (#410), when one is kept or being prepared.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub spare: Option<SpareStatus>,
-}
-
-/// A spare engine: prepared before any run, claimed by the next one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct SpareStatus {
-    /// Its container name on the host engine.
-    pub engine: String,
-    pub state: SpareState,
-    /// Bytes of its RAM-backed private storage in use once prepared.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage_used: Option<u64>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SpareState {
-    Preparing,
-    Ready,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -187,6 +166,57 @@ pub struct RunnersReply {
     /// inventory, cumulative reclamation or a physical footprint guarantee.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maintenance: Option<super::maintenance_status::MaintenanceStatus>,
+}
+
+/// `bosn ci doctor`: act2's `act doctor` report, taken inside the machine's
+/// shared engine against its `act serve` (#547).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DoctorReply {
+    /// The shared engine it ran in; `None` when this daemon holds none (the
+    /// next run makes it), and then there is no report.
+    pub engine: Option<String>,
+    pub report: Option<ActDoctorReport>,
+}
+
+/// `act doctor --json`, as act2 prints it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActDoctorReport {
+    pub schema_version: u32,
+    /// No required check failed.
+    pub ok: bool,
+    pub checks: Vec<ActDoctorCheck>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActDoctorCheck {
+    pub id: String,
+    pub required: bool,
+    pub status: ActDoctorStatus,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ActDoctorStatus {
+    Pass,
+    Warn,
+    Fail,
+    Skip,
+}
+
+impl ActDoctorStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Warn => "warn",
+            Self::Fail => "fail",
+            Self::Skip => "skip",
+        }
+    }
 }
 
 /// The machine-wide cache volume (act tools, runner image, action

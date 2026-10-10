@@ -23,8 +23,6 @@ pub struct MaintenanceHelperAttempt {
 pub enum HelperPass {
     /// Aggregate retention of an enrolled cohort, under its agreed machine policy.
     Cohort(CachePolicy),
-    /// Default per-namespace expiry of the legacy namespaces (no cohort is enrolled).
-    Legacy(super::legacy_maintenance::LegacyBudget),
 }
 
 impl DockerActBackend {
@@ -122,7 +120,6 @@ impl DockerActBackend {
                     self.require_cache_policy(&id, policy).await?;
                     self.maintain_cache_cohort(&id, policy).await
                 }
-                HelperPass::Legacy(budget) => self.maintain_legacy_namespaces(&id, budget).await,
             }
         }
         .await;

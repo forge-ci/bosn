@@ -4,7 +4,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use bosn_registry::act::ActEngineDockerSocket;
 use kernal_api::async_engine::{self, CancellationToken};
 
 use super::{
@@ -151,15 +150,10 @@ impl SharedEngine {
             .creation_profile
             .clone()
             .ok_or("shared engine has no creation profile")?;
-        let socket = profile
-            .docker_socket
-            .clone()
-            .ok_or("shared engine has no socket directory")?;
         Ok(Ok(Held {
             id: engine.observed.engine_id.clone(),
             name: engine.intent.engine_name(),
             identity: EngineIdentity::of(&engine.intent).ok_or("shared engine identity")?,
-            socket,
             memory_bytes: profile.memory_bytes,
             nano_cpus: profile.nano_cpus,
             pids: profile.pids,
@@ -421,17 +415,6 @@ impl SharedEngine {
 
 /// Another daemon's engine, as a run here uses it.
 fn adopted(engine: &Foreign) -> Result<Held, String> {
-    let host_dir = engine
-        .socket_dir
-        .clone()
-        .ok_or("the shared engine binds no socket directory")?;
-    #[cfg(unix)]
-    let group = {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(&host_dir).map_or(0, |meta| meta.gid())
-    };
-    #[cfg(not(unix))]
-    let group = 0;
     Ok(Held {
         kind: Kind::Adopted,
         id: engine.id.clone(),
@@ -440,7 +423,6 @@ fn adopted(engine: &Foreign) -> Result<Held, String> {
             .identity
             .clone()
             .ok_or("the shared engine has no identity labels")?,
-        socket: ActEngineDockerSocket { host_dir, group },
         memory_bytes: engine.memory_bytes,
         nano_cpus: engine.nano_cpus,
         pids: engine.pids,

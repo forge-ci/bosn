@@ -1,5 +1,5 @@
-//! The daemon's side of the shared engine (#547): which lifecycle a planned
-//! run takes, idle retirement, and retirement at shutdown.
+//! The daemon's side of the shared engine (#547): running a planned run in
+//! it, idle retirement, and retirement at shutdown.
 
 use std::time::Duration;
 
@@ -7,37 +7,41 @@ use super::super::{lifecycle::EngineReport, shared_engine::DEFAULT_IDLE_RETIRE};
 use super::*;
 
 impl CiRuntime {
-    /// Run a planned run in the shared engine when its plan names one, else
-    /// on its own engine.
+    /// Run a planned run in the machine's shared engine (#547).
     pub(super) async fn run_planned(
         &self,
-        mut plan: EnginePlan,
+        plan: EnginePlan,
         cancellation: &async_engine::CancellationToken,
         observer: &mut RunObserver,
     ) -> EngineReport {
-        match plan.shared.take() {
-            Some(want) => {
-                lifecycle::shared::run_on_shared(
-                    self.backend.as_ref(),
-                    &self.shared,
-                    want,
-                    &plan,
-                    cancellation,
-                    observer,
-                )
-                .await
-            }
-            None => {
-                lifecycle::run_on_engine(
-                    &self.registry,
-                    self.backend.as_ref(),
-                    &plan,
-                    cancellation,
-                    observer,
-                )
-                .await
-            }
-        }
+        lifecycle::shared::run_on_shared(
+            self.backend.as_ref(),
+            &self.shared,
+            plan.shared.clone(),
+            &plan,
+            cancellation,
+            observer,
+        )
+        .await
+    }
+
+    /// `act doctor` in the shared engine this daemon holds, if any.
+    pub(super) async fn doctor(&self) -> Result<DoctorReply, CiError> {
+        let Some((engine, _)) = self.shared.status().await else {
+            return Ok(DoctorReply {
+                engine: None,
+                report: None,
+            });
+        };
+        let report = self
+            .backend
+            .doctor(&engine)
+            .await
+            .map_err(|error| CiError::new("internal", error))?;
+        Ok(DoctorReply {
+            engine: Some(engine),
+            report: Some(report),
+        })
     }
 
     /// Retire the shared engine once no run has used it for

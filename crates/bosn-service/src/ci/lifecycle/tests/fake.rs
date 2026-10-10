@@ -1,6 +1,8 @@
-//! The synthetic engine host the lifecycle, spare and runtime tests drive.
+//! The synthetic engine host the lifecycle, shared-engine and runtime tests drive.
 
 use super::*;
+use crate::ci::engine::ExecEnd;
+use kernal_api::async_engine::CancellationToken;
 
 /// Fault points for the synthetic engine.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -19,7 +21,7 @@ pub struct Faults {
     pub inspect: bool,
     /// Resolving the engine image never finishes (a stuck pull).
     pub slow_image: bool,
-    /// Saving the tool cache fails.
+    /// Serve's tool-cache save after a close fails.
     pub save: bool,
     /// The shared cache cannot be measured.
     pub cache_measure: bool,
@@ -35,8 +37,6 @@ pub struct FakeBackend {
     pub executions: Mutex<u32>,
     /// Whether the cache volume exists.
     pub cache: Mutex<bool>,
-    /// Tool-cache saves that found their engine still present.
-    pub saved_while_live: Mutex<u32>,
     /// What sampling the engine's storage reports; `None` fails the sample.
     pub storage: Mutex<Option<crate::ci::storage::StorageUsage>>,
     /// How long each storage sample takes to answer (#538).
@@ -63,12 +63,6 @@ impl FakeBackend {
     }
     fn faults(&self) -> Faults {
         *self.faults.lock().unwrap()
-    }
-    /// A host with room for a spare engine ([`crate::ci::spare::ROOM`]).
-    pub fn roomy() -> Self {
-        let backend = Self::default();
-        *backend.host.lock().unwrap() = Some(ROOMY_HOST);
-        backend
     }
     pub fn live(&self) -> usize {
         self.engines.lock().unwrap().len()
@@ -108,13 +102,6 @@ pub const FAKE_HOST: crate::ci::limits::HostResources = crate::ci::limits::HostR
     total_memory: 16 << 30,
     available_memory: 12 << 30,
     cpus: 2,
-    available_disk: Some(200 << 30),
-};
-/// A host with room for a spare.
-pub const ROOMY_HOST: crate::ci::limits::HostResources = crate::ci::limits::HostResources {
-    total_memory: 64 << 30,
-    available_memory: 60 << 30,
-    cpus: 8,
     available_disk: Some(200 << 30),
 };
 pub(super) fn later(record: &ActEngineRecord) -> f64 {
@@ -184,22 +171,6 @@ impl ActEngineBackend for FakeBackend {
             async_engine::sleep(delay).await;
             self.storage_probes.lock().unwrap().1 -= 1;
             usage.ok_or_else(|| "df: not sampled".to_string())
-        })
-    }
-    fn save_toolcache<'a>(
-        &'a self,
-        engine: &'a str,
-    ) -> crate::ci::engine::BoxFuture<'a, Result<(), String>> {
-        if self.live_id(engine) {
-            *self.saved_while_live.lock().unwrap() += 1;
-        }
-        let fails = self.faults().save;
-        Box::pin(async move {
-            if fails {
-                Err("disk full".into())
-            } else {
-                Ok(())
-            }
         })
     }
     fn remove_cache<'a>(
@@ -366,13 +337,23 @@ impl ActEngineBackend for FakeBackend {
         &'a self,
         _engine: &'a str,
         scope: &'a crate::ci::engine::RunScope,
-    ) -> crate::ci::engine::BoxFuture<'a, Result<(), String>> {
+    ) -> crate::ci::engine::BoxFuture<'a, Result<crate::ci::engine::Closed, String>> {
+        let fails = self.faults().save;
         Box::pin(async move {
             self.closed_scopes
                 .lock()
                 .unwrap()
                 .push(scope.label().into());
-            Ok(())
+            Ok(crate::ci::engine::Closed {
+                tool_cache: Some(crate::ci::engine::ToolCacheSave {
+                    saved: !fails,
+                    note: if fails {
+                        "disk full".into()
+                    } else {
+                        String::new()
+                    },
+                }),
+            })
         })
     }
     fn execute<'a>(

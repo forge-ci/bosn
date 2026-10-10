@@ -54,11 +54,7 @@ impl CiRuntime {
             limit: state.scheduler.limit(),
             drained: state.scheduler.drained(),
         });
-        let status = runner_status(
-            &state.scheduler,
-            self.widget_presence(),
-            self.spares.status(),
-        );
+        let status = runner_status(&state.scheduler, self.widget_presence());
         drop(state);
         self.kick();
         Ok(RunnersReply {
@@ -100,14 +96,12 @@ impl CiRuntime {
             }
             state.clearing_cache = true;
         }
-        // The spare engine mounts the volume: retire it first.
-        self.spares.retire_all().await;
         let cleared = match self.backend.remove_cache(CACHE_VOLUME).await {
             Ok(()) => self.cache_usage().await,
             Err(error) => Err(CiError::new("internal", error)),
         };
-        // Measure the removed volume before dispatch may prepare a new spare
-        // and recreate it. Otherwise the reply races that preparation.
+        // Measure the removed volume before dispatch may start a run that
+        // recreates it. Otherwise the reply races that run.
         self.lock().clearing_cache = false;
         self.kick();
         cleared

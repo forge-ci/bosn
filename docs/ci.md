@@ -316,20 +316,25 @@ stubbed job.
 
 ## What runs, and where
 
-- **One engine per machine (#544, #547).** On Linux, every run on the
-  machine, from every daemon and state directory, runs in one long-lived
-  engine. This is the target design; per-run engines remain only as the
-  `[engine] shared = false` opt-out and on non-Linux daemons (Docker Desktop
-  cannot share the engine's socket directory), and are being retired. The
-  engine is an ordinary owned engine, made and prepared (act, runner image,
-  tool cache) once by one daemon and held under that daemon's claim. Each
-  run leases a slot in it and runs in its own **scope**, which act2's serve
-  mode ([act2#62](https://github.com/zackees/act2/issues/62)) owns inside the
-  engine. Bosn starts `act serve` once per engine (under a lock, so a second
-  serve never reaps the first's runs), then forwards each run through
-  `act serve admit` (the run ID, its slot and limits; an admission that
-  answers with any other scope is refused), `act serve exec` (for `act -l`
-  and the run; secrets pass by name, never in argv) and `act serve close`:
+- **One engine per machine (#544, #547).** Every run on the machine, from
+  every daemon and state directory, runs in one long-lived engine; there is
+  no per-run engine. The engine is an ordinary owned engine, made once by one
+  daemon (which installs act in it) and held under that daemon's claim. act2's
+  serve mode ([act2#62](https://github.com/zackees/act2/issues/62),
+  [act2#67](https://github.com/zackees/act2/issues/67)) owns everything
+  CI-specific inside it. Bosn starts `act serve` once per engine (under a
+  lock, so a second serve never reaps the first's runs) and forwards:
+  - `act serve prepare`: the pinned runner image (loaded from its tar in the
+    cache volume, or pulled by digest once and saved there, and proved
+    against the publisher manifest and config) and the tool cache (seeded
+    once per engine from the cache volume's store, or a frozen tool
+    generation's overlay), then the runner's stock tools once per engine;
+  - per run, `act serve admit` (the run ID, its slot and limits; an admission
+    that answers with any other scope is refused), `act serve exec` (for
+    `act -l` and the run; secrets pass by name, never in argv) and
+    `act serve close`.
+
+  Each run leases a slot in the engine and runs in its own **scope**:
   - a cgroup `/bosn-run-<key>` with `memory.max`, `memory.swap.max = 0`,
     `cpu.max` and `pids.max`, sized from the engine (minus 1 GiB and 256
     processes for its own daemons). act itself runs in the cgroup's `act`
@@ -337,20 +342,27 @@ stubbed job.
   - its own labelled network, work tree and artifact path
     (`/var/lib/docker/bosn-ci/runs/<key>`), and its own artifact and cache
     server ports (`40000 + 2·slot`, `+1`);
-  - its own Docker proxy, served by the run's daemon on the host in the
-    engine's socket directory (`/bosn/sock/<key>.sock` inside the engine).
-    act and every job container reach Docker only through it: everything
-    they create carries the run's label (`com.zackees.bosn.run`), act's
-    per-job volumes get the run's key, and they cannot see or touch another
-    run's objects.
+  - its own Docker proxy, which serve opens at admission
+    (`/var/lib/docker/bosn-ci/sock/<key>.sock` in the engine). act and every
+    job container reach Docker only through it: everything they create
+    carries the run's label (`com.zackees.bosn.run`) and the run's cgroup
+    parent, act's per-job volumes and containers get the run's key, listings
+    and prunes see only the run's objects, and a request naming another run's
+    object is answered as if it did not exist.
 
   When a run ends, however it ends (success, failure, cancellation, timeout),
   `act serve close` kills its act process tree and removes every container
   with its label or on its network, its networks and volumes, its work tree
-  and its cgroup, and proves them gone. Other runs keep running. A restarted
-  serve reaps whatever a previous one left. The Docker proxy, the runner
-  image load and the tool cache are still Bosn's; they move to act2 before
-  the per-run engine path is retired (#547 step 4).
+  and its cgroup, and proves them gone. Other runs keep running. When act
+  exited on its own, serve then saves the run's newly completed, unmodified
+  tool-cache installs to the cache volume (the log says `tool cache saved`
+  or why not). A restarted serve reaps whatever a previous one left.
+
+  `bosn ci doctor [--json]` runs act2's `act doctor` inside the engine
+  against its serve: host and cgroup checks, and `serve.running` with the
+  run proxies, the runner image, the tool cache and the last cache-budget
+  pass. It exits 1 when a required check fails, and says so when no engine
+  is running.
 
   **The machine claim.** Which daemon makes the engine is decided by the host
   Docker engine itself: a created, never started container named
@@ -376,16 +388,15 @@ stubbed job.
   **Idle retirement.** The engine's daemon retires it once no slot has been
   held for `[engine] idle_retire_secs` (default 600 s), or as soon as it is
   empty when another daemon asked for a different engine: removed with
-  proof, its storage volume and socket directory with it, and the claim
-  released. A stopping daemon retires its engine if no run of any daemon is
-  in it; otherwise it is left, and once idle any daemon's reaper retires it
-  (its daemon is gone). A shared engine is itself the warm engine, so no
-  spare is kept while sharing is on. A config or pin change takes effect
-  when the engine next retires.
+  proof, its storage volume with it, and the claim released. A stopping
+  daemon retires its engine if no run of any daemon is in it; otherwise it
+  is left, and once idle any daemon's reaper retires it (its daemon is
+  gone). The engine is itself the warm engine; no spare is kept. A config
+  or pin change takes effect when the engine next retires.
 
   **Migrating from per-run engines.** Before a daemon makes the machine's
   engine, it drains legacy engines (per-run engines and spares of earlier
-  releases or of `shared = false`, any act engine but the claimed one):
+  releases, any act engine but the claimed one):
   an engine running an exec session or a job container is left to finish,
   and one that is idle, older than 10 minutes and seen idle on two looks is
   removed with its storage volume, both proven absent. The new engine waits
@@ -451,7 +462,7 @@ stubbed job.
   - Editing the checkout during a run does not change what the run sees.
 - **Isolation.** Runs execute in an owned Act engine on the host engine
   (`crates/bosn-service/src/act_engine`, #349), the machine's shared one
-  above (or, opted out, one per run): a privileged container of the
+  above: a privileged container of the
   pinned `docker:29.7.2` publisher manifest, named `bosn-act-<run>`, with a
   read-only root, a private cgroup namespace, bounded memory, CPUs and
   processes, and its Docker storage on disk (or, when the host has no room,
@@ -460,8 +471,8 @@ stubbed job.
   - Its limits are sized from the host engine's machine (`docker info`, plus
     `/proc/meminfo` and the free space under Docker's root directory when
     that is the same machine): memory is half the total, at most three
-    quarters of what is available, rounded down to whole 4 GiB steps (so a
-    prepared spare still matches the next run, #553) and held between 4 and
+    quarters of what is available, rounded down to whole 4 GiB steps (so the
+    engine another daemon made still matches, #553) and held between 4 and
     48 GiB; CPUs are
     min(cores, 8); 4096 processes. Memory reserves no RAM until it is
     written; it only bounds a runaway job.
@@ -491,10 +502,11 @@ stubbed job.
     storage = "disk"   # or "memory"; default: disk when the host has room
     cpus = 4
     pids = 4096
-    spares = 0   # no prepared spare engine (default 1)
-    shared = false          # opt out: one engine per run (legacy; #544, #547)
     idle_retire_secs = 600  # how long an idle shared engine is kept (default 600)
     ```
+
+    `spares` and `shared` are still accepted and ignored: prepared spare
+    engines and per-run engines were removed (#547).
 
     The chosen limits are frozen into the creation profile; creation and every
     observation verify the engine against it exactly, so a later host or
@@ -506,49 +518,22 @@ stubbed job.
     reports the host filesystem holding the volume. A step that a
     free-space guard refused (soldr will not build under 5 GiB) or that hit
     ENOSPC is explained rather than failing silently (#392).
-  - **One prepared spare engine (#410).** Once a daemon has taken its first
-    `bosn ci` run, whenever nothing is queued and a run slot is free, it
-    creates one engine with no run and prepares it
-    as far as bosn's own fixed scripts go: ready, act installed and verified,
-    runner image loaded and proven. The next run claims it instead of
-    creating and preparing its own (about 15 s), then seeds the tool cache
-    and streams in its source as usual; a new spare is prepared behind it.
-    - It is an ordinary owned engine (`bosn-act-<spare>`, labelled
-      `com.zackees.bosn.act.spare=true`): its intent and frozen creation
-      profile are durable before it exists, and the daemon holds it under its
-      own execution claim. A run takes it over in one registry transaction
-      that replaces that claim with the run's and records the run it serves;
-      only one claim can. From then on it is that run's engine, removed with
-      proof when the run ends.
-    - A run claims a spare only when its intent would create exactly the same
-      engine (pins and creation profile); a spare made for other limits or
-      pins is retired, never claimed. Startup recovery retires a spare a dead
-      daemon left, prepared or half-created, like any other engine, and
-      `bosn daemon stop` removes it before the daemon stops answering.
-    - At most one is kept. It counts against the run concurrency limit (it is
-      only prepared while a slot is free) and is a registered owned resource.
-      It is kept only when the host has 16 GiB of memory available, since an
-      idle spare holds its runner image (about 2 GiB) in its RAM-backed
-      storage; `bosn ci runners --json` shows it with that usage. Clearing
-      the cache volume retires it first. Opt out with `[engine] spares = 0`.
   - Its one named mount is the machine-wide cache volume (below), frozen into
     the creation profile, verified before creation and on every observation.
-    The host Docker socket is never mounted. On Linux the one host path is the
-    engine's own socket directory (`<state>/sock/<key>`, or
-    `/tmp/bosn-sock-<hash>/<key>` when the state path is too long for a Unix
-    socket), bound at `/bosn/sock`: the engine's `dockerd` also listens there
-    (`engine.sock`, mode 0660, the daemon user's group) so the daemon's per-run
-    Docker proxies can reach it (#547). It is frozen in the creation profile
-    and removed with the engine.
+    The host Docker socket is never mounted, and no host path is bound: each
+    run's Docker proxy is act2 serve's, inside the engine (#547). Engines of
+    earlier releases that bound a socket directory (`<state>/sock/<key>` at
+    `/bosn/sock`) are drained and retired with it.
   - Every artifact is pinned in one place (`crates/bosn-service/src/ci/pins.rs`).
     act is downloaded into the cache volume from the pinned release URL; the
     tarball and the binary inside are checked against their pinned sha256s.
     The runner image (`catthehacker/ubuntu:act-24.04`, linux/amd64, pinned by
-    manifest digest) is loaded from the cache volume's image tar, or pulled by
-    digest once and saved there; either way `docker image inspect` must then
-    show exactly the pinned manifest, config, execution config and rootfs,
-    proven against the publisher bytes the daemon ships. A cached tar that
-    fails the proof is discarded and pulled again. act runs inside the engine through
+    manifest digest) is loaded by `act serve prepare` from the cache volume's
+    image tar, or pulled by digest once and saved there; either way
+    `docker image inspect` must then show exactly the pinned manifest, config,
+    execution config and rootfs, proven against the publisher bytes the daemon
+    ships and hands serve. A cached tar that fails the proof is discarded and
+    pulled again. act runs inside the engine through
     `docker exec`, so it only sees the engine's private socket. The source
     snapshot and event payload are streamed in on `docker exec`'s stdin.
   - Every job container, network, volume and image act creates lives in the
@@ -557,19 +542,19 @@ stubbed job.
     engine is privileged, and jobs can reach its Docker socket, so a hostile
     workflow can escape to the host. Run only workflows you would run on this
     machine directly.
-- **Lifecycle.** Each step goes through the registry (`docs/rust-registry.md`):
+- **Lifecycle.** The engine's every step goes through the registry
+  (`docs/rust-registry.md`):
   1. A durable intent, with its frozen creation profile, is recorded.
   2. The engine is created, observed and registered, then started.
-  3. The run takes an exclusive execution claim; every in-engine step
-     re-verifies it.
-  4. act runs.
-  5. The outcome is recorded under the claim.
-  6. The claim's owner requests cleanup; removal is authorized.
-  7. The engine is removed.
-  8. Its absence is proven.
-  9. The record becomes terminal.
+  3. The daemon takes an exclusive execution claim on it; every in-engine
+     step of every run in it re-verifies that claim.
+  4. Runs lease slots in it and close their scopes (above) until it retires.
+  5. The claim's owner requests cleanup; removal is authorized.
+  6. The engine is removed.
+  7. Its absence is proven.
+  8. The record becomes terminal.
 
-  A run whose cleanup fails stays `cleanup_required`. On daemon start, before
+  An engine whose cleanup fails stays `cleanup_required`. On daemon start, before
   any request is admitted, every non-terminal record is marked `interrupted`
   and its engine retired (`act_runtime::recover_startup_act_engines`); the
   window then seals. A container that holds an engine name without the exact
@@ -578,7 +563,7 @@ stubbed job.
   a live concurrency limit that defaults to cores / 4 and is changed with
   `bosn ci runners set-limit N`. Independent state roots have independent
   limits; this is not an aggregate CPU budget across daemons. Each engine's
-  CPU ceiling is configured separately, and prepared spares may also do work.
+  CPU ceiling is configured separately.
   - Identical submissions share one run ID. "Identical" means the same SHA,
     dirty digest, workflow, job, trigger, mode, provider, engine, event payload
     (branch, PR number, repository, inputs), matrix filter, env and timeout.
@@ -612,11 +597,12 @@ with its VM. It holds:
 Artifacts use a per-engine store, so concurrent runs never share an artifact
 server or its port.
 
-### Shared cache budget (#544)
+### Shared cache budget (#544, #547)
 
-Every daemon's maintenance loop (it needs no workflow, engine or run) applies
-this budget to `actcache/` while no cohort policy is enrolled, which is the
-case on every machine today. The pass runs hourly from daemon start:
+act2's serve mode in the machine's engine applies this budget to `actcache/`
+while no cohort policy is enrolled, which is the case on every machine today
+(`act serve --cache-budget-*`). It runs when serve starts and hourly while the
+engine is up; with no engine, no run writes the cache.
 
 | Bound | Value |
 |---|---|
@@ -634,22 +620,18 @@ pinned. Its gates:
   exclusively, each with a 25 ms timeout. A namespace a live cache server or
   transfer holds is reported `busy` and left alone, and archives used in the
   last five minutes are always protected.
-- **Ownership.** The pass runs in the journaled, finite-lived maintenance
-  helper on the measured Bosn-owned volume, and visits only direct 16-hex
-  namespace directories. A namespace without act2's `transfers.bolt` (written
-  by an act2 that predates it) can't be locked, so it is skipped, named on
-  stderr, and never deleted. `bosn ci runners clear-cache` remains the operator
-  path for it.
-- **Exclusion.** The pass holds the machine maintenance lock that cohort
-  maintenance and import take. An enrolled cohort policy (#508) replaces this
-  budget with its own aggregate ceiling.
+- **Ownership.** Only direct 16-hex namespace directories of the Bosn-owned
+  volume are visited. A namespace without act2's `transfers.bolt` (written by
+  an act2 that predates it) can't be locked, so it is skipped and never
+  deleted. `bosn ci runners clear-cache` remains the operator path for it.
+- **Exclusion.** The pass holds the machine maintenance lock
+  (`.bosn-maintenance-v1.lock`) that cohort maintenance and import take; a
+  pass that finds it held is skipped as `busy`. An enrolled cohort policy
+  (#508) replaces this budget with its own aggregate ceiling.
 
-**Visible results.** Each pass is persisted as the registry's latest cache
-maintenance snapshot (outcome, budget, remaining and reclaimed bytes, partial,
-helper cleanup error) and logged as `bosn cache maintenance: legacy pass over
-N namespace(s): reclaimed …`. A failed deletion, a busy namespace or a failed
-helper cleanup makes the pass partial, which the snapshot records and the next
-pass retries. `tools/`, `images/` and `actions/` hold pinned, content-keyed
+**Visible results.** `bosn ci doctor` reports the last pass (`cache budget
+ok|busy|partial|failed at <time> over N namespaces`) in its `serve.running`
+check. `tools/`, `images/` and `actions/` hold pinned, content-keyed
 inputs (about 5.5 GB on the development host) and are not expired by this pass.
 
 ## GitHub token (opt-in)

@@ -1,7 +1,7 @@
-//! One act run in the shared engine (#547): lease a slot, open the run's
-//! scope (cgroup, network, work tree, ports, Docker proxy), run act, close
-//! the scope (everything with the run's label removed and proven gone), and
-//! give the slot back. The engine itself stays up for the next run; it is
+//! One act run in the shared engine (#547): lease a slot, have act2's serve
+//! open the run's scope (cgroup, network, work tree, ports, Docker proxy),
+//! run act, close the scope (everything with the run's label removed and
+//! proven gone, then the tool cache saved), and give the slot back. The engine itself stays up for the next run; it is
 //! retired only when idle ([`super::super::shared_engine`]).
 //!
 //! A run never gets an engine of its own here (#544): when the machine's
@@ -12,13 +12,12 @@ use kernal_api::async_engine::{self, CancellationToken};
 use super::{
     super::{
         engine::{ActEngineBackend, ActInvocation, ExecEnd, RunLimits, RunScope},
-        run_proxy::RunProxy,
         shared_engine::{Lease, SharedEngine},
         spare::SparePlan,
         storage::{self, StoragePeak},
     },
     CleanupEnd, EngineObserver, EnginePlan, EngineReport, ExecutionEnd, Laps, close_scope,
-    drain_output, save_toolcache,
+    drain_output,
 };
 
 /// Run `plan` in the machine's shared engine.
@@ -113,10 +112,6 @@ async fn in_scope(
         Ok(scope) => scope,
         Err(error) => return (ExecutionEnd::EngineFailed(error), CleanupEnd::Removed),
     };
-    let proxy = match RunProxy::start(&lease.socket, &scope) {
-        Ok(proxy) => proxy,
-        Err(error) => return (ExecutionEnd::EngineFailed(error), CleanupEnd::Removed),
-    };
     let invocation = ActInvocation {
         scope: Some(scope.clone()),
         ..plan.invocation.clone()
@@ -134,15 +129,10 @@ async fn in_scope(
         peak,
     )
     .await;
-    let cleanup = match close_scope(backend, engine, &scope, observer).await {
+    let cleanup = match close_scope(backend, engine, &scope, observer, laps).await {
         Ok(()) => CleanupEnd::Removed,
         Err(error) => CleanupEnd::Failed(error),
     };
-    drop(proxy);
-    // Saved only once the run's writers are gone, as on a per-run engine.
-    if matches!(end, ExecutionEnd::Exited(_)) && cleanup == CleanupEnd::Removed {
-        save_toolcache(backend, engine, observer, laps).await;
-    }
     (end, cleanup)
 }
 
@@ -211,8 +201,10 @@ async fn execute(
     );
     let (end, ()) = async_engine::join(run, drain).await;
     observer.note(&format!("act finished in {}", laps.lap()));
-    if let Some(usage) = peak.peak() {
-        observer.note(&storage::peak_note(usage));
+    match (peak.peak(), unsampled) {
+        (Some(usage), _) => observer.note(&storage::peak_note(usage)),
+        (None, Some(error)) => observer.note(&format!("engine storage not sampled: {error}")),
+        (None, None) => {}
     }
     match end {
         Ok(ExecEnd::Exited(code)) => ExecutionEnd::Exited(code),

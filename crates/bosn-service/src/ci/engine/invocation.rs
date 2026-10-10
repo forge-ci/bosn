@@ -18,8 +18,8 @@ pub struct ActInvocation {
     /// act `--input`, `--matrix` and `--env` (#430), validated at submit.
     pub params: super::super::params::RunParams,
     /// The run's own cgroup, network, directories, ports and Docker proxy
-    /// inside the engine (#547); `None` on an engine without a socket
-    /// directory, where the run owns the whole engine.
+    /// inside the shared engine (#547); the lease sets its slot. `None` only
+    /// in tests that drive act without serve.
     pub scope: Option<RunScope>,
 }
 

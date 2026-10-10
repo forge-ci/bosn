@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 
-use bosn_registry::act::ENGINE_SOCKET_DIR;
 use serde::Deserialize;
 
 use super::{
@@ -67,8 +66,6 @@ struct InspectedMount {
     kind: String,
     #[serde(default)]
     name: Option<String>,
-    #[serde(default)]
-    source: String,
     destination: String,
 }
 
@@ -104,9 +101,6 @@ impl Inspected {
                 .get("com.zackees.bosn.registry")
                 .cloned()
                 .unwrap_or_default(),
-            socket_dir: mount(ENGINE_SOCKET_DIR)
-                .filter(|mount| mount.kind == "bind")
-                .map(|mount| mount.source.clone()),
             storage_volume: mount(crate::act_engine::STORAGE_TARGET)
                 .filter(|mount| mount.kind == "volume")
                 .and_then(|mount| mount.name.clone()),

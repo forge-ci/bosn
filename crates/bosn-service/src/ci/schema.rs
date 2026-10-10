@@ -6,8 +6,9 @@ use schemars::{JsonSchema, SchemaGenerator};
 use serde_json::{Map, Value, json};
 
 use super::{
-    CancelReply, CiRequest, ErrorReply, ListReply, LogsReply, Plan, RunReport, RunView,
-    RunnersReply, SubmitReply, UiGrantReply, WidgetReply, events::RunEvent, status::StatusSnapshot,
+    CancelReply, CiRequest, DoctorReply, ErrorReply, ListReply, LogsReply, Plan, RunReport,
+    RunView, RunnersReply, SubmitReply, UiGrantReply, WidgetReply, events::RunEvent,
+    status::StatusSnapshot,
 };
 
 fn sub<T: JsonSchema>(generator: &mut SchemaGenerator) -> Value {
@@ -27,6 +28,7 @@ pub fn document() -> Value {
         "retry": sub::<SubmitReply>(&mut generator),
         "report": sub::<RunReport>(&mut generator),
         "runners": sub::<RunnersReply>(&mut generator),
+        "doctor": sub::<DoctorReply>(&mut generator),
         "ui_grant": sub::<UiGrantReply>(&mut generator),
         "plan": sub::<Plan>(&mut generator),
         "widget": sub::<WidgetReply>(&mut generator),

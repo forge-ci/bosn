@@ -25,8 +25,6 @@
 //! storage = "disk"  # or "memory"; default: disk when the host has room
 //! cpus = 4
 //! pids = 4096
-//! spares = 0        # opt out of the prepared spare engine (#410; default 1)
-//! shared = false     # one engine per run, not the shared engine (#547)
 //! idle_retire_secs = 600  # how long an idle shared engine is kept
 //! ```
 //!
@@ -166,12 +164,11 @@ pub struct EngineConfig {
     pub storage: Option<StorageBacking>,
     pub cpus: Option<u64>,
     pub pids: Option<u64>,
-    /// Prepared spare engines kept (#410); `spares = 0` opts out.
-    #[serde(default)]
-    pub spares: super::spare::Spares,
-    /// One long-lived engine shared by concurrent runs (#547); `false`
-    /// gives each run its own engine. Default: on, where the daemon can
-    /// share a Docker socket with its engines (Linux).
+    /// Accepted and ignored: prepared spare engines (#410) went with the
+    /// per-run engine path (#547).
+    pub spares: Option<u8>,
+    /// Accepted and ignored: every run executes in the machine's shared
+    /// engine (#547); there is no per-run engine to opt into.
     pub shared: Option<bool>,
     /// Seconds a shared engine with no run is kept before it is retired;
     /// default 600.

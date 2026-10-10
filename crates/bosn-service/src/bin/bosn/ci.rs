@@ -33,6 +33,7 @@ pub const USAGE: &str = "usage: bosn ci plan [--workspace P] [--provider github]
    or: bosn ci report RUN [--tail N] [--json]
    or: bosn ci retry RUN [--job K] [--json]
    or: bosn ci runners [list|drain|resume|set-limit N|prune-cache [--older-than-secs N] [--max-bytes N]|cache|clear-cache] [--json]
+   or: bosn ci doctor [--json]  (act2's `act doctor` in the shared engine; exits 1 when a required check fails)
    or: bosn ui [--path /ci/runs/RUN] [--print|--browser]  (the widget when installed, else the browser; needs `[ui] enabled = true` in <state>/config.toml)
    (every verb accepts --state-dir STATE_DIR)";
 
@@ -201,6 +202,7 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>, alias: Option<&str>) {
         "report" => report(arguments),
         "retry" => retry(arguments),
         "runners" => runners(arguments),
+        "doctor" => doctor(arguments),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -709,6 +711,43 @@ fn runners(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
         }
     });
     Ok(0)
+}
+
+/// `bosn ci doctor`: act2's `act doctor` report from inside the shared
+/// engine, printed as act prints it, with its exit code.
+fn doctor(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
+    let flags = Flags::parse(arguments, &["--state-dir"], &["--json"])?;
+    let (runtime, client) = connect(&flags)?;
+    let reply = call(&runtime, client.ci_doctor())?;
+    print(&reply, flags.json(), |r| match (&r.engine, &r.report) {
+        (Some(engine), Some(report)) => {
+            println!("engine: {engine}");
+            for check in &report.checks {
+                let need = if check.required {
+                    "required"
+                } else {
+                    "optional"
+                };
+                println!(
+                    "{:<4} {:<19} {:<8} {}",
+                    check.status.as_str(),
+                    check.id,
+                    need,
+                    check.summary
+                );
+                if let Some(fix) = check.remediation.as_deref()
+                    && check.status != bosn_service::ci::ActDoctorStatus::Pass
+                {
+                    println!("     fix: {fix}");
+                }
+            }
+        }
+        _ => println!("no shared CI engine is running; the next `bosn ci run` makes it"),
+    });
+    Ok(match &reply.report {
+        Some(report) if !report.ok => 1,
+        _ => 0,
+    })
 }
 
 fn print_cache(cache: &bosn_service::ci::CacheUsage) {

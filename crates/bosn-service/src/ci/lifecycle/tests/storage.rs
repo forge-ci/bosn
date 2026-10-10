@@ -14,15 +14,20 @@ fn run_with_storage(usage: Option<StorageUsage>, exit_code: i32) -> (EngineRepor
             ..Faults::default()
         });
         *backend.storage.lock().unwrap() = usage;
+        let backend = Arc::new(backend);
+        let shared = crate::ci::shared_engine::SharedEngine::new(registry.clone(), backend.clone());
         let mut seen = Collect::default();
-        let report = run_on_engine(
-            &registry,
-            &backend,
-            &plan(&run_id(1), Duration::from_secs(5)),
+        let plan = plan(&run_id(1), Duration::from_secs(5));
+        let report = super::super::shared::run_on_shared(
+            backend.as_ref(),
+            &shared,
+            plan.shared.clone(),
+            &plan,
             &CancellationSource::new().token(),
             &mut seen,
         )
         .await;
+        shared.close().await;
         *slot = Some((report, seen.notes));
     });
     out.unwrap()

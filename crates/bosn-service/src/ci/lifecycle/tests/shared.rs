@@ -8,26 +8,12 @@ use crate::ci::{
     spare::SparePlan,
 };
 
-fn want(n: u32, dir: &std::path::Path, memory_gib: u64) -> SparePlan {
-    let mut intent = intent(&run_id(0x5000 + n));
-    let unbound = ActEngineBinding::spare(&intent.run_id, "/state");
-    intent.workspace = unbound.workspace;
-    intent.candidate_sha = unbound.candidate_sha;
-    intent.payload_sha256 = unbound.payload_sha256;
-    intent.snapshot_sha256 = unbound.snapshot_sha256;
-    intent.spare = true;
-    let mut profile = intent.creation_profile.take().unwrap();
-    profile.memory_bytes = memory_gib << 30;
-    let socket = bosn_registry::act::ActEngineDockerSocket {
-        host_dir: dir.join(format!("e{n}")).to_string_lossy().into_owned(),
-        group: 0,
-    };
-    intent.creation_profile = Some(crate::act_engine::with_docker_socket(profile, socket).unwrap());
-    SparePlan {
-        intent,
-        act: super::super::super::engine::act_artifact("x86_64").unwrap(),
-        cache: test_cache(),
+fn want(n: u32, _dir: &std::path::Path, memory_gib: u64) -> SparePlan {
+    let mut plan = shared_plan(&run_id(0x5000 + n));
+    if let Some(profile) = plan.intent.creation_profile.as_mut() {
+        profile.memory_bytes = memory_gib << 30;
     }
+    plan
 }
 
 /// A plan for an engine with other pins: no run of it may use this one.
