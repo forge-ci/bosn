@@ -222,6 +222,8 @@ pub enum CiRequest {
     Runners {
         action: RunnerAction,
     },
+    /// act2's `act doctor` inside the machine's shared engine (#547).
+    Doctor,
     /// A widget process starting (`explicit` = typed by the user).
     WidgetHello {
         pid: u32,
@@ -257,6 +259,7 @@ impl CiRequest {
         match self {
             Self::Retry { .. }
             | Self::Report { .. }
+            | Self::Doctor
             | Self::Runners {
                 action:
                     RunnerAction::PruneCache { .. }

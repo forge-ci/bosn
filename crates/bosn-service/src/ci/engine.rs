@@ -20,8 +20,6 @@ use kernal_api::async_engine::{self, CancellationToken};
 
 use crate::{RegistryActor, act_engine};
 
-#[cfg(all(test, unix))]
-mod cache_staging_tests;
 mod cache_usage;
 mod control;
 pub use cache_usage::HelperCleanupRetry;
@@ -29,7 +27,6 @@ pub use cache_usage::HelperCleanupRetry;
 mod cache_usage_transport_tests;
 mod inventory;
 mod legacy_lease;
-mod legacy_maintenance;
 mod machine_docker;
 mod machine_policy;
 mod maintenance;
@@ -41,7 +38,6 @@ mod maintenance_loop;
 mod maintenance_reporting;
 mod migration;
 pub use inventory::InventoryAttempt;
-pub use legacy_maintenance::LegacyBudget;
 pub use maintenance::MaintenanceAttempt;
 pub use maintenance_helper::{HelperPass, MaintenanceHelperAttempt};
 pub use maintenance_loop::MaintenanceTick;
@@ -56,16 +52,15 @@ mod invocation;
 pub use invocation::{ActInvocation, LOCAL_RUNNER_LABELS};
 mod lines;
 mod run_scope;
-pub use run_scope::{MAX_SLOTS, RunLimits, RunScope};
+pub use run_scope::{Closed, MAX_SLOTS, RunLimits, RunScope, ToolCacheSave, doctor_args};
 mod runner_tools;
 mod toolcache;
 use lines::LineBuffer;
 #[cfg(test)]
 use lines::MAX_LINE;
-use toolcache::{prepare_toolcache_script, save_toolcache_script};
 
 pub(crate) fn tool_overlay_recipe_sha256() -> String {
-    toolcache::overlay_recipe_sha256()
+    toolcache::OVERLAY_RECIPE_SHA256.into()
 }
 
 pub use super::pins::{ACT_VERSION, ActArtifact, RUNNER_IMAGE, act_artifact, runner_tag};
@@ -194,21 +189,18 @@ pub trait ActEngineBackend: Send + Sync {
         record: &'a ActEngineRecord,
         budget: Duration,
     ) -> BoxFuture<'a, Result<(), String>>;
-    /// What every run's engine needs, whichever run it serves: wait for the
-    /// nested engine, install act and load the runner image (each proven to
-    /// be its pin). Only bosn's own fixed scripts run, so a spare engine
-    /// (#410) is prepared this far before any run claims it. The artifact
-    /// must be the one the intent recorded.
+    /// What the engine needs before any run: wait for the nested engine and
+    /// install act (proven to be its pin). Only bosn's own fixed scripts run.
+    /// The artifact must be the one the intent recorded.
     fn prepare_engine<'a>(
         &'a self,
         engine: &'a str,
         act: ActArtifact,
     ) -> BoxFuture<'a, Result<(), String>>;
-    /// What one run needs on a prepared engine: seed act's tool cache from
-    /// the machine-wide store as of now, and stream in the frozen source and
-    /// event payload.
-    /// Seed the tool cache, open the invocation's run scope (#547) when it
-    /// has one, and stream the frozen inputs into the run's work tree.
+    /// What one run needs on a prepared engine: act2 serve's preparation (the
+    /// pinned runner image and the tool cache, each once per engine), the
+    /// runner's stock tools (once per engine), the run's scope (#547), and
+    /// the frozen source and event payload in the run's work tree.
     fn prepare_run<'a>(
         &'a self,
         engine: &'a str,
@@ -223,12 +215,13 @@ pub trait ActEngineBackend: Send + Sync {
         engine: &'a str,
         invocation: &'a ActInvocation,
     ) -> BoxFuture<'a, Result<String, String>>;
-    /// Remove everything a run scope left in the engine and prove it gone.
+    /// Remove everything a run scope left in the engine and prove it gone;
+    /// serve then saves the run's tool-cache installs.
     fn close_scope<'a>(
         &'a self,
         engine: &'a str,
         scope: &'a RunScope,
-    ) -> BoxFuture<'a, Result<(), String>>;
+    ) -> BoxFuture<'a, Result<Closed, String>>;
     fn execute<'a>(
         &'a self,
         engine: &'a str,
@@ -242,10 +235,6 @@ pub trait ActEngineBackend: Send + Sync {
         &'a self,
         engine: &'a str,
     ) -> BoxFuture<'a, Result<super::storage::StorageUsage, String>>;
-    /// Save the tool-cache installs this run completed (act's
-    /// `/opt/hostedtoolcache`) into the machine-wide cache, each atomically;
-    /// best-effort, before the engine is removed.
-    fn save_toolcache<'a>(&'a self, engine: &'a str) -> BoxFuture<'a, Result<(), String>>;
     /// The cache volume's size in bytes; `None` when it does not exist.
     fn cache_usage<'a>(
         &'a self,
@@ -285,6 +274,14 @@ pub trait ActEngineBackend: Send + Sync {
     /// Remove the cache volume. The host engine refuses while any container
     /// (another daemon's run included) still uses it.
     fn remove_cache<'a>(&'a self, volume: &'a str) -> BoxFuture<'a, Result<(), String>>;
+    /// act2's `act doctor --json` inside `engine`, against its serve.
+    fn doctor<'a>(
+        &'a self,
+        engine: &'a str,
+    ) -> BoxFuture<'a, Result<super::reply::ActDoctorReport, String>> {
+        let _ = engine;
+        Box::pin(async { Err("act doctor needs a Docker engine".into()) })
+    }
     /// The host Docker engine's singleton coordination (#544), if any.
     fn machine(&self) -> Option<&dyn super::machine::MachineEngine> {
         None
@@ -467,30 +464,6 @@ impl DockerActBackend {
             .await;
         let _ = std::fs::remove_file(&archive);
         copied
-    }
-
-    /// Make [`runner_tag`] present in the engine, proven to be the pinned
-    /// runner ([`super::pins::verify_runner`]): loaded from the cache
-    /// volume's image tar, or pulled by digest once and saved there. A tar
-    /// whose image fails the proof is discarded and the image pulled again.
-    async fn load_runner(&self, engine: &str) -> Result<(), String> {
-        let mut refused = None;
-        for script in [load_runner_script(), reload_runner_script()] {
-            self.checked("runner image", Self::exec(engine, &script), PULL_DEADLINE)
-                .await?;
-            let inspect = self
-                .checked(
-                    "runner image inspect",
-                    owned(&["exec", engine, "docker", "image", "inspect", &runner_tag()]),
-                    CONTROL_DEADLINE,
-                )
-                .await?;
-            match super::pins::verify_runner(inspect.as_bytes()) {
-                Ok(_) => return Ok(()),
-                Err(error) => refused = Some(error),
-            }
-        }
-        Err(refused.unwrap_or_default())
     }
 
     fn exec(engine: &str, script: &str) -> Vec<String> {
@@ -678,18 +651,6 @@ impl ActEngineBackend for DockerActBackend {
         })
     }
 
-    fn save_toolcache<'a>(&'a self, engine: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            self.checked(
-                "tool cache save",
-                Self::exec(engine, &save_toolcache_script()),
-                PULL_DEADLINE,
-            )
-            .await
-            .map(|_| ())
-        })
-    }
-
     fn cache_usage<'a>(
         &'a self,
         volume: &'a str,
@@ -766,8 +727,7 @@ impl ActEngineBackend for DockerActBackend {
                 CONTROL_DEADLINE,
             )
             .await?;
-            self.install_act(engine, act).await?;
-            self.load_runner(engine).await
+            self.install_act(engine, act).await
         })
     }
 
@@ -780,13 +740,25 @@ impl ActEngineBackend for DockerActBackend {
         generation: Option<&'a bosn_registry::act::ActToolGenerationBinding>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            // Seeded before runner stock tools, which install into it; once
-            // per engine, however many runs share it (#547).
-            let seed = prepare_toolcache_script(generation)?;
-            let tools = runner_tools::prepare_script();
+            // Serve loads the runner image and prepares the tool cache, which
+            // the runner's stock tools then install into; each once per
+            // engine, however many runs share it (#547).
+            let request = serde_json::json!({
+                "image": super::pins::runner_pin(&format!("{ENGINE_CACHE}/images")),
+                "tool_generation": toolcache::generation_request(generation)?,
+            });
             self.checked(
-                "tool cache seed and runner stock tools",
-                Self::exec(engine, &toolcache::once_per_engine(&seed, &tools)),
+                "act serve prepare",
+                Self::exec(engine, &run_scope::prepare_script(&request.to_string())),
+                PULL_DEADLINE,
+            )
+            .await?;
+            self.checked(
+                "runner stock tools",
+                Self::exec(
+                    engine,
+                    &toolcache::once_per_engine(&runner_tools::prepare_script()),
+                ),
                 PULL_DEADLINE,
             )
             .await?;
@@ -804,16 +776,35 @@ impl ActEngineBackend for DockerActBackend {
         })
     }
 
+    fn doctor<'a>(
+        &'a self,
+        engine: &'a str,
+    ) -> BoxFuture<'a, Result<super::reply::ActDoctorReport, String>> {
+        let mut args = owned(&["exec", engine]);
+        args.extend(run_scope::doctor_args(true));
+        Box::pin(async move {
+            // Doctor exits 1 when a required check fails; the report says so.
+            let result = self.run(args, CONTROL_DEADLINE).await?;
+            serde_json::from_slice(&result.stdout).map_err(|error| {
+                format!(
+                    "act doctor: {error}: {}",
+                    String::from_utf8_lossy(&result.stderr).trim()
+                )
+            })
+        })
+    }
+
     fn close_scope<'a>(
         &'a self,
         engine: &'a str,
         scope: &'a RunScope,
-    ) -> BoxFuture<'a, Result<(), String>> {
+    ) -> BoxFuture<'a, Result<Closed, String>> {
         let close = Self::exec(engine, &scope.close_script());
         Box::pin(async move {
-            self.checked("act serve close", close, CLEANUP_DEADLINE)
-                .await
-                .map(|_| ())
+            let reply = self
+                .checked("act serve close", close, CLEANUP_DEADLINE)
+                .await?;
+            Closed::parse(&reply)
         })
     }
 
@@ -918,60 +909,6 @@ fn work_dirs_script() -> String {
     format!(
         "mkdir -p {ENGINE_WORK}/bin {ENGINE_WORK}/src {ENGINE_WORK}/overlay {ENGINE_WORK}/artifacts \
          {ENGINE_WORK}/home/.cache {ENGINE_WORK}/home/.config {ENGINE_WORK}/tmp"
-    )
-}
-
-/// The runner image tar in the cache volume.
-fn runner_tar() -> String {
-    format!(
-        "{ENGINE_CACHE}/images/{}.tar",
-        runner_tag().replace([':', '/'], "-")
-    )
-}
-
-/// Shell that loads the runner image tar from the cache volume, or pulls
-/// the pinned image, tags it [`runner_tag`] and saves the tar atomically.
-fn load_runner_script() -> String {
-    format!("{} {}", runner_input_lock(true), load_runner_body())
-}
-
-fn runner_input_lock(shared: bool) -> String {
-    format!(
-        "mkdir -p {ENGINE_CACHE}/images; exec 9>>{}.lock; flock -{} 9;",
-        runner_tar(),
-        if shared { "s" } else { "x" }
-    )
-}
-
-fn load_runner_body() -> String {
-    let tag = runner_tag();
-    let tar = runner_tar();
-    let restore = "[ -f \"$tar\" ] && docker load -q -i \"$tar\" >/dev/null";
-    format!(
-        "tar={tar}; mkdir -p {ENGINE_CACHE}/images; \
-         if ! {{ {restore}; }}; then \
-           flock -x 9; \
-           if ! {{ {restore}; }}; then \
-           docker pull -q --platform linux/amd64 {RUNNER_IMAGE} >/dev/null && \
-           docker tag {RUNNER_IMAGE} {tag} && \
-           stage=$(mktemp \"$tar.XXXXXXXX\") && \
-           trap 'rm -f \"$stage\"' EXIT && \
-           docker save --platform linux/amd64 -o \"$stage\" {tag} && mv \"$stage\" \"$tar\" || exit 1; \
-           fi; \
-         fi; \
-         docker image inspect {tag} >/dev/null"
-    )
-}
-
-/// After a cached tar failed the runner proof: drop it and the image it
-/// loaded, then pull and save again.
-fn reload_runner_script() -> String {
-    format!(
-        "{lock} rm -f {tar}; docker image rm -f {tag} >/dev/null 2>&1 || :; {load}",
-        lock = runner_input_lock(false),
-        tar = runner_tar(),
-        tag = runner_tag(),
-        load = load_runner_body(),
     )
 }
 

@@ -30,7 +30,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use bosn_registry::act::ActEngineDockerSocket;
 use kernal_api::async_engine::{self, CancellationToken};
 
 use super::{
@@ -59,7 +58,6 @@ pub struct Lease {
     pub engine_id: String,
     pub engine_name: String,
     pub slot: u16,
-    pub socket: ActEngineDockerSocket,
     /// The engine's own memory, CPU and process limits, to size the run from.
     pub memory_bytes: u64,
     pub nano_cpus: u64,
@@ -80,7 +78,6 @@ struct Held {
     id: String,
     name: String,
     identity: EngineIdentity,
-    socket: ActEngineDockerSocket,
     memory_bytes: u64,
     nano_cpus: u64,
     pids: u64,
@@ -94,7 +91,6 @@ impl Held {
             engine_id: self.id.clone(),
             engine_name: self.name.clone(),
             slot,
-            socket: self.socket.clone(),
             memory_bytes: self.memory_bytes,
             nano_cpus: self.nano_cpus,
             pids: self.pids,

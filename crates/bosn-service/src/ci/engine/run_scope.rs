@@ -4,20 +4,20 @@
 //! makes inside the engine carries its run label, so closing the scope
 //! removes exactly that set and leaves other runs untouched.
 //!
-//! act2's serve mode owns the scope inside the engine (zackees/act2#62):
-//! admission, the cgroup and its limits, the network, the work tree, act's
-//! process, and the label cleanup that proves nothing is left. Bosn only
-//! forwards: it starts `act serve` once per engine, then admits, executes in
-//! and closes each run through `act serve` client commands. The names here
-//! are what serve derives from the same run ID and slot (`--scope-prefix
-//! bosn-run-`, `--work-root {ENGINE_WORK}/runs`); an admission that answers
-//! with any other scope is refused.
-
-use bosn_registry::act::ENGINE_SOCKET_DIR;
+//! act2's serve mode owns the scope inside the engine (zackees/act2#62,
+//! #67): admission, the cgroup and its limits, the network, the work tree,
+//! the run's Docker proxy, act's process, and the label cleanup that proves
+//! nothing is left; and, per engine, the runner image, the tool cache and the
+//! shared cache budget. Bosn only forwards: it starts `act serve` once per
+//! engine, then prepares, admits, executes in and closes each run through
+//! `act serve` client commands. The names here are what serve derives from
+//! the same run ID and slot (`--scope-prefix bosn-run-`, `--work-root
+//! {ENGINE_WORK}/runs`, `--docker-proxy-dir {ENGINE_WORK}/sock`); an
+//! admission that answers with any other scope is refused.
 
 use serde::Deserialize;
 
-use super::ENGINE_WORK;
+use super::{ENGINE_CACHE, ENGINE_WORK};
 use crate::docker_api::LABEL_RUN;
 
 /// The act2 serve socket and log, on the engine's writable storage.
@@ -38,6 +38,17 @@ const ENGINE_PIDS_RESERVE: u64 = 256;
 const PIDS_FLOOR: u64 = 256;
 /// The memory a run never goes under.
 const MEMORY_FLOOR: u64 = 512 << 20;
+
+/// The shared cache budget act serve applies to the per-repository act cache
+/// namespaces in the cache volume (`--cache-budget-*`, `docs/ci.md` "Shared
+/// cache budget"): 8 GiB per namespace, archives unused for 7 days or older
+/// than 30 days expire, hourly. The two largest namespaces on the development
+/// host held 23–24 GB of 0.4–1.4 GB archives; 8 GiB keeps several complete
+/// toolchain/target caches per repository warm. The lock is the one cohort
+/// maintenance holds, so the two never overlap.
+const CACHE_BUDGET: &str = "--cache-budget-max-bytes 8589934592 --cache-budget-unused-age 168h \
+     --cache-budget-max-age 720h --cache-budget-interval 1h \
+     --cache-budget-lock .bosn-maintenance-v1.lock";
 
 /// The limits written to a run's cgroup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,13 +129,9 @@ impl RunScope {
     pub fn work_relative(&self) -> String {
         format!("runs/{}", self.key)
     }
-    /// The run's Docker proxy, as the engine sees it.
+    /// The run's Docker proxy, which serve opens at admission.
     pub fn socket(&self) -> String {
-        format!("{ENGINE_SOCKET_DIR}/{}", self.socket_name())
-    }
-    /// The proxy socket's file name in the engine's socket directory.
-    pub fn socket_name(&self) -> String {
-        format!("{}.sock", self.key)
+        format!("{ENGINE_WORK}/sock/{}.sock", self.key)
     }
     pub fn artifact_port(&self) -> u16 {
         PORT_BASE + 2 * self.slot
@@ -147,13 +154,8 @@ impl RunScope {
         ]
     }
 
-    /// The `act serve` client arguments every serve call starts with.
-    fn serve(&self) -> String {
-        format!("{ENGINE_WORK}/bin/act serve --socket {SERVE_DIR}/serve.sock")
-    }
-
     /// The arguments, after the act binary, that run act through serve in
-    /// this scope: Docker only through the run's proxy, and each secret
+    /// this scope (serve points act's Docker at the run's proxy), each secret
     /// passed by name from the client's environment (never argv).
     pub fn exec_args<'a>(&self, secrets: impl Iterator<Item = &'a str>) -> Vec<String> {
         let mut args: Vec<String> = vec![
@@ -163,8 +165,6 @@ impl RunScope {
             "exec".into(),
             "--run".into(),
             self.label.clone(),
-            "--env".into(),
-            format!("DOCKER_HOST=unix://{}", self.socket()),
         ];
         for name in secrets {
             args.extend(["--env-from".into(), name.to_owned()]);
@@ -173,26 +173,14 @@ impl RunScope {
         args
     }
 
-    /// Start `act serve` in the engine unless it answers (one at a time:
-    /// a second serve would reap the first's runs), then admit the run
-    /// into this scope's slot with its limits and print serve's scope.
+    /// Admit the run into this scope's slot with its limits (serve was
+    /// started by [`prepare_script`]) and print serve's scope.
     pub fn admit_script(&self) -> String {
-        let serve = self.serve();
         let limits = self.limits;
         format!(
-            "set -eu; mkdir -p {SERVE_DIR}; exec 7>{SERVE_DIR}/start.lock; flock -x 7; \
-             if ! {serve} status >/dev/null 2>&1; then \
-               setsid {serve} --run-label {LABEL_RUN} --scope-prefix {SCOPE_PREFIX} \
-                 --work-root {ENGINE_WORK}/runs --port-base {PORT_BASE} --max-runs {MAX_SLOTS} \
-                 </dev/null >>{SERVE_DIR}/serve.log 2>&1 7>&- & \
-               tries=0; until {serve} status >/dev/null 2>&1; do \
-                 tries=$((tries + 1)); \
-                 [ \"$tries\" -lt 300 ] || {{ tail -n 20 {SERVE_DIR}/serve.log >&2; echo 'act serve did not start' >&2; exit 1; }}; \
-                 sleep 0.1; \
-               done; \
-             fi; exec 7>&-; \
-             printf '%s' '{{\"run_id\":\"{label}\",\"slot\":{slot},\"limits\":{{\"memory_bytes\":{memory},\"nano_cpus\":{cpus},\"pids\":{pids}}}}}' \
+            "set -eu; printf '%s' '{{\"run_id\":\"{label}\",\"slot\":{slot},\"limits\":{{\"memory_bytes\":{memory},\"nano_cpus\":{cpus},\"pids\":{pids}}}}}' \
                | {serve} admit",
+            serve = serve(),
             label = self.label,
             slot = self.slot,
             memory = limits.memory_bytes,
@@ -201,8 +189,8 @@ impl RunScope {
         )
     }
 
-    /// Refuse an admission whose scope is not the one Bosn's proxy and act
-    /// arguments were built for.
+    /// Refuse an admission whose scope is not the one Bosn's act arguments
+    /// were built for.
     pub fn verify_admitted(&self, reply: &str) -> Result<(), String> {
         let admitted: Admitted = serde_json::from_str(reply.trim())
             .map_err(|error| format!("act serve admit: {error}"))?;
@@ -214,6 +202,7 @@ impl RunScope {
             work: self.work(),
             artifact_port: self.artifact_port(),
             cache_port: self.cache_port(),
+            docker_socket: self.socket(),
         };
         if admitted == expected {
             Ok(())
@@ -225,10 +214,55 @@ impl RunScope {
     }
 
     /// Kill the run's processes and remove everything it left, proven gone
-    /// by serve. Idempotent.
+    /// by serve, which then saves the tool cache when act exited on its own
+    /// and prints the [`Closed`] reply. Idempotent.
     pub fn close_script(&self) -> String {
-        format!("{} close --run {}", self.serve(), self.label)
+        format!("{} close --run {}", serve(), self.label)
     }
+}
+
+/// The `act serve` client command every serve call starts with.
+fn serve() -> String {
+    format!("{ENGINE_WORK}/bin/act serve --socket {SERVE_DIR}/serve.sock")
+}
+
+/// Start `act serve` in the engine unless it answers (one at a time: a
+/// second serve would reap the first's runs), then prepare the engine: the
+/// pinned runner image and the tool cache (`request`, a `PrepareRequest`
+/// JSON object without single quotes). Prints serve's `PrepareReply`.
+pub fn prepare_script(request: &str) -> String {
+    let serve = serve();
+    format!(
+        "set -eu; mkdir -p {SERVE_DIR}; exec 7>{SERVE_DIR}/start.lock; flock -x 7; \
+         if ! {serve} status >/dev/null 2>&1; then \
+           setsid {serve} --run-label {LABEL_RUN} --scope-prefix {SCOPE_PREFIX} \
+             --work-root {ENGINE_WORK}/runs --port-base {PORT_BASE} --max-runs {MAX_SLOTS} \
+             --docker-upstream /var/run/docker.sock --docker-proxy-dir {ENGINE_WORK}/sock \
+             --toolcache-store {ENGINE_CACHE}/toolcache --cache-budget-root {ENGINE_CACHE}/actcache \
+             {CACHE_BUDGET} \
+             </dev/null >>{SERVE_DIR}/serve.log 2>&1 7>&- & \
+           tries=0; until {serve} status >/dev/null 2>&1; do \
+             tries=$((tries + 1)); \
+             [ \"$tries\" -lt 300 ] || {{ tail -n 20 {SERVE_DIR}/serve.log >&2; echo 'act serve did not start' >&2; exit 1; }}; \
+             sleep 0.1; \
+           done; \
+         fi; exec 7>&-; \
+         printf '%s' '{request}' | {serve} prepare"
+    )
+}
+
+/// `act doctor` against the engine's serve, for `bosn ci doctor`.
+pub fn doctor_args(json: bool) -> Vec<String> {
+    let mut args = vec![
+        format!("{ENGINE_WORK}/bin/act"),
+        "doctor".into(),
+        "--socket".into(),
+        format!("{SERVE_DIR}/serve.sock"),
+    ];
+    if json {
+        args.push("--json".into());
+    }
+    args
 }
 
 /// The fields of serve's scope reply that Bosn depends on.
@@ -241,6 +275,31 @@ struct Admitted {
     work: String,
     artifact_port: u16,
     cache_port: u16,
+    docker_socket: String,
+}
+
+/// Serve's close reply: the tool-cache save, when serve keeps one.
+#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+pub struct Closed {
+    #[serde(default)]
+    pub tool_cache: Option<ToolCacheSave>,
+}
+
+/// Whether serve saved the run's new tool-cache installs, and why not.
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+pub struct ToolCacheSave {
+    pub saved: bool,
+    #[serde(default)]
+    pub note: String,
+}
+
+impl Closed {
+    pub fn parse(reply: &str) -> Result<Self, String> {
+        match reply.trim() {
+            "" => Ok(Self::default()),
+            text => serde_json::from_str(text).map_err(|error| format!("act serve close: {error}")),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -260,7 +319,10 @@ mod tests {
         assert_eq!(scope.cgroup(), "/bosn-run-0a1b2c3d4e5f");
         assert_eq!(scope.network(), "bosn-run-0a1b2c3d4e5f");
         assert_eq!(scope.work(), format!("{ENGINE_WORK}/runs/0a1b2c3d4e5f"));
-        assert_eq!(scope.socket(), "/bosn/sock/0a1b2c3d4e5f.sock");
+        assert_eq!(
+            scope.socket(),
+            "/var/lib/docker/bosn-ci/sock/0a1b2c3d4e5f.sock"
+        );
         assert!(scope.socket().len() < 108);
         assert_eq!((scope.artifact_port(), scope.cache_port()), (40006, 40007));
         let last = RunScope::new(RUN, MAX_SLOTS - 1, limits()).unwrap();
@@ -309,7 +371,7 @@ mod tests {
         assert_eq!(after("--cache-server-port"), "40001");
         assert_eq!(
             after("--container-daemon-socket"),
-            "unix:///bosn/sock/0a1b2c3d4e5f.sock"
+            "unix:///var/lib/docker/bosn-ci/sock/0a1b2c3d4e5f.sock"
         );
         let exec = scope.exec_args(["TOKEN"].into_iter());
         assert_eq!(
@@ -321,8 +383,6 @@ mod tests {
                 "exec",
                 "--run",
                 RUN,
-                "--env",
-                "DOCKER_HOST=unix:///bosn/sock/0a1b2c3d4e5f.sock",
                 "--env-from",
                 "TOKEN",
                 "--",
@@ -331,24 +391,47 @@ mod tests {
     }
 
     #[test]
-    fn serve_is_started_once_and_admits_this_scope() {
+    fn serve_is_started_once_owning_the_proxy_tool_cache_and_budget() {
+        let prepare = prepare_script(r#"{"image":{}}"#);
+        assert!(prepare.contains("flock -x 7"), "{prepare}");
+        assert!(prepare.contains(&format!("--run-label {LABEL_RUN} --scope-prefix bosn-run-")));
+        for flag in [
+            "--work-root /var/lib/docker/bosn-ci/runs --port-base 40000 --max-runs 256",
+            "--docker-upstream /var/run/docker.sock --docker-proxy-dir /var/lib/docker/bosn-ci/sock",
+            "--toolcache-store /bosn/cache/toolcache --cache-budget-root /bosn/cache/actcache",
+            "--cache-budget-max-bytes 8589934592 --cache-budget-unused-age 168h",
+            "--cache-budget-lock .bosn-maintenance-v1.lock",
+        ] {
+            assert!(prepare.contains(flag), "{flag}: {prepare}");
+        }
+        assert!(prepare.ends_with(
+            "printf '%s' '{\"image\":{}}' | /var/lib/docker/bosn-ci/bin/act serve --socket /var/lib/docker/bosn-ci/serve/serve.sock prepare"
+        ));
+    }
+
+    #[test]
+    fn a_run_is_admitted_and_closed_through_serve() {
         let scope = RunScope::new(RUN, 3, limits()).unwrap();
         let admit = scope.admit_script();
-        assert!(admit.contains("flock -x 7"), "{admit}");
-        assert!(admit.contains(&format!("--run-label {LABEL_RUN} --scope-prefix bosn-run-")));
-        assert!(
-            admit.contains(
-                "--work-root /var/lib/docker/bosn-ci/runs --port-base 40000 --max-runs 256"
-            )
-        );
         assert!(admit.contains(&format!(
             "{{\"run_id\":\"{RUN}\",\"slot\":3,\"limits\":{{\"memory_bytes\":7516192768,\"nano_cpus\":4000000000,\"pids\":3840}}}}"
         )), "{admit}");
+        assert!(admit.ends_with("serve.sock admit"), "{admit}");
         assert_eq!(
             scope.close_script(),
             format!(
                 "/var/lib/docker/bosn-ci/bin/act serve --socket /var/lib/docker/bosn-ci/serve/serve.sock close --run {RUN}"
             )
+        );
+        assert_eq!(
+            doctor_args(true),
+            [
+                "/var/lib/docker/bosn-ci/bin/act",
+                "doctor",
+                "--socket",
+                "/var/lib/docker/bosn-ci/serve/serve.sock",
+                "--json"
+            ]
         );
     }
 
@@ -356,12 +439,35 @@ mod tests {
     fn only_the_expected_admission_is_accepted() {
         let scope = RunScope::new(RUN, 3, limits()).unwrap();
         let reply = format!(
-            r#"{{"run_id":"{RUN}","key":"0a1b2c3d4e5f","slot":3,"cgroup":"/bosn-run-0a1b2c3d4e5f","network":"bosn-run-0a1b2c3d4e5f","work":"/var/lib/docker/bosn-ci/runs/0a1b2c3d4e5f","artifact_port":40006,"cache_port":40007,"limits":{{"memory_bytes":1,"nano_cpus":1,"pids":1}}}}"#
+            r#"{{"run_id":"{RUN}","key":"0a1b2c3d4e5f","slot":3,"cgroup":"/bosn-run-0a1b2c3d4e5f","network":"bosn-run-0a1b2c3d4e5f","work":"/var/lib/docker/bosn-ci/runs/0a1b2c3d4e5f","artifact_port":40006,"cache_port":40007,"limits":{{"memory_bytes":1,"nano_cpus":1,"pids":1}},"docker_socket":"/var/lib/docker/bosn-ci/sock/0a1b2c3d4e5f.sock"}}"#
         );
         scope.verify_admitted(&reply).unwrap();
         let moved = reply.replace("\"slot\":3", "\"slot\":4");
         assert!(scope.verify_admitted(&moved).is_err());
+        let unproxied = reply.replace(
+            ",\"docker_socket\":\"/var/lib/docker/bosn-ci/sock/0a1b2c3d4e5f.sock\"",
+            "",
+        );
+        assert!(
+            scope.verify_admitted(&unproxied).is_err(),
+            "a serve without the run proxy is refused"
+        );
         assert!(scope.verify_admitted("not json").is_err());
+    }
+
+    #[test]
+    fn close_replies_carry_the_tool_cache_save() {
+        assert_eq!(Closed::parse("").unwrap(), Closed::default());
+        assert_eq!(
+            Closed::parse(r#"{"tool_cache":{"saved":true,"note":""}}"#).unwrap(),
+            Closed {
+                tool_cache: Some(ToolCacheSave {
+                    saved: true,
+                    note: String::new()
+                })
+            }
+        );
+        assert!(Closed::parse("{").is_err());
     }
 
     /// The scripts are valid POSIX shell.
@@ -369,7 +475,11 @@ mod tests {
     #[test]
     fn scripts_parse_as_shell() {
         let scope = RunScope::new(RUN, 0, limits()).unwrap();
-        for script in [scope.admit_script(), scope.close_script()] {
+        for script in [
+            prepare_script("{}"),
+            scope.admit_script(),
+            scope.close_script(),
+        ] {
             let status = std::process::Command::new("sh")
                 .args(["-n", "-c", &script])
                 .status()

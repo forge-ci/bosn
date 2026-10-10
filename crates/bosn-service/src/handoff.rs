@@ -58,8 +58,6 @@ pub(crate) async fn stop_if_idle(
 ) -> ReplyWire {
     match busy_reason(actor, jobs, ci).await {
         Ok(None) => {
-            let _ = async_engine::timeout(crate::dispatch::SPARE_CLOSE_DEADLINE, ci.close_spares())
-                .await;
             stop.cancel();
             ReplyWire {
                 code: 30,
@@ -81,7 +79,7 @@ pub(crate) async fn stop_if_idle(
 impl Client {
     /// Ask the daemon to stop if, and only if, it is idle (#509 phase 4).
     pub async fn stop_if_idle(&self) -> Result<IdleHandoff, Error> {
-        let deadline = crate::dispatch::SPARE_CLOSE_DEADLINE + IO_DEADLINE;
+        let deadline = IO_DEADLINE;
         match self
             .call_within(Request::operation(OP_STOP_IF_IDLE), deadline)
             .await

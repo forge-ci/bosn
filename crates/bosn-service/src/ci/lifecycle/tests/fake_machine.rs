@@ -41,7 +41,6 @@ impl FakeBackend {
                 .get("com.zackees.bosn.registry")
                 .cloned()
                 .unwrap_or_default(),
-            socket_dir: Some(format!("/nonexistent/sock/{}", observed.name)),
             storage_volume: None,
             memory_bytes: 8 << 30,
             nano_cpus: 2_000_000_000,

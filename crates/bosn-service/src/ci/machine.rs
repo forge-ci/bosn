@@ -206,8 +206,6 @@ pub struct Foreign {
     pub identity: Option<EngineIdentity>,
     /// The registry its ownership labels name.
     pub registry: String,
-    /// The host directory bound at the engine's socket directory.
-    pub socket_dir: Option<String>,
     /// Its named storage volume, removed with it.
     pub storage_volume: Option<String>,
     pub memory_bytes: u64,

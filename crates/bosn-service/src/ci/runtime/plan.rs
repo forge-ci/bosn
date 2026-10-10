@@ -1,13 +1,13 @@
-//! What a run's engine is made from, and the run's plan: the same sizing,
-//! pins and cache volume for a run's own engine and for a spare (#410), so a
-//! spare is only claimed when it is exactly the engine the run would create.
+//! What the machine's shared engine (#547) is made from, and a run's plan:
+//! the sizing, pins and cache volume the engine would be created with, and
+//! the run's scope inside it.
 
 use bosn_registry::act::{ActEngineBinding, ActEngineCreationProfile, ActEngineIntent};
 
 use super::super::{
     engine::{ACT_VERSION, ActArtifact, ActInvocation, CacheVolume, act_artifact},
     limits::EngineConfig,
-    spare::{SparePlan, Spares},
+    spare::SparePlan,
 };
 use super::*;
 
@@ -16,23 +16,18 @@ pub(super) struct EngineSpec {
     pub(super) act: ActArtifact,
     pub(super) cache: CacheVolume,
     profile: ActEngineCreationProfile,
-    state_dir: std::path::PathBuf,
 }
 
 impl EngineSpec {
-    /// The intent of an engine bound to `binding` (a run, or a spare), with
-    /// its own Docker socket directory when this daemon can share one (#547).
+    /// The intent of an engine bound to `binding` (a run, or the daemon's
+    /// shared engine). Runs reach Docker through act2 serve's per-run proxy
+    /// inside the engine, so the engine binds no host socket directory.
     pub(super) fn intent(
         &self,
         binding: ActEngineBinding,
         spare: bool,
     ) -> Result<ActEngineIntent, String> {
-        let profile =
-            match super::super::socket_dir::engine_socket(&self.state_dir, &binding.run_id) {
-                Some(socket) => crate::act_engine::with_docker_socket(self.profile.clone(), socket)
-                    .map_err(|e| e.to_string())?,
-                None => self.profile.clone(),
-            };
+        let profile = self.profile.clone();
         Ok(ActEngineIntent {
             run_id: binding.run_id,
             workspace: binding.workspace,
@@ -72,17 +67,15 @@ impl CiRuntime {
             act,
             cache,
             profile,
-            state_dir: self.state_dir.clone(),
         })
     }
 
-    /// The immutable engine intent and act invocation for a record, with the
-    /// spare engine to claim when one is kept for exactly this engine.
+    /// The immutable engine intent and act invocation for a record, with
+    /// the shared engine to make when there is none.
     pub(super) async fn plan(
         &self,
         record: &RunRecord,
         deadline: async_engine::Deadline,
-        cancellation: &async_engine::CancellationToken,
     ) -> Result<EnginePlan, String> {
         super::super::pins::require_execution_pins(record.execution_pins.as_ref())?;
         let config = super::super::config::load_engine(&self.state_dir)?;
@@ -98,26 +91,12 @@ impl CiRuntime {
             false,
         )?;
         // The shared engine (#547): what to make when there is none.
-        let shared = if shared_enabled(config) && run_scope(&record.id, &intent)?.is_some() {
-            let id = new_uuid().await.map_err(|e| e.message)?;
-            let workspace = self.state_dir.to_string_lossy().into_owned();
-            Some(SparePlan {
-                intent: spec.intent(ActEngineBinding::spare(&id, &workspace), true)?,
-                act: spec.act,
-                cache: spec.cache.clone(),
-            })
-        } else {
-            None
-        };
-        let spare = match config.spares {
-            _ if shared.is_some() => None,
-            Spares::One => {
-                let spare = self.spares.take(&intent, deadline, cancellation).await;
-                // Replenish in the background while this run executes.
-                self.kick();
-                spare
-            }
-            Spares::None => None,
+        let id = new_uuid().await.map_err(|e| e.message)?;
+        let workspace = self.state_dir.to_string_lossy().into_owned();
+        let shared = SparePlan {
+            intent: spec.intent(ActEngineBinding::spare(&id, &workspace), true)?,
+            act: spec.act,
+            cache: spec.cache.clone(),
         };
         let scope = run_scope(&record.id, &intent)?;
         Ok(EnginePlan {
@@ -139,39 +118,29 @@ impl CiRuntime {
                 ),
                 secrets: self.secrets(record)?,
                 params: record.params.clone(),
-                scope,
+                scope: Some(scope),
             },
             cache: spec.cache,
             deadline,
-            spare,
             shared,
         })
     }
 }
 
-/// Whether runs share one long-lived engine (#547): `[engine] shared`,
-/// on by default.
-pub(super) fn shared_enabled(config: EngineConfig) -> bool {
-    config.shared.unwrap_or(true)
-}
-
-/// The run's scope inside its engine (#547) when the engine binds a socket
-/// directory, sized from the whole engine (one run per engine).
+/// The run's scope inside the engine (#547), sized from the whole engine;
+/// the shared engine assigns its slot when the run leases one.
 fn run_scope(
     run: &str,
     intent: &ActEngineIntent,
-) -> Result<Option<super::super::engine::RunScope>, String> {
-    let Some(profile) = intent
+) -> Result<super::super::engine::RunScope, String> {
+    let profile = intent
         .creation_profile
         .as_ref()
-        .filter(|profile| profile.docker_socket.is_some())
-    else {
-        return Ok(None);
-    };
+        .ok_or("engine intent has no creation profile")?;
     let limits = super::super::engine::RunLimits::within_engine(
         profile.memory_bytes,
         profile.nano_cpus,
         profile.pids,
     );
-    super::super::engine::RunScope::new(run, 0, limits).map(Some)
+    super::super::engine::RunScope::new(run, 0, limits)
 }

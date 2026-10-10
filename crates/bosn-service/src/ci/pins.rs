@@ -46,17 +46,37 @@ pub fn runner_tag() -> String {
     format!("bosn/act-runner:{}", &digest[..12.min(digest.len())])
 }
 
-/// Prove that a `docker image inspect` of [`runner_tag`] in an engine is the
-/// pinned runner, whichever way it got there. Returns the image ID.
-pub fn verify_runner(inspect: &[u8]) -> Result<String, String> {
-    crate::act_runtime::verify_loaded_image(
-        inspect,
-        runner_manifest(),
-        RUNNER_CONFIG,
-        RUNNER_MANIFEST_BYTES,
-        RUNNER_CONFIG_BYTES,
-    )
-    .map_err(|error| format!("runner image is not the pinned one: {error}"))
+/// The runner image as act2's serve mode loads and proves it (`act serve
+/// prepare`, zackees/act2#67): the pull reference, the engine-local tag, the
+/// image tar kept in the cache volume, and the publisher manifest and config
+/// bytes whose digests are the pins. Serve refuses an image that is not them.
+#[derive(Debug, serde::Serialize)]
+pub struct RunnerPin {
+    reference: &'static str,
+    tag: String,
+    archive: String,
+    platform: &'static str,
+    #[serde(serialize_with = "base64_bytes")]
+    manifest: &'static [u8],
+    #[serde(serialize_with = "base64_bytes")]
+    config: &'static [u8],
+}
+
+fn base64_bytes<S: serde::Serializer>(bytes: &&[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    use base64::Engine as _;
+    serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// The pinned runner, its tar kept under `images_dir`.
+pub fn runner_pin(images_dir: &str) -> RunnerPin {
+    RunnerPin {
+        reference: RUNNER_IMAGE,
+        tag: runner_tag(),
+        archive: format!("{images_dir}/{}.tar", runner_tag().replace([':', '/'], "-")),
+        platform: "linux/amd64",
+        manifest: RUNNER_MANIFEST_BYTES,
+        config: RUNNER_CONFIG_BYTES,
+    }
 }
 
 /// One pinned act release for an engine architecture.
@@ -86,9 +106,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // reads, and escapes artifact signatures for stock Azure clients.
             // act2.17 adds `act serve` (act2#62), which owns each run's scope
             // inside the shared engine (#547), and `act doctor` (act2#61).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.17/act_Linux_x86_64.tar.gz",
-            sha256: "9adc44420ec4eac8800925c7194c52d2f4c3923f510ef60ef2885197f572aadd",
-            binary_sha256: "29858fabb6ae3824552486ec3df31673c6de0277c366d30260e628747bf6ef18",
+            // act2.18: serve owns the run proxy, runner-image load, tool
+            // cache and cache budget (act2#67).
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.18/act_Linux_x86_64.tar.gz",
+            sha256: "5ebd6231663bc3b2c54d9777cd26d9333575325ebc28a3bd8f9f0ef7ada13ed7",
+            binary_sha256: "a64a5e95cd570d165cecb83097c7b57f963e9f00b2e4a61c2bbc3574606cdc41",
         }),
         _ => None,
     }
@@ -122,7 +144,7 @@ pub(crate) fn require_execution_pins(pins: Option<&bosn_core::act::ActPins>) -> 
 mod tests {
     use super::*;
     use kernal_api::hash::Sha256Hasher;
-    use serde_json::{Value, json};
+    use serde_json::Value;
 
     #[test]
     fn execution_pins_bind_receipts_and_refuse_changed_queued_providers() {
@@ -199,29 +221,6 @@ mod tests {
         format!("sha256:{}", Sha256Hasher::digest(bytes))
     }
 
-    /// What the containerd image store reports for the pinned runner.
-    fn inspect() -> Value {
-        let config: Value = serde_json::from_slice(RUNNER_CONFIG_BYTES).unwrap();
-        let manifest: Value = serde_json::from_slice(RUNNER_MANIFEST_BYTES).unwrap();
-        json!([{
-            "Id": runner_manifest(),
-            "Descriptor": {
-                "digest": runner_manifest(),
-                "mediaType": manifest["mediaType"],
-                "size": RUNNER_MANIFEST_BYTES.len(),
-            },
-            "Config": {
-                "Env": config["config"]["Env"],
-                "Entrypoint": config["config"]["Entrypoint"],
-                "Cmd": config["config"]["Cmd"],
-                "User": config["config"]["User"],
-                "WorkingDir": config["config"]["WorkingDir"],
-                "Volumes": null,
-            },
-            "RootFS": {"Type": "layers", "Layers": config["rootfs"]["diff_ids"]},
-        }])
-    }
-
     #[test]
     fn the_shipped_runner_proof_is_the_pinned_one() {
         assert_eq!(digest(RUNNER_MANIFEST_BYTES), runner_manifest());
@@ -232,24 +231,23 @@ mod tests {
     }
 
     #[test]
-    fn only_the_pinned_runner_identity_is_accepted() {
-        let good = inspect();
+    fn serve_is_handed_the_pinned_publisher_bytes() {
+        use base64::Engine as _;
+        let pin = serde_json::to_value(runner_pin("/bosn/cache/images")).unwrap();
+        let decode = |field: &str| {
+            base64::engine::general_purpose::STANDARD
+                .decode(pin[field].as_str().unwrap())
+                .unwrap()
+        };
+        assert_eq!(decode("manifest"), RUNNER_MANIFEST_BYTES);
+        assert_eq!(decode("config"), RUNNER_CONFIG_BYTES);
+        assert_eq!(pin["reference"], RUNNER_IMAGE);
+        assert_eq!(pin["tag"], "bosn/act-runner:4f2d5083a9d1");
         assert_eq!(
-            verify_runner(&serde_json::to_vec(&good).unwrap()).unwrap(),
-            runner_manifest()
+            pin["archive"],
+            "/bosn/cache/images/bosn-act-runner-4f2d5083a9d1.tar"
         );
-        let tampered: [fn(&mut Value); 4] = [
-            |v| v[0]["Descriptor"]["digest"] = json!(format!("sha256:{}", "0".repeat(64))),
-            |v| v[0]["RootFS"]["Layers"][0] = json!(format!("sha256:{}", "1".repeat(64))),
-            |v| v[0]["Config"]["Entrypoint"] = json!(["/bin/evil"]),
-            |v| v[0]["Id"] = json!(format!("sha256:{}", "2".repeat(64))),
-        ];
-        for tamper in tampered {
-            let mut bad = good.clone();
-            tamper(&mut bad);
-            assert!(verify_runner(&serde_json::to_vec(&bad).unwrap()).is_err());
-        }
-        assert!(verify_runner(b"[]").is_err());
+        assert_eq!(pin["platform"], "linux/amd64");
     }
 
     #[test]

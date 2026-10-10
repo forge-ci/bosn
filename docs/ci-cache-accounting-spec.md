@@ -4194,5 +4194,23 @@ logged `run scope cleaned up`, serve's status showed no runs afterwards, and
 the idle engine was retired, leaving only `bosn-ci-cache-v1`. Everything was
 removed afterwards.
 
-Still Bosn's, and moving to act2 before step 4: the per-run Docker proxy, the
-runner-image load and the tool-cache seed and save.
+The per-run Docker proxy, the runner-image load and the tool-cache seed and
+save moved to act2 in act2.18 (below), and step 4 removed them from Bosn.
+
+### Serve owns the proxy, runner image and tool cache (act2.18; #547 step 4)
+
+[Act2 PR #68](https://github.com/zackees/act2/pull/68)
+([act2#67](https://github.com/zackees/act2/issues/67)) moves each run's Docker
+proxy, `act serve prepare` (the runner-image load and proof, plus the tool-cache
+seed or overlay), the tool-cache save after a run, and the shared cache budget
+into `act serve`. Full CI passed on exact master
+`a28192deeb129713ef0a57724aa83369d3cdc6ba`
+([run 38076424358](https://github.com/zackees/act2/actions/runs/38076424358)).
+From a clean detached checkout of master at that SHA, with neither the tag nor
+the release present, the annotated tag `v0.2.89-act2.18` was pushed, and the
+tag-triggered [release run 38083462686](https://github.com/zackees/act2/actions/runs/38083462686)
+published it. The downloaded Linux x86_64 archive matches its published
+checksum `5ebd6231663bc3b2c54d9777cd26d9333575325ebc28a3bd8f9f0ef7ada13ed7`;
+the executable hashes to
+`a64a5e95cd570d165cecb83097c7b57f963e9f00b2e4a61c2bbc3574606cdc41` and reports
+`act version 0.2.89-act2.18`. Bosn pins those bytes.

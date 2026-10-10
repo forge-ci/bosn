@@ -906,9 +906,12 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // operation 39 and reply code 32 the same way: an older daemon answers the
 // unknown operation, which the client reads as "no handoff". #545 added reply
 // tag 70 (`owned_held`) the same additive way: an older peer reads it as empty.
+// #547 step 4 added the `doctor` CI operation (an older daemon refuses the
+// unknown op) and dropped `runners.spare`, which was optional: an older
+// daemon's reply still parses (unknown fields are ignored), so no bump.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "2c3c8ee1c0de2d1f2da5ff756f06a9079b33806f1d5e764dfdf87a6bca1a1c95",
+    "181b88b90aae6c85c7177a67b95de5f1e1a442a1133623a3a3224f62f01c464e",
 );
 
 #[test]

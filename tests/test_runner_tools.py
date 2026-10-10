@@ -108,18 +108,16 @@ class RunnerToolsTests(unittest.TestCase):
         self.assertIn("runner_tools::prepare_script()", engine)
         invocation = (ROOT / "crates/bosn-service/src/ci/engine/invocation.rs").read_text()
         self.assertIn("runner_tools::path_env()", invocation)
-        # The tool cache is seeded through `prepare_toolcache_script`, which
-        # yields the legacy seed with no frozen generation and the native
-        # overlay with one. Both must land before runner stock tools, because
-        # those tools install into the tool cache the seed just populated.
-        self.assertIn("prepare_toolcache_script(generation)?", engine)
+        # `act serve prepare` loads the runner image and prepares the tool
+        # cache (seed, or a frozen generation's overlay; act2#67, #547 step 4).
+        # Runner stock tools install into that tool cache, so they must run
+        # after it, once per engine.
+        self.assertIn("run_scope::prepare_script(", engine)
         self.assertLess(
-            engine.index("let seed = prepare_toolcache_script(generation)?"),
+            engine.index("run_scope::prepare_script("),
             engine.index("runner_tools::prepare_script()"),
         )
-        self.assertIn("toolcache::once_per_engine(&seed, &tools)", engine)
-        toolcache = (ROOT / "crates/bosn-service/src/ci/engine/toolcache.rs").read_text()
-        self.assertIn("( {seed} ) && ( {tools} )", toolcache)
+        self.assertIn("toolcache::once_per_engine(&runner_tools::prepare_script())", engine)
 
     def test_archives_are_pinned_and_completion_follows_probes(self):
         script = (ROOT / "crates/bosn-service/src/ci/engine/runner_tools.sh").read_text()

@@ -1,5 +1,71 @@
 {
   "$defs": {
+    "ActDoctorCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "remediation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/ActDoctorStatus"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "required",
+        "status",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "ActDoctorReport": {
+      "additionalProperties": false,
+      "description": "`act doctor --json`, as act2 prints it.",
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/ActDoctorCheck"
+          },
+          "type": "array"
+        },
+        "ok": {
+          "description": "No required check failed.",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "ok",
+        "checks"
+      ],
+      "type": "object"
+    },
+    "ActDoctorStatus": {
+      "enum": [
+        "pass",
+        "warn",
+        "fail",
+        "skip"
+      ],
+      "type": "string"
+    },
     "BaseRef": {
       "additionalProperties": false,
       "description": "The branch a local pull request targets, at its commit in the workspace.",
@@ -356,6 +422,20 @@
         },
         {
           "additionalProperties": false,
+          "description": "act2's `act doctor` inside the machine's shared engine (#547).",
+          "properties": {
+            "op": {
+              "const": "doctor",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "A widget process starting (`explicit` = typed by the user).",
           "properties": {
             "explicit": {
@@ -484,6 +564,29 @@
           "type": "string"
         }
       ]
+    },
+    "DoctorReply": {
+      "description": "`bosn ci doctor`: act2's `act doctor` report, taken inside the machine's\nshared engine against its `act serve` (#547).",
+      "properties": {
+        "engine": {
+          "description": "The shared engine it ran in; `None` when this daemon holds none (the\nnext run makes it), and then there is no report.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActDoctorReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
     },
     "ErrorReply": {
       "description": "A refused or failed request. `code` is stable (`refused`, `not_found`,\n`invalid_request`, `internal`).",
@@ -1794,17 +1897,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "spare": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SpareStatus"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "The prepared spare engine (#410), when one is kept or being prepared."
-        },
         "widget": {
           "$ref": "#/$defs/WidgetPresence",
           "description": "Whether the desktop widget is running."
@@ -1940,39 +2032,6 @@
         "name",
         "stage",
         "status"
-      ],
-      "type": "object"
-    },
-    "SpareState": {
-      "enum": [
-        "preparing",
-        "ready"
-      ],
-      "type": "string"
-    },
-    "SpareStatus": {
-      "description": "A spare engine: prepared before any run, claimed by the next one.",
-      "properties": {
-        "engine": {
-          "description": "Its container name on the host engine.",
-          "type": "string"
-        },
-        "state": {
-          "$ref": "#/$defs/SpareState"
-        },
-        "storage_used": {
-          "description": "Bytes of its RAM-backed private storage in use once prepared.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "engine",
-        "state"
       ],
       "type": "object"
     },
@@ -2324,6 +2383,9 @@
       "properties": {
         "cancel": {
           "$ref": "#/$defs/CancelReply"
+        },
+        "doctor": {
+          "$ref": "#/$defs/DoctorReply"
         },
         "list": {
           "$ref": "#/$defs/ListReply"

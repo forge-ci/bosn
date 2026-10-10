@@ -70,19 +70,11 @@ fn act_reads_rewrites_from_the_overlay() {
 }
 
 #[test]
-fn cache_scripts_verify_the_pinned_act_and_save_atomically() {
+fn the_act_install_verifies_the_pinned_act() {
     let act = act_artifact("x86_64").unwrap();
     let install = install_act_script(act);
     assert!(install.contains(act.sha256) && install.contains(act.url));
     assert!(install.contains("sha256sum -c"));
-    let load = load_runner_script();
-    assert!(load.contains("docker load") && load.contains(RUNNER_IMAGE));
-    assert!(load.contains("mv \"$stage\" \"$tar\""), "atomic rename");
-    let reload = reload_runner_script();
-    assert!(
-        reload.contains(&format!("rm -f {}", runner_tar()))
-            && reload.ends_with(&load_runner_body())
-    );
     assert!(
         install.contains(act.binary_sha256),
         "the extracted binary is checked too"

@@ -271,24 +271,19 @@ Decided 2026-10-09.
   the sole registry writer and Docker owner for a state directory, so it stays
   one daemon per state directory; skew is solved by the daemon serving a
   window of protocols, not by running several daemons (phased plan on #509).
-- **Docker access into the engine (2026-10-09, #547 step 2).** Each Linux engine binds
-  its own short host directory (`<state>/sock/<key>`, or `/tmp/bosn-sock-<hash>/<key>`
-  when the state path is too long for the 108-byte socket limit) at `/bosn/sock`; the
-  engine's `dockerd` also listens there (`engine.sock`, group = the daemon user's). The
-  per-run Docker proxy runs in the daemon on the host, in that directory, so act and
-  its job containers reach Docker only through their run's proxy. No proxy binary is
-  shipped into the engine. The directory is frozen in the creation profile
-  (`docker_socket`) and removed with the engine.
-- **Shared engine rollout (2026-10-09, #547 step 2).** `[engine] shared` defaults to
-  on for Linux daemons: concurrent runs lease slots (ports `40000+2·slot`) in one
-  long-lived engine, each in its own run scope, and the engine retires after
-  `[engine] idle_retire_secs` (default 600) with no run. Per-run engines remain only
-  for `shared = false` and non-Linux daemons; a run whose wanted engine differs from
-  the machine's engine waits for it to drain (#544), never gets its own. Spares are
-  not kept while sharing is on. act's `act-<…>` job
-  volumes are renamed with the run key by the run proxy; `act-toolcache` stays shared
-  and is seeded once per engine. Step 4 (#547) removes the per-run path. Non-Linux daemons (Docker Desktop VMs)
-  bind nothing and keep per-run engines.
+- **Docker access into the engine (2026-10-10, #547 step 4).** Each run reaches
+  the engine's `dockerd` only through act2 serve's per-run Docker proxy
+  (`/var/lib/docker/bosn-ci/sock/<key>.sock`, opened at admission). Engines bind
+  no host socket directory; the daemon serves no proxy for CI runs. An engine of
+  an earlier release whose creation profile froze `docker_socket` is still
+  observed and retired with its directory, never made again.
+- **One shared engine, every platform (2026-10-10, #547 step 4).** Every run on
+  every daemon leases a slot (ports `40000+2·slot`) in the machine's one
+  long-lived engine, in its own run scope; the engine retires after
+  `[engine] idle_retire_secs` (default 600) with no run. There is no per-run
+  engine and no prepared spare: `[engine] shared` and `spares` are accepted and
+  ignored so existing configs keep working. A run whose wanted engine differs
+  from the machine's engine waits for it to drain (#544), never gets its own.
 
 ## CI engine architecture (#544, #547)
 
@@ -334,9 +329,17 @@ Decided 2026-10-08. This replaces "one private nested engine per run."
   does and needs no host-side socket. Bosn starts serve once per engine under
   a lock. The engine's slot lease still picks the slot and Bosn passes it to
   `admit`, which serve honours or refuses; Bosn refuses any admitted scope
-  other than the one it expected. The Docker proxy, the runner-image load and
-  the tool cache stay in Bosn until they move behind act2; only then does
-  step 4 remove the per-run engine path.
+  other than the one it expected.
+- **What serve owns (decided 2026-10-10, act2#67, #547 step 4).** Besides the
+  run scope: each run's Docker proxy; `act serve prepare`, which loads and
+  proves the pinned runner image (Bosn passes the publisher manifest and
+  config bytes) and prepares the tool cache once per engine (seed, or a frozen
+  generation's overlay whose recipe digest Bosn pins as
+  `OVERLAY_RECIPE_SHA256`); the tool-cache save after a run whose act exited
+  on its own (reported in the `close` reply); and the shared cache budget.
+  Bosn keeps only the runner's stock tools (once per engine, after prepare).
+  `bosn ci doctor` is `act doctor --json` run in the engine, typed and printed
+  as act prints it.
 
 ## Automatic retention (#545)
 
@@ -375,19 +378,16 @@ control deadline made it fail on any busy host.
 
 ## Shared CI cache budget (#544)
 
-Decided 2026-10-10. While no cohort policy is enrolled (#508), every daemon's
-cache maintenance loop applies a default budget to the legacy `actcache/`
-namespaces of `bosn-ci-cache-v1`, hourly: at most 8 GiB of completed archives
-per repository namespace, expiry after 7 days unused or 30 days old. It uses
-act2's own `cache prune --apply` in the journaled maintenance helper, under the
-machine maintenance lock, and persists each pass as the maintenance snapshot.
+Decided 2026-10-10, moved behind act2 the same day (#547 step 4). While no
+cohort policy is enrolled (#508), act2 serve in the machine's engine applies a
+default budget to the legacy `actcache/` namespaces of `bosn-ci-cache-v1` when
+it starts and hourly: at most 8 GiB of completed archives per repository
+namespace, expiry after 7 days unused or 30 days old (`--cache-budget-*`, set in
+`run_scope.rs`). It runs act2's own `cache prune --apply` under the machine
+maintenance lock (`.bosn-maintenance-v1.lock`) that cohort maintenance holds.
 act2's exclusive transfer and metadata locks are the liveness gate: a namespace
 a live server holds is left alone. A namespace without `transfers.bolt` is
-skipped, never deleted. The volume itself is never removed. An enrolled cohort
-policy replaces this budget. Don't raise the budget to avoid a cold cache; see
-`docs/ci.md` "Shared cache budget".
-
-This is **interim** under "CI engine architecture" above. It reuses the
-existing cohort maintenance helper and adds no new engine machinery. When act2
-serve mode owns the cache and in-engine cleanup (#547), this budget moves
-behind that boundary and the Bosn-side pass is deleted.
+skipped, never deleted. The volume itself is never removed. The last pass is
+reported by `bosn ci doctor`. An enrolled cohort policy replaces this budget.
+Don't raise the budget to avoid a cold cache; see `docs/ci.md` "Shared cache
+budget". There is no Bosn-side pass.
