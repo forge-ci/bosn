@@ -50,6 +50,19 @@ pub const DEFAULT_VOLUME_TTL: Duration = Duration::from_secs(14 * 86_400);
 /// a later generation.
 pub const DEFAULT_IMAGE_TTL: Duration = Duration::from_secs(30 * 86_400);
 
+/// Default byte budget for idle owned volumes (#545 follow-up).
+///
+/// The 14-day volume gate alone is not a bound: setup content changes mint fresh
+/// `bosn-v-*` volumes, so on a busy machine abandoned ones accumulate at ~100 GB/day and the
+/// age gate lets two weeks of them pile up. Once the proven-ours, unmounted, unpinned volumes
+/// held only by their age gate exceed this many bytes, the oldest past
+/// [`DEFAULT_IDLE_VOLUME_FLOOR`] are reclaimed until the remainder fits.
+pub const DEFAULT_IDLE_VOLUME_BUDGET: i128 = 64 * 1024 * 1024 * 1024;
+
+/// Minimum idle age before the byte budget may reclaim a volume, so one in the middle of a
+/// stop/start cycle is never taken.
+pub const DEFAULT_IDLE_VOLUME_FLOOR: Duration = Duration::from_secs(3600);
+
 /// Upper bound on one reclamation pass. A plan larger than this stops early and reports the
 /// remainder rather than running unbounded.
 pub const MAX_MANAGED_REMOVALS: usize = 1024;
@@ -63,6 +76,11 @@ pub struct RetentionPolicy {
     /// Reclaim at most this many bytes per pass. Exceeding it is not an error: the pass takes
     /// the oldest first and leaves the rest for the next one.
     pub max_bytes: Option<i128>,
+    /// Bytes of idle owned volumes kept by their age gate before the oldest are reclaimed
+    /// early. `None` disables the budget, leaving the age gate as the only rule.
+    pub idle_volume_budget: Option<i128>,
+    /// Minimum age for a volume the budget reclaims early.
+    pub idle_volume_floor: Duration,
 }
 
 impl Default for RetentionPolicy {
@@ -72,6 +90,8 @@ impl Default for RetentionPolicy {
             volume_ttl: DEFAULT_VOLUME_TTL,
             image_ttl: DEFAULT_IMAGE_TTL,
             max_bytes: None,
+            idle_volume_budget: Some(DEFAULT_IDLE_VOLUME_BUDGET),
+            idle_volume_floor: DEFAULT_IDLE_VOLUME_FLOOR,
         }
     }
 }
@@ -85,6 +105,20 @@ impl RetentionPolicy {
             ResourceKind::Volume => Some(self.volume_ttl),
             ResourceKind::Image => Some(self.image_ttl),
             ResourceKind::Builder | ResourceKind::Network => None,
+        }
+    }
+
+    /// The gates a pre-removal re-check applies. The plan decides *which* objects go; the
+    /// re-check proves each is still ours, idle and unpinned, and no younger than the shortest
+    /// gate the plan could have selected it under (the budget's floor for a volume).
+    #[must_use]
+    pub fn recheck_gates(self) -> Self {
+        if self.idle_volume_budget.is_none() {
+            return self;
+        }
+        Self {
+            volume_ttl: self.volume_ttl.min(self.idle_volume_floor),
+            ..self
         }
     }
 }
@@ -301,6 +335,7 @@ pub fn plan_managed(
         }
     }
 
+    promote_over_idle_volume_budget(&mut plan, policy);
     // Oldest first inside each kind, so ties on an unmeasured age keep a stable order.
     plan.candidates.sort_by(|left, right| {
         kind_rank(left.kind)
@@ -313,9 +348,69 @@ pub fn plan_managed(
             })
             .then_with(|| left.id.cmp(&right.id))
     });
-
     apply_budget(&mut plan, policy);
     plan
+}
+
+/// Move the oldest idle owned volumes from `held` to `candidates` while the idle volumes the
+/// age gate keeps exceed the policy's byte budget.
+///
+/// Only a volume held *solely* by its age gate qualifies: `WithinTtl` is reached after the
+/// ownership, liveness and pin checks, so every one is proven ours, mounted by nothing and
+/// unpinned. An unmeasured volume neither counts toward the total nor is promoted, since
+/// removing it cannot be shown to bring the total down.
+fn promote_over_idle_volume_budget(plan: &mut RetentionPlan, policy: RetentionPolicy) {
+    let Some(budget) = policy.idle_volume_budget else {
+        return;
+    };
+    let floor = policy.idle_volume_floor.as_secs_f64();
+    let idle = |verdict: &RetentionVerdict| {
+        verdict.kind == ResourceKind::Volume && verdict.hold == Some(HoldReason::WithinTtl)
+    };
+    let mut total: i128 = plan
+        .held
+        .iter()
+        .filter(|verdict| idle(verdict))
+        .filter_map(|verdict| verdict.bytes)
+        .sum();
+    if total <= budget {
+        return;
+    }
+    let mut eligible: Vec<usize> = (0..plan.held.len())
+        .filter(|&index| {
+            let verdict = &plan.held[index];
+            idle(verdict)
+                && verdict.bytes.is_some()
+                && verdict.age_seconds.is_some_and(|age| age >= floor)
+        })
+        .collect();
+    eligible.sort_by(|&left, &right| {
+        let (left, right) = (&plan.held[left], &plan.held[right]);
+        right
+            .age_seconds
+            .unwrap_or(f64::MIN)
+            .total_cmp(&left.age_seconds.unwrap_or(f64::MIN))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut promoted = Vec::new();
+    for index in eligible {
+        if total <= budget {
+            break;
+        }
+        total -= plan.held[index].bytes.unwrap_or(0);
+        promoted.push(index);
+    }
+    promoted.sort_unstable_by(|left, right| right.cmp(left));
+    let mut moved: Vec<RetentionVerdict> = promoted
+        .into_iter()
+        .map(|index| {
+            let mut verdict = plan.held.remove(index);
+            verdict.hold = None;
+            verdict
+        })
+        .collect();
+    moved.reverse();
+    plan.candidates.extend(moved);
 }
 
 /// Truncate the plan to `MAX_MANAGED_REMOVALS` and the optional byte ceiling.

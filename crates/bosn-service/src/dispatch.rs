@@ -131,6 +131,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                         volume_ttl: Duration::from_secs(r.owned_volume_ttl_secs),
                         image_ttl: Duration::from_secs(r.owned_image_ttl_secs),
                         max_bytes: (r.owned_max_bytes > 0).then_some(i128::from(r.owned_max_bytes)),
+                        ..RetentionPolicy::default()
                     };
                     let apply = r.owned_confirm;
                     let state_dir = state_dir.clone();

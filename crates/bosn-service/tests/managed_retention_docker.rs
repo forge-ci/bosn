@@ -79,6 +79,8 @@ fn live_docker_managed_retention_reclaims_a_real_setup_app() {
         volume_ttl: Duration::ZERO,
         image_ttl: Duration::ZERO,
         max_bytes: None,
+        idle_volume_budget: None,
+        idle_volume_floor: Duration::ZERO,
     };
     let before = inspect_container(&engine, &container)
         .unwrap()

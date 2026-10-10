@@ -18,6 +18,8 @@ pub(crate) const ZERO_AGE: RetentionPolicy = RetentionPolicy {
     volume_ttl: Duration::ZERO,
     image_ttl: Duration::ZERO,
     max_bytes: None,
+    idle_volume_budget: None,
+    idle_volume_floor: Duration::ZERO,
 };
 
 /// The production maintenance pass (idle stop, then retention) with every age gate at zero.

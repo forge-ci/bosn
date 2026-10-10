@@ -87,6 +87,7 @@ pub(crate) fn parse_gc_owned_arguments(
             volume_ttl: gate(volume_ttl, defaults.volume_ttl)?,
             image_ttl: gate(image_ttl, defaults.image_ttl)?,
             max_bytes,
+            ..defaults
         },
         apply,
         yes,
