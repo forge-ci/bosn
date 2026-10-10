@@ -376,6 +376,16 @@ retention pass ends with a timestamped `bosn retention: pass finished at unix
 …` line. `bosn gc owned --json` waits up to 600 s for its fresh read; the 3 s
 control deadline made it fail on any busy host.
 
+**Idle owned-volume byte budget** (decided 2026-10-10, #545). The 14-day volume
+gate is not a disk bound on its own: setup content changes mint fresh `bosn-v-*`
+volumes (about 110 GB/day measured on the development host), and they waited
+out the full gate while the disk filled to 92%. So idle owned volumes also have
+a byte budget (`DEFAULT_IDLE_VOLUME_BUDGET`, 64 GiB). Past it, the oldest
+volumes that are proven ours, unmounted, unpinned and idle for at least
+`DEFAULT_IDLE_VOLUME_FLOOR` (1 h) are reclaimed until the rest fit. The budget
+only shortens the age gate. Ownership, liveness and pin gates still apply, and
+the pre-removal re-check repeats them.
+
 ## Shared CI cache budget (#544)
 
 Decided 2026-10-10, moved behind act2 the same day (#547 step 4). While no
