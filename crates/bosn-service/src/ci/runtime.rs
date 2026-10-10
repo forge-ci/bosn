@@ -30,6 +30,7 @@ use super::{
 };
 use crate::{RegistryActor, secrets::SecretMasker};
 mod cleanup;
+mod dispatch;
 mod observer;
 mod persist;
 mod plan;
@@ -74,6 +75,18 @@ struct CiState {
     clearing_cache: bool,
 }
 
+/// The detached dispatch loop's channel, handle and recovery count (#453).
+/// The receiver dies with its task, so [`CiRuntime::kick`] detects the
+/// closed channel and rebuilds both instead of stranding queued work.
+struct Dispatcher {
+    /// Serializes recovery so concurrent kicks cannot double-spawn a loop.
+    recover: Mutex<()>,
+    kick: Mutex<async_engine::Sender<()>>,
+    task: Mutex<Option<async_engine::Task<()>>>,
+    /// Rebuilds performed because a previous dispatcher died.
+    recoveries: std::sync::atomic::AtomicU64,
+}
+
 impl CiState {
     fn slot(&self, run: &str) -> Result<&RunSlot, CiError> {
         self.runs
@@ -103,7 +116,7 @@ pub struct CiRuntime {
     store: Store,
     writer: RecordWriter,
     state: Arc<Mutex<CiState>>,
-    kick: async_engine::Sender<()>,
+    dispatcher: Arc<Dispatcher>,
     registry: RegistryActor,
     backend: Arc<dyn ActEngineBackend>,
     /// The engine concurrent runs share (#547).
@@ -163,13 +176,18 @@ impl CiRuntime {
             }
             state.insert(record, u64::from(bootstrap));
         }
-        let (kick, mut kicked) = async_engine::channel(64);
+        let (kick, kicked) = async_engine::channel(64);
         let runtime = Self {
             state_dir: state_dir.to_path_buf(),
             writer,
             store,
             state: Arc::new(Mutex::new(state)),
-            kick,
+            dispatcher: Arc::new(Dispatcher {
+                recover: Mutex::new(()),
+                kick: Mutex::new(kick),
+                task: Mutex::new(None),
+                recoveries: std::sync::atomic::AtomicU64::new(0),
+            }),
             shared: Arc::new(super::shared_engine::SharedEngine::new(
                 registry.clone(),
                 Arc::clone(&backend),
@@ -182,13 +200,7 @@ impl CiRuntime {
             widget_config: Arc::new(Mutex::new(WidgetConfig::default())),
             launch_failure_logged: Arc::default(),
         };
-        let dispatcher = runtime.clone();
-        async_engine::launch(async move {
-            while kicked.recv().await.is_some() {
-                dispatcher.dispatch();
-            }
-        })
-        .detach();
+        runtime.spawn_dispatcher(kicked);
         runtime.start_shared_reaper();
         runtime
     }
@@ -259,10 +271,6 @@ impl CiRuntime {
     }
     fn lock(&self) -> MutexGuard<'_, CiState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    fn kick(&self) {
-        let _ = self.kick.try_send(());
     }
 
     /// Announce a change on the live feed (under the state lock, so events
@@ -458,7 +466,7 @@ impl CiRuntime {
             .collect();
         ListReply {
             runs,
-            runners: runner_status(&state.scheduler, self.widget_presence()),
+            runners: self.runner_status(&state),
         }
     }
 
@@ -817,16 +825,44 @@ impl CiRuntime {
     }
 }
 
-fn runner_status(scheduler: &Scheduler, widget: WidgetPresence) -> RunnerStatus {
-    RunnerStatus {
-        limit: scheduler.limit(),
-        running: scheduler.running(),
-        queued: scheduler.queued(),
-        drained: scheduler.drained(),
-        engine: "act".into(),
-        act_version: ACT_VERSION.into(),
-        execution_pins: super::pins::execution_pins(),
-        widget,
+impl CiRuntime {
+    /// The admission view: scheduler counters, why eligible queued work is
+    /// held (if at all), and the dispatcher's health (#453). Read under the
+    /// state lock; the dispatcher locks are leaf locks here.
+    fn runner_status(&self, state: &CiState) -> RunnerStatus {
+        let queued = state.scheduler.queued();
+        let live = self.dispatcher_live();
+        let hold = if state.clearing_cache {
+            Some("cache clearing".into())
+        } else if state.scheduler.drained() {
+            Some("drained".into())
+        } else if queued > 0 && state.scheduler.running() >= state.scheduler.limit() {
+            Some("concurrency limit".into())
+        } else if queued > 0 && !live {
+            Some("dispatcher stalled".into())
+        } else {
+            None
+        };
+        RunnerStatus {
+            limit: state.scheduler.limit(),
+            running: state.scheduler.running(),
+            queued,
+            drained: state.scheduler.drained(),
+            engine: "act".into(),
+            act_version: ACT_VERSION.into(),
+            execution_pins: super::pins::execution_pins(),
+            widget: self.widget_presence(),
+            hold,
+            dispatcher: if live {
+                DispatcherHealth::Live
+            } else {
+                DispatcherHealth::Stopped
+            },
+            dispatcher_recoveries: self
+                .dispatcher
+                .recoveries
+                .load(std::sync::atomic::Ordering::SeqCst),
+        }
     }
 }
 

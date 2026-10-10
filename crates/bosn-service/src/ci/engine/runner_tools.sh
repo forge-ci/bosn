@@ -14,6 +14,9 @@ if [ -f "$cache/.complete" ]; then
   echo "bosn runner tools: the cached copy failed verification; reinstalling" >&2
   rm -rf "$cache"
 fi
+# Provisioning extracts tarballs below, and every stock setup action
+# (setup-uv) expects tar on the runner PATH: fail loudly before any download.
+command -v tar >/dev/null 2>&1 || { echo "bosn runner tools: tar is not resolvable on PATH" >&2; exit 1; }
 install=$(mktemp -d)
 mkdir -p "$install/bin" "$install/powershell" "$install/github-cli"
 curl -fsSL --retry 3 https://github.com/PowerShell/PowerShell/releases/download/v7.6.6/powershell-7.6.6-linux-x64.tar.gz -o "$install/powershell.tar.gz"

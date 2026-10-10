@@ -22,6 +22,21 @@ fn invocation_never_names_a_host_socket_and_pins_runners() {
     let flags = ["--action-cache-path", &cache, "--use-new-action-cache"];
     assert!(args.windows(3).any(|w| w == flags), "zackees/clud#1724");
     assert!(args.windows(2).any(|w| w == ["-s", "GITHUB_TOKEN"]));
+    // #459: the runner tools bin leads PATH, but the pinned image's own PATH
+    // stays appended rather than replaced, so stock actions still resolve tar.
+    let path_env = args
+        .windows(2)
+        .find(|w| w[0] == "--env")
+        .map(|w| w[1].as_str())
+        .expect("--env PATH reaches act");
+    assert!(
+        path_env.contains("/opt/hostedtoolcache/bosn-runner-tools/"),
+        "the runner tools bin directory is on PATH: {path_env}"
+    );
+    assert!(
+        path_env.ends_with(crate::ci::pins::RUNNER_PATH),
+        "the image PATH is appended, never replaced: {path_env}"
+    );
     assert!(
         args.iter().all(|a| !a.contains("ghp_secretvalue")),
         "no value in argv"

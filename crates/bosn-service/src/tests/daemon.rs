@@ -909,9 +909,14 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // #547 step 4 added the `doctor` CI operation (an older daemon refuses the
 // unknown op) and dropped `runners.spare`, which was optional: an older
 // daemon's reply still parses (unknown fields are ignored), so no bump.
+// #453 added `runners.hold`, `dispatcher` and `dispatcher_recoveries`, each
+// with a serde default (an older daemon's reply reads as no hold, a live
+// dispatcher and zero recoveries; an older client ignores them), so no bump.
+// #500 changed only `ci/model.rs` parsing and moved its tests out; no
+// serialized type changed.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "181b88b90aae6c85c7177a67b95de5f1e1a442a1133623a3a3224f62f01c464e",
+    "d88cd1921459d0ba68bfbbdc9fe7b0ff82bca8074ff9c6331df77f51cf31cc0a",
 );
 
 #[test]

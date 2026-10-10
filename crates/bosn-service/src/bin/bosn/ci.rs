@@ -13,8 +13,8 @@ use std::{
 use bosn_service::{
     Client,
     ci::{
-        Conclusion, JsonReply, LogsQuery, RunState, RunView, RunnerAction, RunnerStatus,
-        SubmitOptions,
+        Conclusion, DispatcherHealth, JsonReply, LogsQuery, RunState, RunView, RunnerAction,
+        RunnerStatus, SubmitOptions,
         model::{ItemConclusion, ItemStatus},
         params::RunParams,
         provider::{Mode, Provider, Trigger},
@@ -806,6 +806,21 @@ fn print_runners(runners: &RunnerStatus) {
         runners.limit,
         if runners.drained { " (drained)" } else { "" }
     );
+    // Only what the counters above do not already say (#453): a drain is
+    // already marked, and a live dispatcher that never died is the norm.
+    if let Some(hold) = runners.hold.as_deref().filter(|hold| *hold != "drained") {
+        println!("hold: {hold}");
+    }
+    if runners.dispatcher == DispatcherHealth::Stopped || runners.dispatcher_recoveries > 0 {
+        println!(
+            "dispatcher: {} ({} recoveries)",
+            match runners.dispatcher {
+                DispatcherHealth::Live => "live",
+                DispatcherHealth::Stopped => "stopped",
+            },
+            runners.dispatcher_recoveries
+        );
+    }
 }
 
 fn print_tree(view: &RunView) {
