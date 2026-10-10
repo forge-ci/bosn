@@ -378,7 +378,13 @@ fn idle_volume(id: &str, hours: f64, gib: i128, in_use: bool, pin: bool) -> Obse
     } else {
         &[]
     };
-    let mut item = artifact(id, ResourceKind::Volume, Some(hours * 3600.0), in_use, overrides);
+    let mut item = artifact(
+        id,
+        ResourceKind::Volume,
+        Some(hours * 3600.0),
+        in_use,
+        overrides,
+    );
     item.bytes = Some(gib * GIB);
     item
 }
@@ -405,17 +411,33 @@ fn idle_volumes_over_the_budget_are_reclaimed_oldest_first() {
     let held = plan.held_counts();
     assert_eq!(held.get(&HoldReason::Pinned), Some(&1));
     assert_eq!(held.get(&HoldReason::InUse), Some(&1));
-    assert_eq!(held.get(&HoldReason::WithinTtl), Some(&1), "the young volume stays");
+    assert_eq!(
+        held.get(&HoldReason::WithinTtl),
+        Some(&1),
+        "the young volume stays"
+    );
 }
 
 #[test]
 fn the_idle_budget_stops_once_the_remainder_fits() {
     let artifacts: Vec<ObservedArtifact> = (1..=5)
-        .map(|hour| idle_volume(&format!("v-{hour}h"), f64::from(hour) + 1.0, 20, false, false))
+        .map(|hour| {
+            idle_volume(
+                &format!("v-{hour}h"),
+                f64::from(hour) + 1.0,
+                20,
+                false,
+                false,
+            )
+        })
         .collect();
     let plan = plan_managed(&artifacts, Some(REGISTRY), RetentionPolicy::default());
     let ids: Vec<&str> = plan.candidates.iter().map(|v| v.id.as_str()).collect();
-    assert_eq!(ids, ["v-5h", "v-4h"], "100 GiB down to 60 GiB, under 64 GiB");
+    assert_eq!(
+        ids,
+        ["v-5h", "v-4h"],
+        "100 GiB down to 60 GiB, under 64 GiB"
+    );
     assert_eq!(plan.bytes, 40 * GIB);
 }
 
@@ -430,7 +452,11 @@ fn idle_volumes_within_the_budget_or_without_one_wait_for_their_gate() {
         idle_volume_budget: None,
         ..RetentionPolicy::default()
     };
-    assert!(plan_managed(&big, Some(REGISTRY), off).candidates.is_empty());
+    assert!(
+        plan_managed(&big, Some(REGISTRY), off)
+            .candidates
+            .is_empty()
+    );
 }
 
 #[test]
