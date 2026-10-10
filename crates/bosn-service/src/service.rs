@@ -360,11 +360,8 @@ impl Service {
                         // own, which left setup containers, stack/machine volumes and setup
                         // images with no reclamation path at all.
                         //
-                        // This is destructive, so it is opt-in: `auto_retention` in the state
-                        // directory's `retention.toml`. Without it the pass still runs and still
-                        // reports what it would remove, so the machine is never silently growing
-                        // with no signal. A pass whose read is incomplete removes nothing and
-                        // says so (see `managed_retention`).
+                        // Retention runs by default; auto_retention = false opts out.
+                        // Incomplete reads and live or pinned resources remain protected.
                         managed_retention::maintenance_pass(&state_dir);
                     })
                     .await;

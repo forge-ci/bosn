@@ -14,7 +14,7 @@
 //! on an apply pass, re-checks each object immediately before removing it. The policy is pure and
 //! unit-tested in `bosn-core`; everything here is I/O.
 //!
-//! #518: stopped setup containers are reported by default, deleted only on opt-in
+//! #518: stopped setup containers are reported and reclaimed by default
 //!
 //! `bosn-setup-v2-*` containers cannot be created with `--rm`: `validate_observed` actively
 //! enforces `AutoRemove == false`, so the container is designed to persist and reclamation must
@@ -22,10 +22,9 @@
 //! a disk problem and not a container-count problem — and why the report counts *pinned volumes*,
 //! not containers.
 //!
-//! Reclamation stays opt-in through `retention.toml` (never delete what Bosn does not own, never
-//! delete what cannot be recreated). But **reporting** is not reclamation, so
-//! [`maintenance_pass`] emits the pile on every maintenance interval even with the default
-//! opt-out config. Before this, a default install had no bound at all and no signal.
+//! Reclamation runs automatically unless explicitly disabled in `retention.toml`.
+//! Reporting runs on every maintenance interval, including when reclamation is disabled.
+//!
 //!
 //! Three invariants hold for every removal this module performs:
 //!
@@ -793,10 +792,8 @@ impl ImageDetail {
 }
 /// The unattended pass the daemon runs on its maintenance interval.
 ///
-/// Reclamation is destructive, so applying it is opt-in through `retention.toml` in the state
-/// directory (`auto_retention = true`). Without the flag this still reads the engine and still
-/// reports what it would remove, so a machine is never silently growing without a signal — the
-/// failure mode that produced #456.
+/// Reclamation runs by default. Set `auto_retention = false` in the state directory's
+/// `retention.toml` to opt out; ownership, liveness and age gates always apply.
 pub fn maintenance_pass(state_dir: &Path) {
     let policy = RetentionPolicy::default();
     let apply = auto_retention_enabled(state_dir);
@@ -813,7 +810,7 @@ pub fn report_pass(outcome: &ManagedRetentionOutcome) {
         return;
     }
     // #518: the stopped-container pile is reported whether or not anything is reclaimable, and
-    // whether or not the operator opted in. It is the only signal a default install gets.
+    // whether or not the operator opted out.
     report_setup_containers(&outcome.setup_containers, summary.applied);
     if summary.planned == 0 {
         return;
@@ -859,7 +856,7 @@ fn setup_container_report_line(report: &SetupContainerReport, applied: bool) -> 
     let action = if applied {
         "reclaim with: bosn gc owned --apply --yes"
     } else {
-        "enable with: auto_retention = true in retention.toml"
+        "preview only"
     };
     Some(format!(
         "{} stopped owned setup container(s), oldest {oldest}, pinning {} volume(s), {} past the \
@@ -894,24 +891,28 @@ fn describe_container_gate() -> String {
     format!("{gate}h")
 }
 
-/// The file that opts a machine into unattended reclamation.
+/// The file that lets a machine opt out of unattended reclamation.
 const RETENTION_CONFIG: &str = "retention.toml";
 
-/// Whether the operator asked for unattended reclamation.
-///
-/// An unreadable or absent file means "no". A daemon that could not parse its own opt-in must
-/// never delete on the strength of a guess.
+/// Automatic retention is enabled unless the operator explicitly opts out.
 fn auto_retention_enabled(state_dir: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(state_dir.join(RETENTION_CONFIG)) else {
-        return false;
+        return true;
     };
-    text.lines().any(|line| {
-        let line = line.split('#').next().unwrap_or("").trim();
-        let Some((key, value)) = line.split_once('=') else {
-            return false;
-        };
-        key.trim() == "auto_retention" && matches!(value.trim(), "true" | "yes" | "1")
-    })
+    #[derive(Default, serde::Deserialize)]
+    struct RetentionConfig {
+        auto_retention: Option<bool>,
+        retention: Option<RetentionSection>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RetentionSection {
+        auto_retention: Option<bool>,
+    }
+    let config = toml::from_str::<RetentionConfig>(&text).unwrap_or_default();
+    config
+        .auto_retention
+        .or_else(|| config.retention.and_then(|section| section.auto_retention))
+        .unwrap_or(true)
 }
 
 #[cfg(test)]

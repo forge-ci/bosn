@@ -370,6 +370,43 @@ mod tests {
         assert!(declared.remote_only.is_empty());
     }
 
+    /// #447 acceptance: on the upstream repository the guarded upload is
+    /// actually selected, so nothing is proven inactive, the job stays
+    /// confined, and reporting (reading the frozen original with the
+    /// repository) declares it `remote_only` — never local evidence. The
+    /// fork side is [`inactive_registered_steps_leave_the_test_job_runnable`].
+    #[test]
+    fn an_upstream_repository_keeps_the_guarded_upload_remote_only() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("checks.yml");
+        let output = root.path().join("localized.yml");
+        std::fs::write(
+            &source,
+            "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: go test ./...\n      - uses: codecov/codecov-action@v5\n        if: github.repository == 'nektos/act'\n",
+        )
+        .unwrap();
+        let mut changes = super::super::checkout::Localized::default();
+        super::super::checkout::localize(&source, &output, "nektos/act", &mut changes).unwrap();
+        assert_eq!(
+            changes.inactive_remote_steps, 0,
+            "the guard selects on this repository: nothing is inactive"
+        );
+        let document: Value =
+            serde_yaml::from_str(&std::fs::read_to_string(&output).unwrap()).unwrap();
+        let test: Job = serde_yaml::from_value(document["jobs"]["test"].clone()).unwrap();
+        assert_eq!(
+            reason(&test),
+            Some("uses codecov/codecov-action: uploads to the hosted Codecov service".into()),
+            "the selected remote step confines the job"
+        );
+        let declared = super::super::workflow::declared(root.path(), "checks.yml", "nektos/act");
+        assert_eq!(
+            declared.remote_only.get("test").map(String::as_str),
+            Some("uses codecov/codecov-action: uploads to the hosted Codecov service"),
+            "the report reads the frozen original with its repository"
+        );
+    }
+
     #[test]
     fn repository_guards_are_narrow_and_unknown_guards_fail_closed() {
         for condition in [

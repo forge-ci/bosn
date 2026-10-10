@@ -38,6 +38,7 @@ async fn blocked_session(engine: &DockerEngine) -> kernal_api::ProcessSession {
 #[test]
 fn stdin_file_streams_large_input_and_preserves_transport_environment() {
     async_engine::RuntimeBuilder::multi_thread()
+        .worker_threads(2)
         .enable_all()
         .build()
         .unwrap()
@@ -76,6 +77,7 @@ fn stdin_file_streams_large_input_and_preserves_transport_environment() {
 #[test]
 fn stdin_file_refuses_oversize_and_reaps_blocked_child_on_deadline_or_cancel() {
     async_engine::RuntimeBuilder::multi_thread()
+        .worker_threads(2)
         .enable_all()
         .build()
         .unwrap()
@@ -142,6 +144,7 @@ fn stdin_file_refuses_oversize_and_reaps_blocked_child_on_deadline_or_cancel() {
 #[test]
 fn stdin_file_closed_child_input_and_nonregular_file_are_refused() {
     async_engine::RuntimeBuilder::multi_thread()
+        .worker_threads(2)
         .enable_all()
         .build()
         .unwrap()
@@ -176,6 +179,7 @@ fn stdin_file_closed_child_input_and_nonregular_file_are_refused() {
 #[test]
 fn stdin_file_drains_both_streams_and_refuses_output_overflow() {
     async_engine::RuntimeBuilder::multi_thread()
+        .worker_threads(2)
         .enable_all()
         .build()
         .unwrap()

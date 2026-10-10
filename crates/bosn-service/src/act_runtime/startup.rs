@@ -155,7 +155,7 @@ pub(super) async fn recovery_control(
         .map_err(|e| error(e.to_string()))?;
     if output.exit_code != 0 {
         return Err(error(format!(
-            "startup engine probe failed: {}",
+            "engine probe failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )));
     }
@@ -213,7 +213,8 @@ pub(crate) async fn retire_engine(
             deadline,
             cancellation,
         )
-        .await?;
+        .await
+        .map_err(|e| error(format!("engine list: {e}")))?;
         let ids = std::str::from_utf8(&bytes)
             .map_err(|_| error("invalid engine list encoding"))?
             .split_whitespace()
@@ -238,10 +239,10 @@ pub(crate) async fn retire_engine(
         // before a native recovery record can advance.
         crate::act_engine::stop_source_writers(registry, engine, record, owner)
             .await
-            .map_err(|e| error(e.to_string()))?;
+            .map_err(|e| error(format!("source stop: {}", e.to_string())))?;
         crate::act_engine::remove_storage_volume(engine, record, owner)
             .await
-            .map_err(|e| error(e.to_string()))?;
+            .map_err(|e| error(format!("storage removal: {}", e.to_string())))?;
         registry
             .act_registry(ActRegistryCommand::Finalize {
                 run: intent.run_id.clone(),
@@ -253,7 +254,7 @@ pub(crate) async fn retire_engine(
                 at: now().max(record.updated_at),
             })
             .await
-            .map_err(|e| error(e.to_string()))?;
+            .map_err(|e| error(format!("finalize: {e}")))?;
         return Ok(());
     }
     let id = named[0]
@@ -277,18 +278,20 @@ pub(crate) async fn retire_engine(
         deadline,
         cancellation,
     )
-    .await?;
+    .await
+    .map_err(|e| error(format!("engine image inspect: {e}")))?;
     let image = observe_engine_image_from_manifest(&image, intent, proof)
-        .map_err(|e| error(e.to_string()))?;
+        .map_err(|e| error(format!("engine image observe: {}", e.to_string())))?;
     let bytes = recovery_control(
         engine,
         vec!["container".into(), "inspect".into(), id.clone()],
         deadline,
         cancellation,
     )
-    .await?;
+    .await
+    .map_err(|e| error(format!("engine inspect: {e}")))?;
     let observed =
-        observe_engine(&bytes, intent, owner, &image, limits).map_err(|e| error(e.to_string()))?;
+        observe_engine(&bytes, intent, owner, &image, limits).map_err(|e| error(format!("engine observe: {}", e.to_string())))?;
     if record.engine_id.is_none() {
         registry
             .act_registry(ActRegistryCommand::Recover {
@@ -297,7 +300,7 @@ pub(crate) async fn retire_engine(
                 at: now().max(record.updated_at),
             })
             .await
-            .map_err(|e| error(e.to_string()))?;
+            .map_err(|e| error(format!("registry recover: {e}")))?;
     }
     // Refuse deletion unless all commands and persistence fit the remaining budget.
     let reserved = crate::act_engine::removal_reserve(intent.storage_volume_name().is_some());
@@ -315,7 +318,7 @@ pub(crate) async fn retire_engine(
         now().max(record.updated_at),
     )
     .await
-    .map_err(|e| error(e.to_string()))
+    .map_err(|e| error(format!("engine removal: {}", e.to_string())))
 }
 
 /// An empty lookup proves removal only after this creation was observed.

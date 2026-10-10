@@ -3,7 +3,7 @@ use std::time::Duration;
 
 pub(super) const CONTROL: Duration = Duration::from_secs(30);
 pub(super) const STORAGE_CONTROL: Duration = Duration::from_secs(10);
-pub(super) const DELETE: Duration = Duration::from_secs(90);
+pub(crate) const DELETE: Duration = Duration::from_secs(90);
 pub(crate) const CLEANUP_BUDGET: Duration = Duration::from_secs(360);
 pub(crate) const CLEANUP_PASS_BUDGET: Duration = Duration::from_secs(380);
 

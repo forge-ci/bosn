@@ -114,6 +114,26 @@ pub struct RunnerStatus {
     /// The prepared spare engine (#410), when one is kept or being prepared.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spare: Option<SpareStatus>,
+    /// Why eligible queued runs are not starting right now; absent when
+    /// admission is live. One of `cache clearing`, `drained`,
+    /// `concurrency limit` or `dispatcher stalled` (#453).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold: Option<String>,
+    /// The dispatch loop is alive and processing nudges. A stopped
+    /// dispatcher is rebuilt by the next nudge rather than stranding
+    /// queued work (#453).
+    pub dispatcher: DispatcherHealth,
+    /// Dispatch-loop rebuilds since this daemon started: nonzero means a
+    /// dead dispatcher was recovered instead of silently holding admission.
+    #[serde(default)]
+    pub dispatcher_recoveries: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DispatcherHealth {
+    Live,
+    Stopped,
 }
 
 /// A spare engine: prepared before any run, claimed by the next one.

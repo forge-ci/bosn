@@ -485,6 +485,13 @@
         }
       ]
     },
+    "DispatcherHealth": {
+      "enum": [
+        "live",
+        "stopped"
+      ],
+      "type": "string"
+    },
     "ErrorReply": {
       "description": "A refused or failed request. `code` is stable (`refused`, `not_found`,\n`invalid_request`, `internal`).",
       "properties": {
@@ -1681,11 +1688,29 @@
         "act_version": {
           "type": "string"
         },
+        "dispatcher": {
+          "$ref": "#/$defs/DispatcherHealth",
+          "description": "The dispatch loop is alive and processing nudges. A stopped\ndispatcher is rebuilt by the next nudge rather than stranding\nqueued work (#453)."
+        },
+        "dispatcher_recoveries": {
+          "default": 0,
+          "description": "Dispatch-loop rebuilds since this daemon started: nonzero means a\ndead dispatcher was recovered instead of silently holding admission.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "drained": {
           "type": "boolean"
         },
         "engine": {
           "type": "string"
+        },
+        "hold": {
+          "description": "Why eligible queued runs are not starting right now; absent when\nadmission is live. One of `cache clearing`, `drained`,\n`concurrency limit` or `dispatcher stalled` (#453).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limit": {
           "format": "uint",
@@ -1725,7 +1750,8 @@
         "drained",
         "engine",
         "act_version",
-        "widget"
+        "widget",
+        "dispatcher"
       ],
       "type": "object"
     },

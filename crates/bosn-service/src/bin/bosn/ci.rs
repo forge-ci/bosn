@@ -13,8 +13,8 @@ use std::{
 use bosn_service::{
     Client,
     ci::{
-        Conclusion, JsonReply, LogsQuery, RunState, RunView, RunnerAction, RunnerStatus,
-        SubmitOptions,
+        Conclusion, DispatcherHealth, JsonReply, LogsQuery, RunState, RunView, RunnerAction,
+        RunnerStatus, SubmitOptions,
         model::{ItemConclusion, ItemStatus},
         params::RunParams,
         provider::{Mode, Provider, Trigger},
@@ -762,6 +762,17 @@ fn print_runners(runners: &RunnerStatus) {
         runners.queued,
         runners.limit,
         if runners.drained { " (drained)" } else { "" }
+    );
+    if let Some(hold) = &runners.hold {
+        println!("hold: {hold}");
+    }
+    println!(
+        "dispatcher: {} ({} recoveries)",
+        match runners.dispatcher {
+            DispatcherHealth::Live => "live",
+            DispatcherHealth::Stopped => "stopped",
+        },
+        runners.dispatcher_recoveries
     );
 }
 

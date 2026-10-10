@@ -104,6 +104,8 @@ class RunnerToolsTests(unittest.TestCase):
     def test_archives_are_pinned_and_completion_follows_probes(self):
         script = (ROOT / "crates/bosn-service/src/ci/engine/runner_tools.sh").read_text()
         self.assertIn("sha256sum -c", script)
+        # #459: preparation states the runner's tar guarantee explicitly.
+        self.assertIn("command -v tar >/dev/null 2>&1", script)
         self.assertLess(
             script.index('bin/pwsh" --version'), script.index('touch "$cache/.complete"')
         )

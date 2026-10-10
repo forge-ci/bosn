@@ -1,7 +1,7 @@
 //! Safety invariants for managed retention (`bosn gc owned`, #456).
 //!
 //! The policy itself is pure and unit-tested in `bosn-core`. These cover the parts that exist
-//! only here: that an incomplete engine read removes nothing, that the opt-in file gates
+//! only here: that an incomplete engine read removes nothing, that an explicit opt-out gates
 //! unattended reclamation, that a destructive pass requires confirmation on both wire flags,
 //! and that the pre-removal re-check and the removal itself never act on stale or live data.
 //! None of them need Docker: the engine reads go through a shell standing in for the CLI.
@@ -38,31 +38,31 @@ fn write_config(dir: &std::path::Path, contents: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// The unattended pass must never delete on a guess.
+// Automatic retention defaults on and accepts an explicit opt-out.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn an_absent_config_never_enables_unattended_reclamation() {
+fn an_absent_config_enables_unattended_reclamation() {
     let dir = scratch_dir("absent");
     let _ = std::fs::remove_file(dir.join("retention.toml"));
     assert!(
-        !auto_retention_enabled(&dir),
-        "a machine with no opt-in file must never reclaim unattended"
+        auto_retention_enabled(&dir),
+        "a default install must reclaim unattended"
     );
 }
 
 #[test]
-fn an_unreadable_state_directory_is_not_an_opt_in() {
+fn an_absent_state_directory_uses_automatic_retention() {
     let missing = std::env::temp_dir().join("bosn-retention-does-not-exist-xyz");
     let _ = std::fs::remove_dir_all(&missing);
     assert!(
-        !auto_retention_enabled(&missing),
-        "an unreadable config must fail closed, not open"
+        auto_retention_enabled(&missing),
+        "an absent config uses the default policy"
     );
 }
 
 #[test]
-fn only_an_explicit_true_enables_unattended_reclamation() {
+fn only_an_explicit_false_disables_unattended_reclamation() {
     let dir = scratch_dir("explicit");
     for (contents, expected) in [
         ("auto_retention = true\n", true),
@@ -71,10 +71,12 @@ fn only_an_explicit_true_enables_unattended_reclamation() {
         ("[retention]\nauto_retention = true\n", true),
         ("auto_retention = true # nightly\n", true),
         ("auto_retention = false\n", false),
-        ("# auto_retention = true\n", false),
-        ("auto_retention = \"true\"\n", false),
-        ("auto_retention\n", false),
-        ("", false),
+        ("[retention]\nauto_retention = false\n", false),
+        ("auto_retention = false # disabled\n", false),
+        ("# auto_retention = true\n", true),
+        ("auto_retention = \"true\"\n", true),
+        ("auto_retention\n", true),
+        ("", true),
     ] {
         write_config(&dir, contents);
         assert_eq!(
@@ -404,7 +406,7 @@ fn an_already_stopped_container_is_removed_without_force() {
 }
 
 // ---------------------------------------------------------------------------
-// #518: stopped setup containers are reported by default, deleted only on opt-in.
+// #518: stopped setup containers are reported even during preview.
 // ---------------------------------------------------------------------------
 
 /// A stopped, fully-labelled setup container holding `volume_count` stack volumes.
@@ -507,9 +509,9 @@ fn only_named_volume_mounts_count_as_pinned() {
     );
 }
 
-/// #518: the report must appear on a default install, where nothing is opt-in yet.
+/// #518: the report must appear on a default install, during a manual preview.
 #[test]
-fn the_report_appears_with_the_default_opt_out_config() {
+fn the_report_appears_during_preview() {
     let (engine, _) =
         fake_docker_reporting(|_| setup_container_pinning(3), &[Some(1_000), Some(1_000)]);
     // No `retention.toml` at all: this is what a default install looks like.
@@ -529,18 +531,19 @@ fn the_report_appears_with_the_default_opt_out_config() {
         "the age is part of the report: {line}"
     );
     assert!(line.contains("past the 6h container gate"), "{line}");
-    assert!(line.contains("auto_retention = true"), "{line}");
+    assert!(line.contains("preview only"), "{line}");
 }
 
-/// #518: without the opt-in, a pass that could reclaim removes nothing.
+/// #518: with an explicit opt-out, a pass that could reclaim removes nothing.
 #[test]
-fn nothing_is_removed_without_the_opt_in() {
+fn nothing_is_removed_with_an_explicit_opt_out() {
     let (engine, fake_state) =
         fake_docker_reporting(|_| setup_container_pinning(2), &[Some(1_000), Some(1_000)]);
-    let dir = state_dir_with_registry("no-opt-in-no-removal");
+    let dir = state_dir_with_registry("explicit-opt-out");
+    write_config(&dir, "auto_retention = false\n");
     assert!(
         !auto_retention_enabled(&dir),
-        "a machine with no opt-in file is not opted in"
+        "an explicit false disables automatic retention"
     );
 
     // Exactly what `maintenance_pass` computes on the default path.
@@ -550,7 +553,7 @@ fn nothing_is_removed_without_the_opt_in() {
     assert!(!outcome.summary.applied, "nothing was applied");
     assert_eq!(
         outcome.summary.removed, 0,
-        "the pile is reported, never reclaimed without the opt-in"
+        "the pile is reported, never reclaimed with an explicit opt-out"
     );
     assert!(
         !fake_state.join("removed").exists(),
@@ -560,23 +563,24 @@ fn nothing_is_removed_without_the_opt_in() {
     assert_eq!(
         outcome.setup_containers.pinned_volume_count(),
         2,
-        "reporting does not depend on the opt-in"
+        "reporting does not depend on automatic retention"
     );
     let line = setup_container_report_line(&outcome.setup_containers, false).expect("a line");
-    assert!(line.contains("enable with"), "{line}");
+    assert!(line.contains("preview only"), "{line}");
 }
 
-/// The opt-in changes only the advice, never the facts.
+/// Applying changes only the advice, never the facts.
 #[test]
-fn an_applied_pass_reports_the_same_pile_and_advises_the_gc_command() {
+fn a_default_pass_reclaims_and_reports_the_pile() {
     let (engine, _) =
         fake_docker_reporting(|_| setup_container_pinning(1), &[Some(1_000), Some(1_000)]);
     let dir = state_dir_with_registry("applied-advice");
-    write_config(&dir, "auto_retention = true\n");
 
     let apply = auto_retention_enabled(&dir);
     let outcome = managed_retention_pass(&engine, &dir, RetentionPolicy::default(), apply);
 
+    assert!(outcome.summary.applied);
+    assert_eq!(outcome.summary.removed, 1);
     assert_eq!(outcome.setup_containers.pinned_volume_count(), 1);
     let line = setup_container_report_line(&outcome.setup_containers, outcome.summary.applied)
         .expect("a line");

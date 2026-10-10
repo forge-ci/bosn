@@ -347,6 +347,7 @@ os.execv('/bin/cp', ['cp', *sys.argv[1:]])
         let directory = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
         let cidfile = directory.path().join("container-id");
         kernal_api::async_engine::RuntimeBuilder::multi_thread()
+            .worker_threads(2)
             .enable_all().build().unwrap().run(async {
                 use super::super::{DockerActBackend, CONTROL_DEADLINE, engine_image, owned};
                 let backend = DockerActBackend::default();

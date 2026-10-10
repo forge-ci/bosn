@@ -167,3 +167,31 @@ living implementation spec.
 (`~/.local/bin/soldr`), which predates the `prepare` subcommand and breaks local cross
 builds. CI is unaffected (it uses `zackees/setup-soldr@v0`). If a local `soldr`
 build fails with "tool not found: prepare", run `uv tool install 'soldr==0.9.15'`.
+
+## Automatic retention
+
+Managed garbage collection runs by default while the daemon is running.
+Operators opt out with `auto_retention = false` in the state directory’s
+`retention.toml`. Keep ownership, age, liveness, and pinning gates on all removals.
+
+## CI engine architecture (#544, #547)
+
+Decided 2026-10-08. This replaces "one private nested engine per run."
+
+- **One long-lived act engine per machine.** Concurrent runs execute inside it,
+  each isolated by its own parent cgroup (`--cgroup-parent=/run-<id>` with
+  memory/CPU/pids limits), network, work directory, artifact path and a
+  run-scoped Docker proxy. Per-run cleanup inside the engine is keyed by the run
+  label; the engine has one storage budget, in-engine GC and idle retirement.
+- **No per-run engines with an external cache-sharing protocol.** The cache has
+  one owner inside the engine, not leases coordinated across engines (the
+  approach in #546, rejected).
+- **act2 owns CI; Bosn stays a generic Docker lifecycle manager.** An act2
+  serve mode inside the engine owns run admission, concurrency, isolation, the
+  action/tool/image cache and in-engine cleanup. Bosn manages the engine as an
+  ordinary long-lived owned container and forwards `bosn ci` unchanged. Move
+  CI-specific code out of `bosn-service` behind that boundary; do not add new
+  act-specific machinery to Bosn. No third composite app unless something
+  other than act2 needs the cache.
+- Trust model is unchanged: the engine is privileged, so it runs trusted
+  workflows only.

@@ -459,7 +459,7 @@ pub fn tools() -> Vec<Value> {
 mod tests {
     use super::*;
     use crate::ci::{
-        CancelReply, ListReply, LogsReply, RunReport, RunnerStatus, RunnersReply, SubmitReply,
+        CancelReply, DispatcherHealth, ListReply, LogsReply, RunReport, RunnerStatus, RunnersReply, SubmitReply,
         model::LogRecord,
     };
 
@@ -494,6 +494,9 @@ mod tests {
                     act_version: "0.2.88".into(),
                     widget: crate::ci::widget::WidgetPresence::Absent,
                     spare: None,
+                    hold: None,
+                    dispatcher: DispatcherHealth::Live,
+                    dispatcher_recoveries: 0,
                 },
             })
         }

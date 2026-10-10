@@ -409,6 +409,7 @@ mod tests {
             }),
         };
         let runtime = kernal_api::async_engine::RuntimeBuilder::multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .unwrap();
@@ -604,6 +605,7 @@ mod tests {
             "only one recovery writer"
         );
         async_engine::RuntimeBuilder::multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .unwrap()
@@ -668,6 +670,7 @@ mod tests {
             let mut registry = Registry::create_writer(&path, STARTUP_OWNER).unwrap();
             let observed = seed_claim(&mut registry, &intent);
             async_engine::RuntimeBuilder::multi_thread()
+                .worker_threads(2)
                 .enable_all()
                 .build()
                 .unwrap()
@@ -779,6 +782,7 @@ mod tests {
             tx.commit().unwrap();
             let before = writer.act_engine(&intent.run_id).unwrap().unwrap();
             async_engine::RuntimeBuilder::multi_thread()
+                .worker_threads(2)
                 .enable_all()
                 .build()
                 .unwrap()

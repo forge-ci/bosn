@@ -544,6 +544,7 @@ else: sys.exit(9)
         );
         let writer = Registry::create_writer(&db, OWNER).unwrap();
         let runtime = async_engine::RuntimeBuilder::multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .unwrap();
