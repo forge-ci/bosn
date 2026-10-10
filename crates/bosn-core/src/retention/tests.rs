@@ -337,6 +337,8 @@ fn a_zero_ttl_policy_reclaims_everything_past_the_gate() {
         volume_ttl: Duration::ZERO,
         image_ttl: Duration::ZERO,
         max_bytes: None,
+        idle_volume_budget: None,
+        idle_volume_floor: Duration::ZERO,
     };
     let fresh = artifact("c", ResourceKind::Container, Some(1.0), false, &[]);
     let plan = plan_managed(&[fresh], Some(REGISTRY), policy);
@@ -366,4 +368,84 @@ fn labels_and_scope_constants_used_by_the_policy_are_real() {
     assert_eq!(map.get(LABEL_WORKSPACE).map(String::as_str), Some("v"));
     assert_eq!(map.get(LABEL_GENERATION).map(String::as_str), Some("v"));
     assert!(SystemTime::now().duration_since(UNIX_EPOCH).is_ok());
+}
+
+const GIB: i128 = 1024 * 1024 * 1024;
+
+fn idle_volume(id: &str, hours: f64, gib: i128, in_use: bool, pin: bool) -> ObservedArtifact {
+    let overrides: &[(&str, &str)] = if pin {
+        &[(LABEL_RETENTION, "pinned")]
+    } else {
+        &[]
+    };
+    let mut item = artifact(id, ResourceKind::Volume, Some(hours * 3600.0), in_use, overrides);
+    item.bytes = Some(gib * GIB);
+    item
+}
+
+/// Live-machine regression: 145 abandoned setup volumes (~283 GB) sat behind the 14-day gate
+/// and the disk filled. Past the idle budget, the oldest idle volumes go first; pinned, mounted
+/// and too-young volumes never do.
+#[test]
+fn idle_volumes_over_the_budget_are_reclaimed_oldest_first() {
+    let artifacts = vec![
+        idle_volume("v-2h", 2.0, 20, false, false),
+        idle_volume("v-3h", 3.0, 20, false, false),
+        idle_volume("v-4h", 4.0, 20, false, false),
+        idle_volume("v-5h", 5.0, 20, false, false),
+        idle_volume("v-6h", 6.0, 20, false, false),
+        idle_volume("v-young", 0.5, 500, false, false),
+        idle_volume("v-pinned", 100.0, 500, false, true),
+        idle_volume("v-mounted", 100.0, 500, true, false),
+    ];
+    let plan = plan_managed(&artifacts, Some(REGISTRY), RetentionPolicy::default());
+    let ids: Vec<&str> = plan.candidates.iter().map(|v| v.id.as_str()).collect();
+    // 600 GiB idle within the gate; only the 100 GiB past the floor can go, oldest first.
+    assert_eq!(ids, ["v-6h", "v-5h", "v-4h", "v-3h", "v-2h"]);
+    let held = plan.held_counts();
+    assert_eq!(held.get(&HoldReason::Pinned), Some(&1));
+    assert_eq!(held.get(&HoldReason::InUse), Some(&1));
+    assert_eq!(held.get(&HoldReason::WithinTtl), Some(&1), "the young volume stays");
+}
+
+#[test]
+fn the_idle_budget_stops_once_the_remainder_fits() {
+    let artifacts: Vec<ObservedArtifact> = (1..=5)
+        .map(|hour| idle_volume(&format!("v-{hour}h"), f64::from(hour) + 1.0, 20, false, false))
+        .collect();
+    let plan = plan_managed(&artifacts, Some(REGISTRY), RetentionPolicy::default());
+    let ids: Vec<&str> = plan.candidates.iter().map(|v| v.id.as_str()).collect();
+    assert_eq!(ids, ["v-5h", "v-4h"], "100 GiB down to 60 GiB, under 64 GiB");
+    assert_eq!(plan.bytes, 40 * GIB);
+}
+
+#[test]
+fn idle_volumes_within_the_budget_or_without_one_wait_for_their_gate() {
+    let artifacts = vec![idle_volume("v", 48.0, 10, false, false)];
+    let plan = plan_managed(&artifacts, Some(REGISTRY), RetentionPolicy::default());
+    assert!(plan.candidates.is_empty(), "10 GiB fits the default budget");
+
+    let big = vec![idle_volume("v", 48.0, 500, false, false)];
+    let off = RetentionPolicy {
+        idle_volume_budget: None,
+        ..RetentionPolicy::default()
+    };
+    assert!(plan_managed(&big, Some(REGISTRY), off).candidates.is_empty());
+}
+
+#[test]
+fn a_promoted_volume_passes_the_recheck_but_a_young_one_does_not() {
+    let policy = RetentionPolicy::default().recheck_gates();
+    let old = idle_volume("v", 2.0, 500, false, false);
+    assert_eq!(classify_managed(&old, Some(REGISTRY), policy).hold, None);
+    let young = idle_volume("v", 0.5, 500, false, false);
+    assert_eq!(
+        classify_managed(&young, Some(REGISTRY), policy).hold,
+        Some(HoldReason::WithinTtl)
+    );
+    let mounted = idle_volume("v", 2.0, 500, true, false);
+    assert_eq!(
+        classify_managed(&mounted, Some(REGISTRY), policy).hold,
+        Some(HoldReason::InUse)
+    );
 }

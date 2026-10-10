@@ -224,6 +224,7 @@ What a machine running the daemon is expected to converge to without manual Dock
 | Stopped setup / manifest / macOS-guest container | removed 6 h after creation and last registry use | managed pass (`container_ttl`) |
 | Idle setup keepalive container | stopped once idle past 6 h, then removed as above | idle retirement, re-checked before the stop |
 | Unpinned owned volume (warm, stack, machine) | removed 14 days after last use once nothing mounts it | managed pass (`volume_ttl`) |
+| Idle owned volumes over the budget | once unmounted, unpinned owned volumes inside their 14-day gate exceed 64 GiB, the oldest idle for at least 1 h are removed until the rest fit | managed pass (`idle_volume_budget`, `idle_volume_floor`) |
 | Bosn-built setup / manifest image (`bosn-setup:<sha256>`) | removed 30 days after last use once no container uses it | managed pass (`image_ttl`), proven by its registry record |
 | Shared CI engine (Linux) | retired after `[engine] idle_retire_secs` (default 600) with no run | CI shared engine (#547) |
 | Per-run act storage volume | removed with its engine; proven absent | CI run cleanup |

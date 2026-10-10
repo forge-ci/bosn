@@ -600,7 +600,7 @@ fn revalidate(
         bytes,
         age_seconds: Some(proven.age),
     };
-    match classify_managed(&fresh, our_registry, policy).hold {
+    match classify_managed(&fresh, our_registry, policy.recheck_gates()).hold {
         None => Ok(Recheck::Reclaimable(bytes)),
         Some(reason) => Err(format!(
             "{} {} is no longer reclaimable: {}",
