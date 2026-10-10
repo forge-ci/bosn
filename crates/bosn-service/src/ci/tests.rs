@@ -236,6 +236,99 @@ fn failing_run_reports_the_failing_step_and_only_its_tail() {
     });
 }
 
+/// #481: a failed action's own verdict survives a failed cleanup. The run
+/// stays `failure` and its reason names *both* the act failure and the
+/// cleanup status — cleanup must never replace the original failure reason.
+/// Cleanup is the run scope's close in the shared engine (#547 step 4); a
+/// scope left behind is found by the engine's next use or its retirement.
+#[test]
+fn an_action_failure_keeps_its_reason_when_cleanup_also_fails() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            exit_code: 1,
+            close: true,
+            ..Faults::default()
+        }));
+        let runtime = CiRuntime::start(&dir, registry, backend.clone(), 1);
+        let run = submit(&runtime, 'a').await.run;
+        let record = wait_done(&runtime, &run).await;
+        assert_eq!(
+            record.conclusion,
+            Some(Conclusion::Failure),
+            "cleanup failure never relabels an execution failure"
+        );
+        let reason = record.reason.clone().unwrap_or_default();
+        assert!(
+            reason.contains("act exit 1"),
+            "the action failure is preserved in the reason: {reason}"
+        );
+        assert!(
+            reason.contains("engine cleanup failed"),
+            "the cleanup status is still reported: {reason}"
+        );
+    });
+}
+
+/// #453: a dead dispatcher must not strand eligible queued work. The fault
+/// injection kills the loop the way a panic would (receiver dropped,
+/// channel closed); the next runners action rebuilds it, the queued run
+/// admits without a daemon restart, and the recovery is visible in status.
+#[test]
+fn a_dead_dispatcher_recovers_on_the_next_nudge_and_queued_work_starts() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::default());
+        let runtime = CiRuntime::start(&dir, registry, backend.clone(), 2);
+        // Drain: the submission queues instead of starting.
+        let _: RunnersReply = call(
+            &runtime,
+            CiRequest::Runners {
+                action: RunnerAction::Drain,
+            },
+        )
+        .await;
+        let queued = submit(&runtime, 'a').await.run;
+        assert_eq!(runtime.record(&queued).unwrap().state, RunState::Queued);
+        // The dispatcher dies while the run waits.
+        runtime.kill_dispatcher_for_test();
+        // Any runners action kicks first, rebuilding the loop, then reads:
+        // the legitimate drain hold stays observable and the recovery is
+        // counted — nothing was silently swallowed.
+        let recovered: RunnersReply = call(
+            &runtime,
+            CiRequest::Runners {
+                action: RunnerAction::List,
+            },
+        )
+        .await;
+        assert_eq!(recovered.runners.hold.as_deref(), Some("drained"));
+        assert_eq!(recovered.runners.dispatcher, DispatcherHealth::Live);
+        assert!(
+            recovered.runners.dispatcher_recoveries >= 1,
+            "the dead loop was rebuilt: {recovered:?}"
+        );
+        // Drain lifted: the queued run starts without a daemon restart.
+        let _: RunnersReply = call(
+            &runtime,
+            CiRequest::Runners {
+                action: RunnerAction::Resume,
+            },
+        )
+        .await;
+        let done = wait_done_with_budget(&runtime, &queued, Duration::from_secs(10)).await;
+        assert_eq!(done.conclusion, Some(Conclusion::Success));
+        let status: RunnersReply = call(
+            &runtime,
+            CiRequest::Runners {
+                action: RunnerAction::List,
+            },
+        )
+        .await;
+        assert_eq!(status.runners.hold, None);
+        assert_eq!(status.runners.queued, 0);
+        assert!(*backend.executions.lock().unwrap() >= 1);
+    });
+}
+
 #[test]
 fn the_run_timeout_covers_planning_not_only_execution() {
     with_registry(|registry, dir| async move {
@@ -479,7 +572,8 @@ fn a_failed_run_on_nearly_full_storage_says_why_in_its_reason() {
         reason.contains("storage backing filesystem ran low"),
         "{reason}"
     );
-    // Roomy storage, or a run that did not fail, adds nothing.
+    // Roomy storage adds nothing to the execution's own verdict (#481: the
+    // failure still says what act did, even with nothing else to report).
     let roomy = super::storage::StorageUsage {
         size: 36 * GIB,
         used: 16 * GIB,
@@ -490,7 +584,8 @@ fn a_failed_run_on_nearly_full_storage_says_why_in_its_reason() {
         &mut declared.clone(),
         &Default::default(),
     );
-    assert_eq!(reason, None);
+    assert_eq!(reason.as_deref(), Some("act exit 1"));
+    // A run that did not fail adds nothing.
     let (_, reason) = report::conclude(
         &outcome(ExecutionEnd::Cancelled, Some(low)),
         &mut declared.clone(),

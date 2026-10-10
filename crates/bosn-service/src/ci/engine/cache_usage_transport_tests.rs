@@ -98,6 +98,7 @@ esac
 
 fn measure(backend: &DockerActBackend) -> Result<crate::ci::CacheUsage, String> {
     kernal_api::async_engine::RuntimeBuilder::multi_thread()
+        .worker_threads(2)
         .enable_all()
         .build()
         .unwrap()

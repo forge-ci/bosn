@@ -3,6 +3,21 @@
 
 use super::*;
 
+/// One clear: the volume deletion (`DELETE`) with slack — the outer bound
+/// that keeps `clearing_cache` from holding admission forever (#445, #453).
+const CLEAR_CACHE_BUDGET: Duration = Duration::from_secs(240);
+
+/// Releases the cache-clear admission hold on every exit path (#453).
+struct ClearingHold(Arc<Mutex<CiState>>);
+impl Drop for ClearingHold {
+    fn drop(&mut self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clearing_cache = false;
+    }
+}
+
 impl CiRuntime {
     pub(super) async fn runners(&self, action: RunnerAction) -> Result<RunnersReply, CiError> {
         let (mut pruned, mut cache) = (None, None);
@@ -54,9 +69,11 @@ impl CiRuntime {
             limit: state.scheduler.limit(),
             drained: state.scheduler.drained(),
         });
-        let status = runner_status(&state.scheduler, self.widget_presence());
         drop(state);
+        // A dead dispatcher is rebuilt here, before the status is read, so
+        // the reply reports the recovered admission state (#453).
         self.kick();
+        let status = self.runner_status(&self.lock());
         Ok(RunnersReply {
             runners: status,
             pruned_runs: pruned,
@@ -85,9 +102,13 @@ impl CiRuntime {
     }
 
     /// Remove the machine-wide cache volume. Refused while a run executes;
-    /// dispatch holds queued runs until the volume is gone.
+    /// dispatch holds queued runs until the volume is gone. The hold is a
+    /// guard released on every exit path — panic, cancellation or an
+    /// over-budget clear included — so `clearing_cache` can never outlive
+    /// the clear and silently strand admission (#453); the clear runs under
+    /// one deadline so a stuck Docker call cannot hold it forever (#445).
     async fn clear_cache(&self) -> Result<CacheUsage, CiError> {
-        {
+        let hold = {
             let mut state = self.lock();
             if state.scheduler.running() > 0 {
                 return Err(CiError::refused(
@@ -95,14 +116,20 @@ impl CiRuntime {
                 ));
             }
             state.clearing_cache = true;
-        }
-        let cleared = match self.backend.remove_cache(CACHE_VOLUME).await {
-            Ok(()) => self.cache_usage().await,
-            Err(error) => Err(CiError::new("internal", error)),
+            ClearingHold(Arc::clone(&self.state))
         };
-        // Measure the removed volume before dispatch may start a run that
-        // recreates it. Otherwise the reply races that run.
-        self.lock().clearing_cache = false;
+        let work = self.backend.remove_cache(CACHE_VOLUME);
+        let cleared = match async_engine::timeout(CLEAR_CACHE_BUDGET, work).await {
+            Err(_) => Err(CiError::new(
+                "internal",
+                "cache clear exceeded its deadline",
+            )),
+            Ok(Err(error)) => Err(CiError::new("internal", error)),
+            // Measure the removed volume before dispatch may start a run that
+            // recreates it. Otherwise the reply races that run.
+            Ok(Ok(())) => self.cache_usage().await,
+        };
+        drop(hold);
         self.kick();
         cleared
     }

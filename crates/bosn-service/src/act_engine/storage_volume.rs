@@ -270,6 +270,7 @@ else: sys.exit(2)
                 ],
             );
             RuntimeBuilder::multi_thread()
+                .worker_threads(2)
                 .enable_all()
                 .build()
                 .unwrap()

@@ -687,10 +687,13 @@ impl ActEngineBackend for DockerActBackend {
             if !self.volume_exists(volume).await? {
                 return Ok(());
             }
+            // Deletion gets the deletion budget (#445): the same bound class
+            // the engine retirement path already uses, not the 60s control
+            // deadline — this runs while `clearing_cache` holds admission.
             self.checked(
                 "cache volume remove",
                 owned(&["volume", "rm", volume]),
-                CONTROL_DEADLINE,
+                act_engine::DELETE,
             )
             .await
             .map(|_| ())

@@ -68,6 +68,7 @@ mod startup_recovery {
     #[test]
     fn startup_recovery_cannot_succeed_without_seal() {
         let runtime = async_engine::RuntimeBuilder::multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .unwrap();
@@ -225,6 +226,7 @@ if mode=='foreign':print('f'*64)
                 ],
             );
             let runtime = async_engine::RuntimeBuilder::multi_thread()
+                .worker_threads(2)
                 .enable_all()
                 .build()
                 .unwrap();

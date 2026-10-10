@@ -462,8 +462,8 @@ pub fn tools() -> Vec<Value> {
 mod tests {
     use super::*;
     use crate::ci::{
-        CancelReply, ListReply, LogsReply, RunReport, RunnerStatus, RunnersReply, SubmitReply,
-        model::LogRecord,
+        CancelReply, DispatcherHealth, ListReply, LogsReply, RunReport, RunnerStatus, RunnersReply,
+        SubmitReply, model::LogRecord,
     };
 
     /// A daemon double serving a fixed log of 1000 large records.
@@ -497,6 +497,9 @@ mod tests {
                     act_version: "0.2.88".into(),
                     execution_pins: None,
                     widget: crate::ci::widget::WidgetPresence::Absent,
+                    hold: None,
+                    dispatcher: DispatcherHealth::Live,
+                    dispatcher_recoveries: 0,
                 },
             })
         }

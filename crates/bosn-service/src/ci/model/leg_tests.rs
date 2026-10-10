@@ -231,6 +231,147 @@ fn recorded_legs_fold_to_one_tree_in_any_arrival_order() {
     );
 }
 
+/// #461: declarations gathered from the local reusable-workflow graph reach
+/// the report with their qualified identities, two levels deep. The nested
+/// maintenance stub is `remote_only` with its reason — not silent success.
+#[test]
+fn doubly_nested_remote_only_jobs_are_reported_with_their_reasons() {
+    use crate::ci::{
+        lifecycle::{CleanupEnd, EngineReport, ExecutionEnd},
+        report, workflow,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let workflows = root.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflows).unwrap();
+    std::fs::write(
+        workflows.join("entry.yml"),
+        "jobs:\n  maintenance:\n    uses: ./.github/workflows/mid.yml\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo lint\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workflows.join("mid.yml"),
+        "jobs:\n  inner:\n    uses: ./.github/workflows/leaf.yml\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workflows.join("leaf.yml"),
+        "jobs:\n  budget:\n    runs-on: ubuntu-latest\n    env:\n      CI_REMOTE_ONLY: reads the cache budget from the GitHub API\n    steps:\n      - run: echo remote\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo local\n",
+    )
+    .unwrap();
+    let declared = workflow::declared(root.path(), ".github/workflows/entry.yml", "zackees/bosn");
+    assert!(declared.errors.is_empty(), "{:?}", declared.errors);
+    assert_eq!(
+        declared
+            .remote_only
+            .get("maintenance/inner/budget")
+            .map(String::as_str),
+        Some("reads the cache budget from the GitHub API"),
+        "the doubly nested stub is declared under its qualified identity"
+    );
+    assert!(
+        !declared.remote_only.contains_key("budget"),
+        "an identically named job elsewhere must not inherit the reason"
+    );
+    // The run itself: lint passes, the nested maintenance stub "runs" its
+    // localized success, and the nested local check passes.
+    let lines = [
+        r#"{"job":"w/lint","jobID":"lint","msg":"🏁","jobResult":"success"}"#,
+        r#"{"job":"precheck/inner/budget","jobID":"budget","jobIdentity":[{"jobID":"maintenance","matrix":null},{"jobID":"inner","matrix":null},{"jobID":"budget","matrix":null}],"msg":"🏁","jobResult":"success"}"#,
+        r#"{"job":"precheck/inner/check","jobID":"check","jobIdentity":[{"jobID":"maintenance","matrix":null},{"jobID":"inner","matrix":null},{"jobID":"check","matrix":null}],"msg":"🏁","jobResult":"success"}"#,
+    ];
+    let mut tree = fold("", &lines);
+    let outcome = Ok(EngineReport {
+        execution: ExecutionEnd::Exited(0),
+        cleanup: CleanupEnd::Removed,
+        engine_id: None,
+        storage: None,
+    });
+    let (conclusion, _) = report::conclude(&outcome, &mut tree, &declared);
+    assert_eq!(conclusion, crate::ci::Conclusion::Success);
+    let mut record = crate::ci::tests::sample_record("run-461");
+    record.tree = tree;
+    let report = report::report(&record, None, |_, _| Vec::new());
+    assert_eq!(
+        report.jobs.remote_only.len(),
+        1,
+        "{:?}",
+        report.jobs.remote_only
+    );
+    let stub = &report.jobs.remote_only[0];
+    assert_eq!(
+        stub.reason, "reads the cache budget from the GitHub API",
+        "qualified stub reported: {}",
+        stub.job
+    );
+    assert_eq!(report.jobs.succeeded, 2, "lint plus the nested local check");
+    assert!(
+        report.coverage_complete,
+        "a declared remote-only stub is not a coverage gap"
+    );
+}
+
+/// #525 / #477: a fully green replay of a workflow that mixes direct jobs
+/// with local reusable calls concludes Success with exit_code 0 — verified at
+/// the receipt (`RunView`), where the gate reads it, not only at the
+/// coverage predicate (#478 fixed the predicate; this pins the receipt).
+#[test]
+fn a_fully_green_direct_and_reusable_run_receives_a_zero_exit_receipt() {
+    use crate::ci::{
+        lifecycle::{CleanupEnd, EngineReport, ExecutionEnd},
+        reply::RunView,
+        report, workflow,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let workflows = root.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflows).unwrap();
+    std::fs::write(
+        workflows.join("entry.yml"),
+        "jobs:\n  rust:\n    runs-on: ubuntu-latest\n    steps:\n      - run: cargo test\n  perf:\n    runs-on: ubuntu-latest\n    steps:\n      - run: check-perf\n  build:\n    uses: ./.github/workflows/build.yml\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workflows.join("build.yml"),
+        "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n",
+    )
+    .unwrap();
+    let declared = workflow::declared(root.path(), ".github/workflows/entry.yml", "zackees/bosn");
+    assert!(declared.errors.is_empty(), "{:?}", declared.errors);
+    assert!(declared.needs_qualified_identity);
+    let lines = [
+        r#"{"job":"w/rust","jobID":"rust","msg":"🏁","jobResult":"success"}"#,
+        r#"{"job":"w/perf","jobID":"perf","msg":"🏁","jobResult":"success"}"#,
+        r#"{"job":"build/test","jobID":"test","jobIdentity":[{"jobID":"build","matrix":null},{"jobID":"test","matrix":null}],"msg":"🏁","jobResult":"success"}"#,
+    ];
+    let mut tree = fold("", &lines);
+    let outcome = Ok(EngineReport {
+        execution: ExecutionEnd::Exited(0),
+        cleanup: CleanupEnd::Removed,
+        engine_id: None,
+        storage: None,
+    });
+    let (conclusion, reason) = report::conclude(&outcome, &mut tree, &declared);
+    assert_eq!(
+        (conclusion, reason.as_deref()),
+        (crate::ci::Conclusion::Success, None),
+        "4/4 green must not conclude Incomplete"
+    );
+    let mut record = crate::ci::tests::sample_record("run-525");
+    record.tree = tree;
+    record.finish(conclusion, reason);
+    let view = RunView::of(record, false);
+    assert_eq!(view.exit_code, Some(0), "the gate reads exit_code");
+    assert_eq!(view.jobs.total, 3);
+    assert_eq!(view.jobs.completed, 3);
+    assert_eq!(view.jobs.failed, 0);
+    // The receipt itself must distinguish "all green" from "did not run".
+    let receipt = serde_json::to_value(&view).unwrap();
+    assert_eq!(receipt["conclusion"], "success");
+    assert!(
+        receipt.get("reason").is_some(),
+        "the receipt carries conclusion and reason, not only counts"
+    );
+}
+
 /// xorshift64*: deterministic, dependency-free.
 struct Rng(u64);
 impl Rng {

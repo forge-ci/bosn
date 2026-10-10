@@ -29,11 +29,18 @@ pub fn conclude(
             tree.settle_finished();
             tree.add_skipped_steps(&declared.steps);
             tree.mark_remote_only(&declared.remote_only);
-            let failed = tree
+            let failed_jobs = tree
                 .jobs()
-                .any(|j| j.conclusion == Some(ItemConclusion::Failure));
-            if *code != 0 || failed {
-                (Conclusion::Failure, None)
+                .filter(|j| j.conclusion == Some(ItemConclusion::Failure))
+                .count();
+            if *code != 0 || failed_jobs > 0 {
+                // The execution's own verdict, in its own words: a later
+                // cleanup failure joins this reason (#481) instead of being
+                // the only thing the run says.
+                (
+                    Conclusion::Failure,
+                    Some(execution_reason(*code, failed_jobs)),
+                )
             } else if !tree.unsupported_jobs().is_empty() {
                 (
                     Conclusion::Incomplete,
@@ -93,6 +100,17 @@ pub fn conclude(
         reason = Some(joined(reason, format!("engine cleanup failed: {error}")));
     }
     (conclusion, reason)
+}
+
+/// What the execution itself did: act's exit, the jobs that failed, or both.
+/// Never mentions cleanup — that status joins this reason separately (#481).
+fn execution_reason(code: i32, failed_jobs: usize) -> String {
+    match (code != 0, failed_jobs > 0) {
+        (true, true) => format!("act exit {code}; {failed_jobs} job(s) failed"),
+        (true, false) => format!("act exit {code}"),
+        (false, true) => format!("{failed_jobs} job(s) failed"),
+        (false, false) => unreachable!("a failure reason needs a failure"),
+    }
 }
 
 /// `next` after any earlier reason.

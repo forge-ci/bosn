@@ -42,7 +42,7 @@ pub(crate) fn bundled_engine_manifests()
 }
 
 mod budgets;
-pub(crate) use budgets::{CLEANUP_BUDGET, CLEANUP_PASS_BUDGET, removal_reserve};
+pub(crate) use budgets::{CLEANUP_BUDGET, CLEANUP_PASS_BUDGET, DELETE, removal_reserve};
 mod cache;
 pub(crate) use cache::*;
 mod manifest;

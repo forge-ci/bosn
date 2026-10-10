@@ -23,6 +23,8 @@ pub struct Faults {
     pub slow_image: bool,
     /// Serve's tool-cache save after a close fails.
     pub save: bool,
+    /// Closing the run's scope fails (#481).
+    pub close: bool,
     /// The shared cache cannot be measured.
     pub cache_measure: bool,
 }
@@ -339,7 +341,11 @@ impl ActEngineBackend for FakeBackend {
         scope: &'a crate::ci::engine::RunScope,
     ) -> crate::ci::engine::BoxFuture<'a, Result<crate::ci::engine::Closed, String>> {
         let fails = self.faults().save;
+        let close_fails = self.faults().close;
         Box::pin(async move {
+            if close_fails {
+                return Err("scope close refused".into());
+            }
             self.closed_scopes
                 .lock()
                 .unwrap()

@@ -116,6 +116,31 @@ pub struct RunnerStatus {
     pub execution_pins: Option<bosn_core::act::ActPins>,
     /// Whether the desktop widget is running.
     pub widget: super::widget::WidgetPresence,
+    /// Why eligible queued runs are not starting right now; absent when
+    /// admission is live. One of `cache clearing`, `drained`,
+    /// `concurrency limit` or `dispatcher stalled` (#453).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold: Option<String>,
+    /// The dispatch loop is alive and processing nudges. A stopped
+    /// dispatcher is rebuilt by the next nudge rather than stranding
+    /// queued work (#453). A daemon from before #453 omits it; that reads
+    /// as `live`, the only state such a daemon could report.
+    #[serde(default)]
+    pub dispatcher: DispatcherHealth,
+    /// Dispatch-loop rebuilds since this daemon started: nonzero means a
+    /// dead dispatcher was recovered instead of silently holding admission.
+    #[serde(default)]
+    pub dispatcher_recoveries: u64,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DispatcherHealth {
+    #[default]
+    Live,
+    Stopped,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]

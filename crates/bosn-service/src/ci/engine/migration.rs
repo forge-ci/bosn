@@ -147,6 +147,7 @@ mod tests {
         ));
         let policy = toml::from_str("repository_max_bytes=100\naggregate_max_bytes=200\nmax_age_secs=3600\nunused_age_secs=1800\nmaintenance_interval_secs=60\n").unwrap();
         RuntimeBuilder::multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .unwrap()

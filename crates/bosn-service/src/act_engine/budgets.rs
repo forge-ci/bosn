@@ -20,7 +20,7 @@ pub(super) const STORAGE_CONTROL: Duration = if cfg!(test) {
 } else {
     PRODUCTION_STORAGE_CONTROL
 };
-pub(super) const DELETE: Duration = if cfg!(test) {
+pub(crate) const DELETE: Duration = if cfg!(test) {
     TEST_DELETE
 } else {
     PRODUCTION_DELETE
