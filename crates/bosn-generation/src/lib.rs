@@ -13,6 +13,7 @@ use kernal_api::hash::Sha256Hasher;
 pub mod collector;
 pub mod dockerfile;
 pub mod resolver;
+mod walk_prune;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContextEntry {
