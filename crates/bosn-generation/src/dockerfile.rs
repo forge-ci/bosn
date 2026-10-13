@@ -28,9 +28,9 @@ impl std::fmt::Display for DockerfileError {
 impl std::error::Error for DockerfileError {}
 
 #[derive(Clone, Debug)]
-struct Rule {
-    pattern: String,
-    negated: bool,
+pub(crate) struct Rule {
+    pub(crate) pattern: String,
+    pub(crate) negated: bool,
 }
 type CopyFlags = std::collections::BTreeMap<String, Option<String>>;
 pub fn select_context(
@@ -151,7 +151,7 @@ pub fn external_images(text: &str) -> Result<Vec<ExternalImageIdentity>, Dockerf
     }
     Ok(out)
 }
-fn local_sources(text: &str) -> Result<(Vec<String>, bool), DockerfileError> {
+pub(crate) fn local_sources(text: &str) -> Result<(Vec<String>, bool), DockerfileError> {
     let mut out = Vec::new();
     let mut all = false;
     for line in logical_lines(text) {
@@ -256,7 +256,7 @@ fn mounts(body: &str) -> Result<Vec<std::collections::BTreeMap<String, String>>,
     }
     Ok(out)
 }
-fn ignore_rules(b: &str) -> Vec<Rule> {
+pub(crate) fn ignore_rules(b: &str) -> Vec<Rule> {
     b.lines()
         .filter_map(|raw| {
             let mut x = raw.trim();
@@ -275,7 +275,7 @@ fn ignore_rules(b: &str) -> Vec<Rule> {
         })
         .collect()
 }
-fn ignored(rules: &[Rule], p: &str) -> Result<bool, DockerfileError> {
+pub(crate) fn ignored(rules: &[Rule], p: &str) -> Result<bool, DockerfileError> {
     let mut yes = false;
     for r in rules {
         if glob(&r.pattern, p)?
@@ -341,7 +341,7 @@ fn source_matches(source: &str, p: &str) -> Result<bool, DockerfileError> {
         Ok(p == s || p.starts_with(&(s + "/")))
     }
 }
-fn glob(p: &str, s: &str) -> Result<bool, DockerfileError> {
+pub(crate) fn glob(p: &str, s: &str) -> Result<bool, DockerfileError> {
     if p.len() > 4_096 || s.len() > 4_000_000 {
         return Err(DockerfileError::ResourceLimit(
             "pattern or path input".into(),

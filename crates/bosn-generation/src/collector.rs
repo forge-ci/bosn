@@ -148,6 +148,11 @@ fn collect_context_inner(
         })
         .transpose()?;
 
+    let pruner = crate::walk_prune::WalkPruner::new(
+        dockerfile,
+        &docker_bytes,
+        ignore_name.as_deref().zip(ignore_bytes.as_deref()),
+    )?;
     // First pass is names and non-following kinds only.  It is bounded before
     // retention and does not open ordinary file contents.
     let mut nodes = BTreeMap::new();
@@ -175,7 +180,7 @@ fn collect_context_inner(
             {
                 return Err(CollectorError::Duplicate(rel));
             }
-            if entry.kind() == ContextPathKind::Directory {
+            if entry.kind() == ContextPathKind::Directory && !pruner.prunes(&rel)? {
                 if depth.checked_add(1).ok_or(CollectorError::Limit("depth"))? > limits.max_depth {
                     return Err(CollectorError::Limit("depth"));
                 }
@@ -398,6 +403,61 @@ mod tests {
         let got = collect_context(root.path(), Some("Dockerfile"), &limits).unwrap();
         assert!(paths(&got).contains(&"ignored/keep".into()));
         assert!(!paths(&got).contains(&"ignored/huge".into()));
+    }
+    fn filler(root: &Path, dir: &str, n: usize) {
+        for i in 0..n {
+            write(root, &format!("{dir}/f{i}"), b"x");
+        }
+    }
+    #[test]
+    fn ignored_subtrees_do_not_count_against_the_entry_limit() {
+        // A warm `target/` or `.venv/` is tens of thousands of names that the
+        // ignore policy discards; they must not exhaust `max_entries`.
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "docker/Dockerfile", b"FROM x\nCOPY keep /x\n");
+        write(
+            root.path(),
+            ".dockerignore",
+            b"target/\n**/cache/\ndocker/\n",
+        );
+        write(root.path(), "keep", b"k");
+        filler(root.path(), "target/debug", 40);
+        filler(root.path(), "sub/cache", 40);
+        filler(root.path(), "docker/other", 40);
+        let limits = CollectorLimits {
+            max_entries: 16,
+            ..CollectorLimits::default()
+        };
+        let got = collect_context(root.path(), Some("docker/Dockerfile"), &limits).unwrap();
+        let got = paths(&got);
+        assert!(got.contains(&"keep".into()));
+        assert!(got.contains(&"docker/Dockerfile".into()));
+        assert!(
+            !got.iter()
+                .any(|p| p.starts_with("target/") || p.contains("cache/"))
+        );
+    }
+    #[test]
+    fn walk_pruning_keeps_negations_and_copy_sources_reachable() {
+        let root = tempfile::tempdir().unwrap();
+        write(
+            root.path(),
+            "Dockerfile",
+            b"FROM x\nCOPY vendor/lib /v\nCOPY . /x\n",
+        );
+        write(
+            root.path(),
+            ".dockerignore",
+            b"vendor/\nignored/\n!ignored/sub/keep\n",
+        );
+        write(root.path(), "vendor/lib", b"v");
+        write(root.path(), "ignored/sub/keep", b"yes");
+        write(root.path(), "ignored/sub/drop", b"no");
+        let got = collect(root.path()).unwrap();
+        let got = paths(&got);
+        assert!(got.contains(&"ignored/sub/keep".into()));
+        assert!(!got.contains(&"ignored/sub/drop".into()));
+        assert!(!got.contains(&"vendor/lib".into()));
     }
     #[test]
     fn dockerfile_specific_ignore_and_links_are_observed() {
