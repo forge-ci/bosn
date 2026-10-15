@@ -10,6 +10,7 @@ pub mod act_coverage;
 pub mod compose;
 pub mod manifest;
 pub mod retention;
+pub mod runner_images;
 pub mod setup;
 pub mod unmanaged;
 
