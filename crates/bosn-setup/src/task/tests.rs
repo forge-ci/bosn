@@ -236,6 +236,7 @@ fn declared_task_becomes_only_a_semantic_bounded_run_command() {
         vec![
             "run",
             "--rm",
+            bosn_core::LOW_CPU_PRIORITY_ARG,
             "--mount",
             &format!("type=bind,src={source},dst=/workspace,readonly"),
             "--env",

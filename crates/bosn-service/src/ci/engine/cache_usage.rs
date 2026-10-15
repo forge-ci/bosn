@@ -203,6 +203,7 @@ impl DockerActBackend {
         let mut create_args = owned(&[
             "create",
             "--rm",
+            bosn_core::LOW_CPU_PRIORITY_ARG,
             "--name",
             &identity.name,
             "--label",

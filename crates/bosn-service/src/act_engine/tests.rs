@@ -360,6 +360,11 @@ fn engine_arguments_override_image_volume_without_any_host_bind() {
         "--volume" | "-v" | "--mount" | "--publish" | "-p" | "--rm"
     )));
     assert_eq!(args.last().unwrap(), "--host=unix:///var/run/docker.sock");
+    assert_eq!(
+        args[1],
+        bosn_core::LOW_CPU_PRIORITY_ARG,
+        "#643: low CPU weight"
+    );
     assert!(
         create_arguments(
             &intent(),

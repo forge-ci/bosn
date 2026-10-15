@@ -251,6 +251,7 @@ pub fn create_arguments(
         .map_err(|e| ActEngineError(e.to_string()))?;
     let mut args = vec![
         "create".into(),
+        bosn_core::LOW_CPU_PRIORITY_ARG.into(),
         "--pull".into(),
         "never".into(),
         "--name".into(),

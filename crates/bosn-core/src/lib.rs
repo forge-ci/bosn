@@ -48,6 +48,13 @@ pub use unmanaged::{
     removal_rank, warning,
 };
 
+/// The CPU weight every container Bosn creates runs at (#643).
+///
+/// A quarter of Docker's default 1024 (cgroup v2 `cpu.weight` about 10 instead of
+/// 100): under contention Bosn's builds yield so the desktop stays responsive, and
+/// on an idle machine they still use every CPU their cap allows.
+pub const LOW_CPU_PRIORITY_ARG: &str = "--cpu-shares=256";
+
 pub const NAMESPACE: &str = "com.zackees.bosn";
 pub const LABEL_REGISTRY: &str = "com.zackees.bosn.registry";
 pub const LABEL_KIND: &str = "com.zackees.bosn.kind";

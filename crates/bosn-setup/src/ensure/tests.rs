@@ -480,12 +480,8 @@ fn volume_inspect_requests_complete_private_metadata() {
     let command = SetupEnsureCommand::VolumeInspect {
         volume_name: volume_name.clone(),
     };
-    let args = command.docker_args();
-    assert_eq!(args[0], "volume");
-    assert_eq!(args[1], "inspect");
-    assert_eq!(args[2], "--format");
-    assert_eq!(args[3], "{{json .}}");
-    assert_eq!(args[4], volume_name);
+    let expected = ["volume", "inspect", "--format", "{{json .}}", &volume_name];
+    assert_eq!(command.docker_args(), expected);
 }
 
 #[test]
@@ -522,6 +518,9 @@ fn absent_container_is_created_then_started_with_only_plan_data() {
     );
     let calls = engine.calls.lock().unwrap().clone();
     assert_eq!(calls.len(), 5);
+    // #643: the app container is created at Bosn's low CPU weight.
+    let low = bosn_core::LOW_CPU_PRIORITY_ARG.to_owned();
+    assert!(calls.iter().any(|call| call.docker_args().contains(&low)));
     assert!(
         matches!(&calls[0], SetupEnsureCommand::Inspect { container_name } if container_name == &setup_container_name(&plan, &workspace, &image).unwrap())
     );
