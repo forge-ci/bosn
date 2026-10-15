@@ -169,6 +169,7 @@ impl SetupEnsureCommand {
                     "private".into(),
                     "--ipc".into(),
                     "private".into(),
+                    bosn_core::LOW_CPU_PRIORITY_ARG.into(),
                 ];
                 for (key, value) in labels {
                     args.push("--label".into());

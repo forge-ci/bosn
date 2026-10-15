@@ -149,6 +149,7 @@ pub(super) fn helper_create_args(identity: &helper::Identity) -> Vec<String> {
     let mut args = owned(&[
         "create",
         "--rm",
+        bosn_core::LOW_CPU_PRIORITY_ARG,
         "--name",
         &identity.name,
         "--label",
@@ -195,6 +196,24 @@ mod tests {
     use super::*;
     use crate::ci::lifecycle::tests::{OWNER, with_registry};
     use bosn_registry::{Registry, cache_helper::CacheHelperState};
+
+    #[test]
+    fn the_helper_is_created_at_low_cpu_priority() {
+        let intent = bosn_registry::cache_helper::CacheHelperIntent {
+            registry_id: OWNER.into(),
+            nonce: "00000000-0000-4000-8000-000000000643".into(),
+            image: super::super::engine_image(),
+            volume: CACHE_VOLUME.into(),
+            created_at: 1.0,
+            role: Some(CacheHelperRole::MaintenanceV1),
+        };
+        let identity = helper::Identity::from_intent(&intent).unwrap();
+        let args = helper_create_args(&identity);
+        assert!(
+            args.iter()
+                .any(|arg| arg == bosn_core::LOW_CPU_PRIORITY_ARG)
+        );
+    }
 
     #[test]
     #[ignore = "requires isolated private Docker with verified act archive and cohort cache"]

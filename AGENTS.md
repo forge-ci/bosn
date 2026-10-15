@@ -285,6 +285,13 @@ Decided 2026-10-09.
   ignored so existing configs keep working. A run whose wanted engine differs
   from the machine's engine waits for it to drain (#544), never gets its own.
 
+## Low CPU priority (#643)
+
+Every container Bosn creates runs at `bosn_core::LOW_CPU_PRIORITY_ARG`
+(`--cpu-shares=256`, cgroup v2 `cpu.weight` about 10) so builds yield to the
+desktop under contention. CPU caps (`--cpus`) bound how much; the weight decides
+who wins. A new `docker create`/`run` site must pass the constant.
+
 ## CI engine architecture (#544, #547)
 
 Decided 2026-10-08. This replaces "one private nested engine per run."
