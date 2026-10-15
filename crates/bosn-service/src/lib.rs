@@ -58,6 +58,7 @@ pub mod autostart;
 pub mod capacity;
 pub mod ci;
 mod client;
+mod cpu_reweight;
 mod diagnostics;
 mod diagnostics_validate;
 mod dispatch;

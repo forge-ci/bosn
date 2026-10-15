@@ -757,6 +757,9 @@ impl DockerEngine {
     pub fn with_args(&self, args: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
         let mut next = self.clone();
         next.prefix.extend(args.into_iter().map(Into::into));
+        if next.binary.as_os_str() == "docker" {
+            cpu_priority::place(&mut next.prefix, placement());
+        }
         next
     }
     /// Set a Docker build/context directory without shell interpolation.
@@ -974,6 +977,8 @@ fn map_bounded(error: BoundedProcessError) -> CommandError {
     }
 }
 
+mod cpu_priority;
+pub use cpu_priority::{BOSN_SLICE, LOW_CPU_PRIORITY_ARG, Placement, placement};
 mod managed_reads;
 mod stdin_file;
 

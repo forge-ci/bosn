@@ -173,7 +173,7 @@ impl MachineEngine for DockerActBackend {
         Box::pin(async move {
             let mut args = owned(&[
                 "create",
-                bosn_core::LOW_CPU_PRIORITY_ARG,
+                bosn_engine::LOW_CPU_PRIORITY_ARG,
                 "--pull",
                 "never",
                 "--name",
