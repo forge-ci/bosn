@@ -186,6 +186,7 @@ mod daemon_jobs;
 mod guest;
 mod manifest_ensure;
 mod manifest_plan;
+mod manifest_task_containers;
 mod python_v4;
 mod reconcile_wire;
 mod setup_ensure;

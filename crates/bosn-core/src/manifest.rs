@@ -5,6 +5,9 @@ use std::fmt;
 
 use crate::{Retention, Scope};
 
+mod modes;
+pub use modes::{MountMode, OverlayUpper, VolumeMode};
+
 const RESERVED_PREFIX: &str = "/bosn/";
 const RESERVED_HEARTBEAT: &str = "/bosn-daemon/heartbeat";
 
@@ -56,6 +59,9 @@ pub struct Stack {
     /// containers a task of this stack starts through the host Docker socket
     /// (act's job containers). They do not change the stack's own container.
     pub job_caches: Vec<JobCache>,
+    /// `default_target_volume = false` opts out of the synthesized
+    /// `target` build-output volume under the source mount (#666).
+    pub default_target_volume: bool,
 }
 /// One cache mapping for a task's sibling containers; see `JobCache` docs in
 /// `docs/runners.md`.
@@ -79,13 +85,17 @@ pub struct Volume {
     pub scope: Scope,
     pub destination: Option<String>,
     pub retention: Retention,
+    /// Defaults by scope; see [`VolumeMode::default_for`].
+    pub mode: VolumeMode,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Mount {
     pub name: String,
     pub source: String,
     pub destination: String,
-    pub readonly: bool,
+    pub mode: MountMode,
+    /// Set only for `mode = "overlay"`.
+    pub upper: Option<OverlayUpper>,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Tmpfs {
@@ -105,6 +115,9 @@ pub struct Task {
     /// for this task and injects only its loopback URL as `GITHUB_API_URL`.
     /// The credential it uses never enters the container.
     pub github_api_proxy: bool,
+    /// `keep = true`: keep the long-lived container instead of an ephemeral
+    /// one per run (#666). Carried, not yet acted on.
+    pub keep: bool,
 }
 
 /// Secret names a manifest task may declare, and the environment variable
@@ -210,7 +223,7 @@ pub fn parse_manifest_toml(source: &str, roots: ManifestRoots) -> Result<Manifes
         let body = table_value(body, "task")?;
         reject_unknown(
             body,
-            &["stack", "cmd", "secrets", "github_api"],
+            &["stack", "cmd", "secrets", "github_api", "keep"],
             &format!("task.{name}"),
         )?;
         let secrets = parse_task_secrets(body, name)?;
@@ -223,6 +236,7 @@ pub fn parse_manifest_toml(source: &str, roots: ManifestRoots) -> Result<Manifes
                 ));
             }
         };
+        let keep = optional_bool(body, "keep", &format!("task.{name}"))?.unwrap_or(false);
         let cmd = required_string(body, "cmd", &format!("task.{name}"))?;
         if cmd.is_empty() {
             return err(format!("[task.{name}] must set `cmd`"));
@@ -252,6 +266,7 @@ pub fn parse_manifest_toml(source: &str, roots: ManifestRoots) -> Result<Manifes
                 cmd,
                 secrets,
                 github_api_proxy,
+                keep,
             },
         );
     }
@@ -283,6 +298,7 @@ fn parse_stack(
             "guest",
             "acknowledge_macos_license",
             "job_caches",
+            "default_target_volume",
         ],
         &where_,
     )?;
@@ -301,7 +317,7 @@ fn parse_stack(
         ));
     }
     let volumes = parse_volumes(name, optional_table(body, "volumes", &where_)?)?;
-    let mounts = parse_mounts(name, optional_table(body, "mounts", &where_)?)?;
+    let mounts = parse_mounts(name, optional_table(body, "mounts", &where_)?, &volumes)?;
     let tmpfs = parse_tmpfs(name, body.get("tmpfs"))?;
     duplicates(name, &volumes, &mounts, &tmpfs)?;
     let env = parse_env(name, optional_table(body, "env", &where_)?)?;
@@ -361,6 +377,8 @@ fn parse_stack(
         },
         acknowledge_macos_license,
         job_caches,
+        default_target_volume: optional_bool(body, "default_target_volume", &where_)?
+            .unwrap_or(true),
     })
 }
 
@@ -458,7 +476,7 @@ fn parse_volumes(
     raw.iter()
         .map(|(name, v)| {
             let t = table_value(v, "volume")?;
-            reject_unknown(t, &["scope", "destination", "retention"], "volume")?;
+            reject_unknown(t, &["scope", "destination", "retention", "mode"], "volume")?;
             if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
                 return err(format!(
                     "volume {name:?} must be a single safe path component"
@@ -481,6 +499,14 @@ fn parse_volumes(
                 "pinned" => Retention::Pinned,
                 other => return err(format!("volume {name:?} has unknown retention {other:?}")),
             };
+            let mode = match optional_string(t, "mode", "volume")? {
+                None => VolumeMode::default_for(scope),
+                Some(value) => VolumeMode::parse(&value).ok_or_else(|| {
+                    ManifestError(format!(
+                        "volume {name:?} `mode` must be exclusive or shared, not {value:?}"
+                    ))
+                })?,
+            };
             let destination = optional_string(t, "destination", "volume")?
                 .map(|d| destination(&d, "volume", name))
                 .transpose()?;
@@ -489,6 +515,7 @@ fn parse_volumes(
                 scope,
                 destination,
                 retention,
+                mode,
             })
         })
         .collect()
@@ -496,24 +523,82 @@ fn parse_volumes(
 fn parse_mounts(
     stack: &str,
     raw: &toml::map::Map<String, toml::Value>,
+    volumes: &[Volume],
 ) -> Result<Vec<Mount>, ManifestError> {
     raw.iter()
         .map(|(name, v)| {
             let t = table_value(v, "mount")?;
-            reject_unknown(t, &["source", "destination", "readonly"], "mount")?;
+            reject_unknown(
+                t,
+                &["source", "destination", "readonly", "mode", "upper"],
+                "mount",
+            )?;
             let source = required_string(t, "source", &format!("stack.{stack}.mounts.{name}"))?;
             if source.is_empty() {
                 return err(format!("mount {name:?} must set `source`"));
             }
             let dest = required_string(t, "destination", "mount")?;
+            let (mode, upper) = mount_mode(stack, name, t, volumes)?;
             Ok(Mount {
                 name: name.clone(),
                 source,
                 destination: destination(&dest, "mount", name)?,
-                readonly: optional_bool(t, "readonly", "mount")?.unwrap_or(false),
+                mode,
+                upper,
             })
         })
         .collect()
+}
+/// `mode` with its `readonly` alias, and `upper`, which only an overlay takes.
+fn mount_mode(
+    stack: &str,
+    name: &str,
+    t: &toml::map::Map<String, toml::Value>,
+    volumes: &[Volume],
+) -> Result<(MountMode, Option<OverlayUpper>), ManifestError> {
+    let where_ = format!("stack.{stack}.mounts.{name}");
+    let readonly = optional_bool(t, "readonly", &where_)?;
+    let mode = optional_string(t, "mode", &where_)?
+        .map(|value| {
+            MountMode::parse(&value).ok_or_else(|| {
+                ManifestError(format!(
+                    "[{where_}] `mode` must be rw, ro or overlay, not {value:?}"
+                ))
+            })
+        })
+        .transpose()?;
+    let mode = match (mode, readonly) {
+        (Some(mode), None) => mode,
+        (None, readonly) => {
+            if readonly == Some(true) {
+                MountMode::Ro
+            } else {
+                MountMode::Rw
+            }
+        }
+        (Some(mode), Some(readonly)) if (mode == MountMode::Ro) == readonly => mode,
+        (Some(mode), Some(readonly)) => {
+            return err(format!(
+                "[{where_}] `readonly = {readonly}` contradicts `mode = {:?}`",
+                mode.as_str()
+            ));
+        }
+    };
+    let upper = optional_string(t, "upper", &where_)?.map(|v| OverlayUpper::parse(&v));
+    match (&upper, mode) {
+        (Some(_), MountMode::Rw | MountMode::Ro) => err(format!(
+            "[{where_}] `upper` is valid only with mode = \"overlay\""
+        )),
+        (Some(OverlayUpper::Volume(volume)), MountMode::Overlay)
+            if !volumes.iter().any(|v| &v.name == volume) =>
+        {
+            err(format!(
+                "[{where_}] `upper` names {volume:?}, which is not a volume of this stack"
+            ))
+        }
+        (None, MountMode::Overlay) => Ok((mode, Some(OverlayUpper::Tmpfs))),
+        _ => Ok((mode, upper)),
+    }
 }
 fn parse_tmpfs(stack: &str, raw: Option<&toml::Value>) -> Result<Vec<Tmpfs>, ManifestError> {
     let Some(raw) = raw else { return Ok(vec![]) };

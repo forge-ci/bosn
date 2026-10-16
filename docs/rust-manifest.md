@@ -15,6 +15,19 @@ the macOS guest declaration including explicit license acknowledgement. Digestin
 COPY context, remote assets, setup-document inline Dockerfiles/companions, cache/apply, and all
 filesystem/process work are intentionally deferred.
 
+### Task-container keys (#666)
+
+These keys are parsed into typed values; slice 1 of #666 carries them into
+the plan, and later slices act on them.
+
+| Key | Values | Default | Notes |
+| --- | --- | --- | --- |
+| `[stack.X.mounts.NAME] mode` | `"rw"`, `"ro"`, `"overlay"` (`MountMode`) | `"rw"` | `readonly = true` is an alias for `"ro"`; both given and disagreeing is an error. |
+| `[stack.X.mounts.NAME] upper` | `"tmpfs"` or the name of a volume of this stack (`OverlayUpper`) | `"tmpfs"` for an overlay | Valid only with `mode = "overlay"`; a named upper must be a declared `[stack.X.volumes]` entry. |
+| `[stack.X.volumes.NAME] mode` | `"exclusive"`, `"shared"` (`VolumeMode`) | `exclusive` for `scope = "spec"`/`"stack"`, `shared` for `"machine"` | Whether runs of different names may mount the volume at once. |
+| `[stack.X] default_target_volume` | boolean | `true` | `false` suppresses the synthesized `target` build-output volume. |
+| `[task.X] keep` | boolean | `false` | `true` keeps today's long-lived container instead of an ephemeral one per run. |
+
 Machine policy precedence is explicit: defaults (with a supplied CPU observation) < supplied
 machine file TOML < supplied environment values < supplied CLI values. `MachinePolicy` remains
 immutable when `resolve_app_policy` derives an `AppPolicy`; the latter exposes the original
