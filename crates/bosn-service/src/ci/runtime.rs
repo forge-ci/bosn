@@ -33,6 +33,7 @@ mod cancel;
 mod capacity;
 mod cleanup;
 mod dispatch;
+mod github;
 mod observer;
 mod owners;
 mod persist;
@@ -674,6 +675,7 @@ impl CiRuntime {
             parser: ActParser::default(),
             job: record.job.clone(),
             masker: SecretMasker::new(Vec::<String>::new()),
+            proxy_logs: None,
             seq: 0,
             last_publish: Instant::now(),
         };
@@ -760,6 +762,7 @@ impl CiRuntime {
         observer: &mut RunObserver,
     ) -> Result<EngineReport, String> {
         self.localize_checkouts(record, observer);
+        let github = self.start_github(record, observer).await?;
         let deadline = async_engine::Deadline::after(Duration::from_secs(record.timeout_secs));
         let planned = self.plan(record, deadline);
         let Ok(plan) = async_engine::timeout_at(deadline, planned).await else {
@@ -772,8 +775,8 @@ impl CiRuntime {
                 storage: None,
             });
         };
-        let plan = plan?;
-        observer.masker = SecretMasker::new(plan.invocation.secrets.0.iter().map(|(_, v)| v));
+        let plan = github::with_github(plan?, github);
+        observer.masker = SecretMasker::new(github::masked(&plan));
         observer.note(&format!(
             "run {} sha {}{}{} workflow {} trigger {} mode {} actor {}",
             record.id,

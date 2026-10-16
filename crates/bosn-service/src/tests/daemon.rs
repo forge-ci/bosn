@@ -937,6 +937,10 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // client ignores it, so no bump.
 // #642 changed only `ci/model.rs` parsing: an unsupported job now fills the
 // existing optional `reason`. No serialized type changed, so no bump.
+// #650 added the optional `github_proxy` to the CI submit request and run
+// record. An older daemon refuses the field (`deny_unknown_fields`), so a
+// client never silently loses the opt-in; an older client omits it and older
+// records read as no proxy. Additive, so no bump.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
     "a44ee2a81de40350d9334bf085f85bb948251935c5c47c3f8d864b653a01e2d6",

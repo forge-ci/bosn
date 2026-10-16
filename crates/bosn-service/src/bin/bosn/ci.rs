@@ -10,6 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use bosn_service::github_ci_policy::GithubWrites;
 use bosn_service::{
     Client,
     ci::{
@@ -26,7 +27,7 @@ use crate::stop_signal::{StopRequest, StopSignals};
 
 pub const USAGE: &str = "usage: bosn ci plan [--workspace P] [--provider github] [--workflow F] [--job J] [--trigger pr|push|release | --event workflow_dispatch|workflow_call] [--input K=V]... [--matrix K:V]... [--env K=V]... [--ci-output JOB/PATH:OUTPUT]... [--mode minimal|test|full] [--sha S] [--json]
    or: bosn ci plan --adapter RELATIVE_JSON --workspace P --event pull_request|push|release --mode minimal|test|full --sha 40_HEX --repo-owner O --repo-name N [--base-sha S] [--pr-number N --head-owner O --head-name N --head-ref R --base-ref R --author-login L] [--json]  (fleet adapter V1 plan, JSON on stdout)
-   or: bosn ci run <plan options> [--engine act] [--pr-number N] [--timeout-secs N] [--github-token] [--deadline-ms N | --detach] [--json]
+   or: bosn ci run <plan options> [--engine act] [--pr-number N] [--timeout-secs N] [--github-token | --github-proxy [--github-writes=off|dry-run|on]] [--deadline-ms N | --detach] [--json]
        (waits for the run, which lives only as long as this command: Ctrl-C, a termination or its death cancels it; --detach queues it and returns)
    or: bosn ci list [--workspace P] [--state queued|running|done] [--limit N] [--json]
    or: bosn ci show RUN [--json]
@@ -79,10 +80,20 @@ impl Flags {
         let mut arguments = arguments.map(|a| a.into_string().map_err(|_| "non-UTF-8 argument"));
         while let Some(argument) = arguments.next() {
             let argument = argument?;
+            // `--flag=value` is `--flag value`.
+            let (argument, inline) = match argument.split_once('=') {
+                Some((name, value)) if name.starts_with("--") && valued.contains(&name) => {
+                    (name.to_owned(), Some(value.to_owned()))
+                }
+                _ => (argument, None),
+            };
             if let Some(flag) = valued.iter().find(|f| **f == argument) {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| format!("{flag} needs a value"))??;
+                let value = match inline {
+                    Some(value) => value,
+                    None => arguments
+                        .next()
+                        .ok_or_else(|| format!("{flag} needs a value"))??,
+                };
                 if REPEATABLE.contains(flag) {
                     flags.repeated.entry(flag).or_default().push(value);
                 } else if flags.values.insert(flag, value).is_some() {
@@ -151,6 +162,7 @@ const PLAN_FLAGS: &[&str] = &[
     "--pr-title",
     "--timeout-secs",
     "--deadline-ms",
+    "--github-writes",
 ];
 
 const EXIT_ERROR: i32 = 1;
@@ -267,9 +279,23 @@ fn submit_options(flags: &Flags) -> Result<SubmitOptions, Failure> {
         } else {
             Vec::new()
         },
+        github_proxy: github_proxy(flags)?,
         params: params(flags)?,
         detach: flags.has("--detach"),
     })
+}
+
+/// `--github-proxy [--github-writes=off|dry-run|on]` (#650).
+fn github_proxy(flags: &Flags) -> Result<Option<GithubWrites>, String> {
+    let writes = flags
+        .get("--github-writes")
+        .map(GithubWrites::parse)
+        .transpose()?;
+    match (flags.has("--github-proxy"), writes) {
+        (true, writes) => Ok(Some(writes.unwrap_or_default())),
+        (false, None) => Ok(None),
+        (false, Some(_)) => Err("--github-writes needs --github-proxy".into()),
+    }
 }
 
 /// A runtime and a client whose daemon is known to be running.
@@ -337,7 +363,7 @@ fn plan(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
     let flags = Flags::parse(
         arguments.into_iter(),
         PLAN_FLAGS,
-        &["--json", "--github-token"],
+        &["--json", "--github-token", "--github-proxy"],
     )?;
     let plan = bosn_service::ci::plan(&submit_options(&flags)?).map_err(describe)?;
     print(&plan, flags.json(), |p| {
@@ -356,7 +382,7 @@ fn plan(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
 
 /// Switches of the verbs that submit a run. `--wait` is the default and
 /// accepted for older callers.
-const SUBMIT_SWITCHES: &[&str] = &["--json", "--wait", "--detach", "--github-token"];
+const SUBMIT_SWITCHES: &[&str] = &["--json", "--wait", "--detach", "--github-token", "--github-proxy"];
 
 fn submit(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
     let flags = Flags::parse(arguments, PLAN_FLAGS, SUBMIT_SWITCHES)?;
