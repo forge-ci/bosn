@@ -1,4 +1,4 @@
-//! Session recorders and request digests used by the job actor.
+//! Session recorders, request digests and the client-gone sweep used by the job actor.
 
 use super::*;
 
@@ -257,4 +257,27 @@ pub(crate) fn manifest_app_task_digest(request: &ManifestAppTaskJobRequest) -> S
         "manifest:{}",
         kernal_api::hash::blake3_bytes(&material).to_hex()
     )
+}
+
+/// Unfinished jobs whose client is gone, each with the log line that says
+/// why it is cancelled. Leases are checked on every command (a map scan, no
+/// timer), so a lapsed follower's queued job is cancelled before a slot it was
+/// waiting for is handed to it. Owners are looked up in the process table once
+/// per `sweep`: a dead client's jobs end within one sweep interval.
+pub(crate) fn clients_gone(jobs: &mut Jobs, sweep: bool) -> Vec<(u64, String)> {
+    let mut gone: Vec<(u64, String)> = if sweep {
+        jobs.orphaned(ClientOwner::liveness)
+            .into_iter()
+            .map(|(id, pids)| (id, format!("[bosn] {}", owner::orphaned_message(&pids))))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    for id in jobs.expired_leases(Instant::now()) {
+        if gone.iter().all(|(gone, _)| *gone != id) {
+            let line = "[bosn] cancelling: the client following this job stopped polling (it exited or was killed)";
+            gone.push((id, line.into()));
+        }
+    }
+    gone
 }

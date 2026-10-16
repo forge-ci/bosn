@@ -68,16 +68,10 @@ pub(crate) async fn job_actor(
                 .await;
             }
         }
-        // Leases are checked on every command (a map scan, no timer), so a
-        // lapsed follower's queued job is cancelled before a slot it was
-        // waiting for is handed to it.
         if stopping.is_none() {
-            for id in jobs.expired_leases(Instant::now()) {
-                let _ = jobs.log(
-                    id,
-                    "[bosn] cancelling: the client following this job stopped polling (it exited or was killed)"
-                        .into(),
-                );
+            for (id, line) in clients_gone(&mut jobs, sweep) {
+                eprintln!("bosn: job {id} {}", &line[7..]);
+                let _ = jobs.log(id, line);
                 let _ = cancel_job_in_actor(
                     id,
                     &mut jobs,
@@ -316,7 +310,11 @@ pub(crate) async fn job_actor(
                     registry.clone(),
                 );
             }
-            JobCommand::SubmitManifestEnsure { request, reply } => {
+            JobCommand::SubmitManifestEnsure {
+                request,
+                owner,
+                reply,
+            } => {
                 let digest = manifest_ensure_digest(&request);
                 let workspace = request.workspace.to_string_lossy().into_owned();
                 let job_stack = format!("manifest-ensure:{}", request.stack);
@@ -325,16 +323,19 @@ pub(crate) async fn job_actor(
                     .map(|submission| match submission {
                         Submission::Started(id) | Submission::Queued(id) => {
                             requests.insert(id, SetupJobRequest::ManifestEnsure(request));
-                            id
+                            (id, true)
                         }
-                        Submission::Joined(id) => id,
+                        Submission::Joined(id) => (id, false),
                         Submission::Superseded { replacement, .. } => {
                             requests.insert(replacement, SetupJobRequest::ManifestEnsure(request));
-                            replacement
+                            (replacement, true)
                         }
                     })
                     .map_err(|_| Error::Protocol("manifest ensure job admission"));
-                let _ = reply.send(result);
+                if let Ok((id, created)) = &result {
+                    jobs.own(*id, owner, *created);
+                }
+                let _ = reply.send(result.map(|(id, _)| id));
                 launch_started_setup_jobs(
                     &mut jobs,
                     &mut requests,
@@ -382,6 +383,7 @@ pub(crate) async fn job_actor(
             JobCommand::SubmitManifestAppTask {
                 request,
                 follow_lease,
+                owner,
                 reply,
             } => {
                 let digest = manifest_app_task_digest(&request);
@@ -406,6 +408,9 @@ pub(crate) async fn job_actor(
                 // that job depend on this follower staying alive.
                 if let (Ok((id, true)), Some(period)) = (&result, follow_lease) {
                     jobs.lease(*id, period, Instant::now());
+                }
+                if let Ok((id, created)) = &result {
+                    jobs.own(*id, owner, *created);
                 }
                 let _ = reply.send(result.map(|(id, _)| id));
                 launch_started_setup_jobs(

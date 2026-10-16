@@ -45,6 +45,8 @@ pub(crate) enum JobCommand {
     },
     SubmitManifestEnsure {
         request: ManifestEnsureJobRequest,
+        /// The client process that keeps the job alive; `None` is detached.
+        owner: Option<ClientOwner>,
         reply: async_engine::OneshotSender<Result<u64, Error>>,
     },
     SubmitManifestConverge {
@@ -56,6 +58,8 @@ pub(crate) enum JobCommand {
         /// Cancel the job once no status/log poll arrives for this long
         /// (#357). `None` keeps the job running to its deadline.
         follow_lease: Option<Duration>,
+        /// The client process that keeps the job alive; `None` is detached.
+        owner: Option<ClientOwner>,
         reply: async_engine::OneshotSender<Result<u64, Error>>,
     },
     /// The job actor, rather than an executor task, owns the transition from
@@ -295,10 +299,15 @@ impl JobActor {
     pub(crate) async fn submit_manifest_ensure(
         &self,
         request: ManifestEnsureJobRequest,
+        owner: Option<ClientOwner>,
     ) -> Result<u64, Error> {
         let (reply, wait) = async_engine::oneshot_channel();
         self.sender
-            .send(JobCommand::SubmitManifestEnsure { request, reply })
+            .send(JobCommand::SubmitManifestEnsure {
+                request,
+                owner,
+                reply,
+            })
             .await
             .map_err(|_| Error::ActorClosed)?;
         wait.await.map_err(|_| Error::ActorClosed)?
@@ -318,12 +327,14 @@ impl JobActor {
         &self,
         request: ManifestAppTaskJobRequest,
         follow_lease: Option<Duration>,
+        owner: Option<ClientOwner>,
     ) -> Result<u64, Error> {
         let (reply, wait) = async_engine::oneshot_channel();
         self.sender
             .send(JobCommand::SubmitManifestAppTask {
                 request,
                 follow_lease,
+                owner,
                 reply,
             })
             .await

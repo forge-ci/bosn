@@ -631,6 +631,15 @@ pub(crate) struct Request {
     /// that predates the window; the daemon serves it as before.
     #[prost(uint32, tag = "29")]
     pub(crate) client_protocol: u32,
+    /// Work submissions only: the PID of the client that owns the work, or
+    /// zero for detached work. The daemon cancels owned work once its every
+    /// owner has exited ([`crate::ClientOwner`]).
+    #[prost(uint32, tag = "30")]
+    pub(crate) owner_pid: u32,
+    /// The host's native creation key for `owner_pid` (two words), which
+    /// tells the owner from a later process that reuses its PID.
+    #[prost(uint64, repeated, tag = "31")]
+    pub(crate) owner_created: Vec<u64>,
 }
 impl Request {
     pub(crate) fn operation(operation: u32) -> Self {
@@ -664,6 +673,21 @@ impl Request {
             owned_max_bytes: 0,
             owned_confirm: false,
             client_protocol: DAEMON_PROTOCOL,
+            owner_pid: 0,
+            owner_created: Vec::new(),
         }
+    }
+    /// Stamp the owner of the work this request submits.
+    pub(crate) fn owned_by(self, owner: Option<ClientOwner>) -> Self {
+        let (owner_pid, owner_created) = ClientOwner::to_wire(owner);
+        Self {
+            owner_pid,
+            owner_created,
+            ..self
+        }
+    }
+    /// The owner this request names, parsed eagerly.
+    pub(crate) fn owner(&self) -> Result<Option<ClientOwner>, Error> {
+        ClientOwner::from_wire(self.owner_pid, &self.owner_created)
     }
 }

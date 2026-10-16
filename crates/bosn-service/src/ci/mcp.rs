@@ -38,7 +38,12 @@ pub trait CiBackend {
     fn ci_show(&mut self, run: String, tree: bool) -> Result<RunView, Error>;
     fn ci_logs(&mut self, query: LogsQuery) -> Result<super::LogsReply, Error>;
     fn ci_cancel(&mut self, run: String) -> Result<super::CancelReply, Error>;
-    fn ci_retry(&mut self, run: String, job: Option<String>) -> Result<super::SubmitReply, Error>;
+    fn ci_retry(
+        &mut self,
+        run: String,
+        job: Option<String>,
+        detach: bool,
+    ) -> Result<super::SubmitReply, Error>;
     fn ci_report(&mut self, run: String, tail: Option<usize>) -> Result<super::RunReport, Error>;
     fn ci_runners(&mut self, action: RunnerAction) -> Result<super::RunnersReply, Error>;
 }
@@ -75,8 +80,13 @@ impl CiBackend for ClientCi<'_> {
     fn ci_cancel(&mut self, run: String) -> Result<super::CancelReply, Error> {
         self.runtime.run(self.client.ci_cancel(run))
     }
-    fn ci_retry(&mut self, run: String, job: Option<String>) -> Result<super::SubmitReply, Error> {
-        self.runtime.run(self.client.ci_retry(run, job))
+    fn ci_retry(
+        &mut self,
+        run: String,
+        job: Option<String>,
+        detach: bool,
+    ) -> Result<super::SubmitReply, Error> {
+        self.runtime.run(self.client.ci_retry(run, job, detach))
     }
     fn ci_report(&mut self, run: String, tail: Option<usize>) -> Result<super::RunReport, Error> {
         self.runtime.run(self.client.ci_report(run, tail))
@@ -109,7 +119,12 @@ impl CiBackend for Offline {
     fn ci_cancel(&mut self, _: String) -> Result<super::CancelReply, Error> {
         Err(Error::ActorClosed)
     }
-    fn ci_retry(&mut self, _: String, _: Option<String>) -> Result<super::SubmitReply, Error> {
+    fn ci_retry(
+        &mut self,
+        _: String,
+        _: Option<String>,
+        _: bool,
+    ) -> Result<super::SubmitReply, Error> {
         Err(Error::ActorClosed)
     }
     fn ci_report(&mut self, _: String, _: Option<usize>) -> Result<super::RunReport, Error> {
@@ -145,6 +160,9 @@ struct RunArgs {
     env: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     ci_outputs: std::collections::BTreeSet<super::params::OutputSelector>,
+    /// Let the run outlive this MCP server (see [`SubmitOptions::detach`]).
+    #[serde(default)]
+    detach: bool,
 }
 impl RunArgs {
     fn options(self) -> SubmitOptions {
@@ -172,6 +190,7 @@ impl RunArgs {
             } else {
                 Vec::new()
             },
+            detach: self.detach,
         }
     }
 }
@@ -222,6 +241,8 @@ struct WaitArgs {
 struct RetryArgs {
     run: String,
     job: Option<String>,
+    #[serde(default)]
+    detach: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -304,7 +325,7 @@ pub fn call(
             .and_then(|a| backend.ci_cancel(a.run).map_err(daemon))
             .and_then(|reply| bounded(&reply)),
         "bosn_ci_retry" => parse::<RetryArgs>(arguments)
-            .and_then(|a| backend.ci_retry(a.run, a.job).map_err(daemon))
+            .and_then(|a| backend.ci_retry(a.run, a.job, a.detach).map_err(daemon))
             .and_then(|reply| bounded(&reply)),
         "bosn_ci_report" => parse::<ReportArgs>(arguments)
             .and_then(|a| {
@@ -338,6 +359,8 @@ fn wait(backend: &mut dyn CiBackend, run: String, deadline: Duration) -> Result<
     }
 }
 
+const DETACH_DESCRIPTION: &str = "Let the run outlive this MCP server. By default the daemon cancels it, removing its containers, once the server exits.";
+
 fn run_schema() -> Value {
     json!({
         "type": "object",
@@ -356,7 +379,8 @@ fn run_schema() -> Value {
             "github_token": {"type": "boolean", "description": "Pass the daemon-owned github_token to the workflow."},
             "inputs": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Workflow inputs (trigger workflow_dispatch or workflow_call)."},
             "matrix": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Run only the matrix legs whose key has this value (act --matrix K:V)."},
-            "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra job environment (act --env K=V); never a secret."}
+            "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra job environment (act --env K=V); never a secret."},
+            "detach": {"type": "boolean", "description": DETACH_DESCRIPTION}
         }
     })
 }
@@ -385,7 +409,7 @@ pub fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "bosn_ci_run",
-            "description": "Snapshot the checkout (uncommitted work included) and queue a local CI run on a daemon-owned isolated engine. Returns a durable run ID at once; identical submissions share one run. Follow with bosn_ci_wait / bosn_ci_logs / bosn_ci_report.",
+            "description": "Snapshot the checkout (uncommitted work included) and queue a local CI run on a daemon-owned isolated engine. Returns the run ID at once; identical submissions share one run. The run lives only as long as this MCP server (the daemon cancels it when the server exits) unless `detach` is true. Follow with bosn_ci_wait / bosn_ci_logs / bosn_ci_report.",
             "inputSchema": run_schema(),
             "annotations": annotations(false, false),
         }),
@@ -435,7 +459,10 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "bosn_ci_retry",
             "description": "Run a finished run again from its frozen source snapshot (the same commit and uncommitted work), optionally only one `job`. Returns the new run, which records `retry_of`.",
-            "inputSchema": run_ref_schema(json!({"job": {"type": "string", "description": "Job ID to rerun alone (from bosn_ci_report)."}})),
+            "inputSchema": run_ref_schema(json!({
+                "job": {"type": "string", "description": "Job ID to rerun alone (from bosn_ci_report)."},
+                "detach": {"type": "boolean", "description": DETACH_DESCRIPTION}
+            })),
             "annotations": annotations(false, false),
         }),
         json!({
@@ -545,7 +572,12 @@ mod tests {
                 state: RunState::Done,
             })
         }
-        fn ci_retry(&mut self, run: String, job: Option<String>) -> Result<SubmitReply, Error> {
+        fn ci_retry(
+            &mut self,
+            run: String,
+            job: Option<String>,
+            _detach: bool,
+        ) -> Result<SubmitReply, Error> {
             self.calls.push(format!("retry {run} {job:?}"));
             Ok(SubmitReply {
                 run: "r2".into(),

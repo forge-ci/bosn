@@ -917,9 +917,13 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // dispatcher and zero recoveries; an older client ignores them), so no bump.
 // #500 changed only `ci/model.rs` parsing and moved its tests out; no
 // serialized type changed.
+// Client-owned work (2026-10-16) added request tags 30-31 (the owner's PID and
+// creation key) and the `release` CI operation, without a bump: an older
+// daemon ignores the owner fields (its work stays unowned, as before) and
+// refuses the unknown op, which the client treats as "nothing released".
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "d88cd1921459d0ba68bfbbdc9fe7b0ff82bca8074ff9c6331df77f51cf31cc0a",
+    "7e3451e67bfbbf172bb177adfbae9b5e2d78ed69b4538e9677eef22976219399",
 );
 
 #[test]

@@ -211,6 +211,12 @@ pub enum CiRequest {
     Cancel {
         run: String,
     },
+    /// The submitting client is exiting: cancel the run unless another
+    /// owner still holds it. The owner is the request's own (see
+    /// [`crate::ClientOwner`]); detached runs are never released.
+    Release {
+        run: String,
+    },
     Retry {
         run: String,
         job: Option<String>,

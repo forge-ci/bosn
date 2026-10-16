@@ -68,6 +68,8 @@ mod secret;
 mod setup;
 #[path = "bosn/setup_args.rs"]
 mod setup_args;
+#[path = "bosn/stop_signal.rs"]
+mod stop_signal;
 #[path = "bosn/version_check.rs"]
 mod version_check;
 #[path = "bosn/widget.rs"]

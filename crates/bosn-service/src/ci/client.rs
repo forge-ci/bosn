@@ -34,6 +34,9 @@ pub struct SubmitOptions {
     pub secrets: Vec<String>,
     /// Workflow inputs, a matrix filter and extra env (#430).
     pub params: RunParams,
+    /// Let the run outlive this process. Otherwise the submitting process
+    /// owns it, and the daemon cancels it once that process exits.
+    pub detach: bool,
 }
 
 /// Who is submitting: `BOSN_CI_ACTOR`, else an agent session when running
