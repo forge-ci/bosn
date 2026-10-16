@@ -416,6 +416,18 @@ volumes that are proven ours, unmounted, unpinned and idle for at least
 only shortens the age gate. Ownership, liveness and pin gates still apply, and
 the pre-removal re-check repeats them.
 
+**Disk pressure zeroes the budget** (decided 2026-10-16, #658). An absolute budget
+still held 64 GiB of idle volumes on a 96%-full host. When the filesystem under
+Docker's data root (`docker info` `DockerRootDir`, measured by statvfs) has less
+than 15% (`PRESSURE_FREE_PERCENT`) or less than 100 GiB (`PRESSURE_FREE_BYTES`)
+free, the maintenance pass uses `RetentionPolicy::under_disk_pressure`: idle
+volume budget 0 and a 1 h stopped-container gate (`PRESSURE_CONTAINER_TTL`,
+also used for idle keepalives). The 1 h volume floor and every ownership,
+liveness and pin gate, and the re-check, are unchanged. The probe lives in the
+service (`managed_retention/pressure.rs`); the planner only gets the policy. A
+root the daemon cannot stat is no pressure, logged once. The pass logs
+`bosn retention: disk pressure (X GiB free, Y%); idle volume budget 0`.
+
 ## Shared CI cache budget (#544)
 
 Decided 2026-10-10, moved behind act2 the same day (#547 step 4). While no

@@ -943,6 +943,7 @@ pub(crate) mod catalog;
 pub use catalog::{Release, labelled_registries, release_registry};
 mod idle;
 mod images;
+mod pressure;
 mod registered;
 mod running;
 mod sizes;

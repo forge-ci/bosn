@@ -16,11 +16,14 @@ use crate::diagnostics::ManagedRetentionSummary;
 /// pass still reads the engine and reports what it would remove. Every removal keeps the
 /// ownership, liveness, pin and age gates in [`super::managed_retention_pass`].
 pub fn maintenance_pass(state_dir: &Path) {
-    let outcome = maintenance_pass_with(
-        &DockerEngine::docker(),
-        state_dir,
+    let engine = DockerEngine::docker();
+    // #658: on a disk under pressure the idle volume budget is zero and the stopped-container
+    // gate is shorter. The probe stays here; the planner only sees the resulting policy.
+    let policy = super::pressure::policy_for_disk(
         RetentionPolicy::default(),
+        super::pressure::docker_root_disk(&engine),
     );
+    let outcome = maintenance_pass_with(&engine, state_dir, policy);
     // One timestamped line per pass, so `<state>/daemon.log` shows that passes run (#545).
     let summary = &outcome.retention.summary;
     eprintln!(

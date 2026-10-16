@@ -270,7 +270,7 @@ pub struct PressureReport {
 /// The Docker root directory, or `None` when the engine will not say.
 ///
 /// Pressure is only reported when the root is known. An unreadable root is not pressure.
-fn docker_root_dir(engine: &DockerEngine) -> Option<std::path::PathBuf> {
+pub(crate) fn docker_root_dir(engine: &DockerEngine) -> Option<std::path::PathBuf> {
     let options = RunOptions::bounded(CENSUS_READ_DEADLINE, CENSUS_READ_OUTPUT_LIMIT);
     let text = match engine
         .with_args(["info", "--format", "{{.DockerRootDir}}"])
