@@ -7,10 +7,9 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends git libatomic1 build-essential pkg-config libssl-dev liblzma-dev patchelf nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Bootstrap only reviewed binary wheels; source builds use the repository's
-# rust-toolchain.toml through this pinned Soldr front door.
-RUN printf '%s\n' 'soldr==0.9.27 --hash=sha256:c9195b0ed390b4d4df16975c12a7e5c2fc5bd68c87ed6c86c5ba04284a27f538 --hash=sha256:9e6993f988e0ab073c031d473c9427c6a98c9221f1f6e16d63ce3b09b5a96640' > /tmp/soldr-bootstrap.txt \
-    && uv pip install --system --require-hashes --only-binary=:all: -r /tmp/soldr-bootstrap.txt
+# Bootstrap the latest Soldr binary wheel; source builds use the repository's
+# rust-toolchain.toml through this Soldr front door. Never pin an old Soldr.
+RUN uv pip install --system --only-binary=:all: soldr
 
 ENV UV_PROJECT_ENVIRONMENT=/venv \
     UV_CACHE_DIR=/root/.cache/uv \

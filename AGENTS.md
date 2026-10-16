@@ -226,8 +226,8 @@ repository and session on the machine: a pinned install downgrades all of
 them, and an old Soldr daemon can take over `~/.soldr` and lock newer daemons
 out until it is killed. Use the latest release (`uv tool install soldr`, or
 `uv tool upgrade soldr`). CI pins its own Soldr through `zackees/setup-soldr`,
-and `docker/test.Dockerfile` pins one inside the container; neither touches
-the host.
+and `docker/test.Dockerfile` installs the latest one inside the container;
+neither touches the host.
 
 ## Daemon version contract (#509, #324)
 
