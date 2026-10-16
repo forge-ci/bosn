@@ -475,3 +475,84 @@ fn a_promoted_volume_passes_the_recheck_but_a_young_one_does_not() {
         Some(HoldReason::InUse)
     );
 }
+
+fn disk(free_gib: u64, total_gib: u64) -> DiskSpace {
+    let gib = 1024 * 1024 * 1024;
+    DiskSpace {
+        free_bytes: free_gib * gib,
+        total_bytes: total_gib * gib,
+    }
+}
+
+/// #658: the development host at 96% full (83 GB free of 1.8 TB) is under pressure; a roomy
+/// disk is not; either threshold alone is enough; an empty report proves nothing.
+#[test]
+fn disk_pressure_is_low_fraction_or_low_bytes() {
+    assert!(disk(77, 1676).under_pressure(), "the 96%-full host");
+    assert!(!disk(800, 1676).under_pressure());
+    assert!(disk(150, 2048).under_pressure(), "under 15%");
+    assert!(disk(90, 200).under_pressure(), "under 100 GiB");
+    assert!(!disk(120, 200).under_pressure());
+    assert!(!disk(0, 0).under_pressure());
+    assert!((disk(15, 100).free_percent() - 15.0).abs() < 1e-9);
+}
+
+#[test]
+fn without_pressure_the_policy_is_unchanged() {
+    let policy = RetentionPolicy::default();
+    assert_eq!(policy.for_disk(None), policy);
+    assert_eq!(policy.for_disk(Some(disk(800, 1676))), policy);
+}
+
+/// #658: on a full disk the idle budget is zero, so all idle volumes past the 1 h floor go,
+/// while mounted, pinned and too-young ones still stay.
+#[test]
+fn under_pressure_every_idle_volume_past_the_floor_is_reclaimed() {
+    let artifacts = vec![
+        idle_volume("v-2h", 2.0, 1, false, false),
+        idle_volume("v-3h", 3.0, 1, false, false),
+        idle_volume("v-young", 0.5, 1, false, false),
+        idle_volume("v-pinned", 100.0, 1, false, true),
+        idle_volume("v-mounted", 100.0, 1, true, false),
+    ];
+    let calm = plan_managed(&artifacts, Some(REGISTRY), RetentionPolicy::default());
+    assert!(calm.candidates.is_empty(), "2 GiB fits the default budget");
+
+    let policy = RetentionPolicy::default().for_disk(Some(disk(77, 1676)));
+    assert_eq!(policy.idle_volume_budget, Some(0));
+    let plan = plan_managed(&artifacts, Some(REGISTRY), policy);
+    let ids: Vec<&str> = plan.candidates.iter().map(|v| v.id.as_str()).collect();
+    assert_eq!(ids, ["v-3h", "v-2h"]);
+    let held = plan.held_counts();
+    assert_eq!(held.get(&HoldReason::Pinned), Some(&1));
+    assert_eq!(held.get(&HoldReason::InUse), Some(&1));
+    assert_eq!(held.get(&HoldReason::WithinTtl), Some(&1));
+
+    let recheck = policy.recheck_gates();
+    let young = idle_volume("v", 0.5, 1, false, false);
+    assert_eq!(
+        classify_managed(&young, Some(REGISTRY), recheck).hold,
+        Some(HoldReason::WithinTtl)
+    );
+}
+
+#[test]
+fn under_pressure_stopped_containers_use_the_shorter_gate() {
+    let two_hours = artifact("c", ResourceKind::Container, Some(7200.0), false, &[]);
+    let running = artifact("r", ResourceKind::Container, Some(7200.0), true, &[]);
+    let calm = RetentionPolicy::default();
+    assert_eq!(
+        classify_managed(&two_hours, Some(REGISTRY), calm).hold,
+        Some(HoldReason::WithinTtl)
+    );
+    let pressured = calm.under_disk_pressure();
+    assert_eq!(pressured.container_ttl, PRESSURE_CONTAINER_TTL);
+    assert_eq!(
+        classify_managed(&two_hours, Some(REGISTRY), pressured).hold,
+        None
+    );
+    assert_eq!(
+        classify_managed(&running, Some(REGISTRY), pressured).hold,
+        Some(HoldReason::InUse)
+    );
+}

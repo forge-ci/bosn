@@ -63,6 +63,60 @@ pub const DEFAULT_IDLE_VOLUME_BUDGET: i128 = 64 * 1024 * 1024 * 1024;
 /// stop/start cycle is never taken.
 pub const DEFAULT_IDLE_VOLUME_FLOOR: Duration = Duration::from_secs(3600);
 
+/// Disk pressure (#658): free space under Docker's data root below this percentage of the
+/// filesystem.
+pub const PRESSURE_FREE_PERCENT: u64 = 15;
+
+/// Disk pressure (#658): free space under Docker's data root below this many bytes, whatever the
+/// filesystem's size.
+pub const PRESSURE_FREE_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+
+/// The stopped-container gate under disk pressure (#658), so stopped setup containers stop
+/// pinning volumes the zero budget could otherwise reclaim.
+pub const PRESSURE_CONTAINER_TTL: Duration = Duration::from_secs(3600);
+
+/// Free and total bytes of the filesystem holding Docker's data root, as measured by the caller.
+/// The planner never measures it: the service probes and passes a pressured policy in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DiskSpace {
+    pub free_bytes: u64,
+    pub total_bytes: u64,
+}
+
+impl DiskSpace {
+    /// Free below [`PRESSURE_FREE_PERCENT`] of the filesystem, or below [`PRESSURE_FREE_BYTES`].
+    /// An empty filesystem report is not evidence of pressure.
+    #[must_use]
+    pub fn under_pressure(self) -> bool {
+        if self.total_bytes == 0 {
+            return false;
+        }
+        let low_fraction = u128::from(self.free_bytes) * 100
+            < u128::from(self.total_bytes) * u128::from(PRESSURE_FREE_PERCENT);
+        low_fraction || self.free_bytes < PRESSURE_FREE_BYTES
+    }
+
+    /// Free space as a percentage of the filesystem, for the log line.
+    #[must_use]
+    pub fn free_percent(self) -> f64 {
+        if self.total_bytes == 0 {
+            return 0.0;
+        }
+        // Precision loss is irrelevant for a log percentage.
+        #[allow(clippy::cast_precision_loss)]
+        let percent = self.free_bytes as f64 * 100.0 / self.total_bytes as f64;
+        percent
+    }
+
+    /// Free space in GiB, for the log line.
+    #[must_use]
+    pub fn free_gib(self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        let gib = self.free_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+        gib
+    }
+}
+
 /// Upper bound on one reclamation pass. A plan larger than this stops early and reports the
 /// remainder rather than running unbounded.
 pub const MAX_MANAGED_REMOVALS: usize = 1024;
@@ -105,6 +159,29 @@ impl RetentionPolicy {
             ResourceKind::Volume => Some(self.volume_ttl),
             ResourceKind::Image => Some(self.image_ttl),
             ResourceKind::Builder | ResourceKind::Network => None,
+        }
+    }
+
+    /// This policy on a disk under pressure (#658): the idle volume budget is zero, so every
+    /// proven-ours, unmounted, unpinned volume past the idle floor is reclaimed, and the stopped
+    /// container gate is at most [`PRESSURE_CONTAINER_TTL`]. Ownership, liveness and pin gates,
+    /// the floor and the pre-removal re-check are unchanged.
+    #[must_use]
+    pub fn under_disk_pressure(self) -> Self {
+        Self {
+            container_ttl: self.container_ttl.min(PRESSURE_CONTAINER_TTL),
+            idle_volume_budget: Some(0),
+            ..self
+        }
+    }
+
+    /// [`Self::under_disk_pressure`] when `disk` is measured and under pressure, else `self`.
+    #[must_use]
+    pub fn for_disk(self, disk: Option<DiskSpace>) -> Self {
+        if disk.is_some_and(DiskSpace::under_pressure) {
+            self.under_disk_pressure()
+        } else {
+            self
         }
     }
 

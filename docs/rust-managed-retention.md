@@ -225,6 +225,7 @@ What a machine running the daemon is expected to converge to without manual Dock
 | Idle setup keepalive container | stopped once idle past 6 h, then removed as above | idle retirement, re-checked before the stop |
 | Unpinned owned volume (warm, stack, machine) | removed 14 days after last use once nothing mounts it | managed pass (`volume_ttl`) |
 | Idle owned volumes over the budget | once unmounted, unpinned owned volumes inside their 14-day gate exceed 64 GiB, the oldest idle for at least 1 h are removed until the rest fit | managed pass (`idle_volume_budget`, `idle_volume_floor`) |
+| Disk pressure (#658, 2026-10-16) | when the filesystem under Docker's data root has less than 15% or less than 100 GiB free, the idle volume budget is 0 (every idle owned volume past the 1 h floor goes) and the stopped-container gate drops from 6 h to 1 h; an unmeasurable root (Docker Desktop VM, remote engine) is no pressure, logged once | maintenance pass (`DiskSpace`, `RetentionPolicy::for_disk`) |
 | Bosn-built setup / manifest image (`bosn-setup:<sha256>`) | removed 30 days after last use once no container uses it | managed pass (`image_ttl`), proven by its registry record |
 | Shared CI engine (Linux) | retired after `[engine] idle_retire_secs` (default 600) with no run | CI shared engine (#547) |
 | Per-run act storage volume | removed with its engine; proven absent | CI run cleanup |
