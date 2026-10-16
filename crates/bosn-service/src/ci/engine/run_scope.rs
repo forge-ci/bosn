@@ -217,8 +217,19 @@ impl RunScope {
     /// by serve, which then saves the tool cache when act exited on its own
     /// and prints the [`Closed`] reply. Idempotent.
     pub fn close_script(&self) -> String {
-        format!("{} close --run {}", serve(), self.label)
+        close_run_script(&self.label)
     }
+}
+
+/// Close the admission of run `label` (a canonical run UUID), whatever
+/// slot it holds. Idempotent.
+pub fn close_run_script(label: &str) -> String {
+    format!("{} close --run {label}", serve())
+}
+
+/// Print serve's health, whose `runs` are the run IDs it holds admitted.
+pub fn status_script() -> String {
+    format!("{} status", serve())
 }
 
 /// The `act serve` client command every serve call starts with.
