@@ -17,6 +17,12 @@ use std::{
     time::Instant,
 };
 
+/// Submits must return without waiting on the fake task. Every task in these
+/// tests has a 2 s deadline, so a reply well inside it proves that, and the
+/// margin keeps it true on a loaded host.
+#[cfg(feature = "embedded-python-tests")]
+const SUBMIT_RETURNS_BEFORE_TASK: Duration = Duration::from_millis(1_500);
+
 // A promptness fixture must own its interpreter: other parallel libtest
 // cases can hold the process-wide GIL while its Python thread starts.
 #[cfg(feature = "embedded-python-tests")]
@@ -282,7 +288,7 @@ fn python_client_submits_and_observes_fake_setup_job_without_docker() {
             .join()
             .expect("Python submit thread panicked")
             .unwrap();
-            assert!(submitted.elapsed() < Duration::from_millis(250));
+            assert!(submitted.elapsed() < SUBMIT_RETURNS_BEFORE_TASK);
             assert_eq!(first, second);
 
             wait_for(|| executor.started.load(Ordering::SeqCst) == 1).await;
@@ -391,7 +397,7 @@ fn python_client_submits_and_cancels_coalesced_fake_setup_task_without_docker() 
             .join()
             .expect("Python submit thread panicked")
             .unwrap();
-            assert!(submitted.elapsed() < Duration::from_millis(250));
+            assert!(submitted.elapsed() < SUBMIT_RETURNS_BEFORE_TASK);
             assert_eq!(first, second);
 
             wait_for(|| executor.started.load(Ordering::SeqCst) == 1).await;
@@ -503,7 +509,7 @@ fn python_client_submits_and_cancels_coalesced_fake_setup_ensure_without_docker(
             .join()
             .expect("Python submit thread panicked")
             .unwrap();
-            assert!(elapsed < Duration::from_millis(250), "{elapsed:?}");
+            assert!(elapsed < SUBMIT_RETURNS_BEFORE_TASK, "{elapsed:?}");
             assert_eq!(first, second);
 
             wait_for(|| executor.started.load(Ordering::SeqCst) == 1).await;
