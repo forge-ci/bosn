@@ -195,7 +195,7 @@ fn install_unit(binary: &Path, state_dir: &Path) {
 
 /// Inspect the existing daemon without starting or restarting it or exposing a grant.
 fn dashboard_readiness(state_dir: &Path) -> &'static str {
-    let Ok(client) = bosn_service::Client::for_state(state_dir) else {
+    let Ok(client) = crate::daemon_client(state_dir) else {
         return "dashboard readiness could not be checked; configuration is ready for the next daemon start";
     };
     let Ok(runtime) = kernal_api::async_engine::RuntimeBuilder::current_thread()

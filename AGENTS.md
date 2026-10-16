@@ -234,8 +234,7 @@ Decided 2026-10-09.
   protocols and the remedy, never a bare "request failed".
 - **Clients accept by protocol (#509 phases 2 and 5).** A daemon whose
   protocol window holds this client's `DAEMON_PROTOCOL` is accepted whatever
-  its release (a one-line release-skew note goes to stderr); otherwise it is
-  refused. The release guard is retired to the legacy path: only a daemon
+  its release; otherwise it is refused. The release guard is retired to the legacy path: only a daemon
   reporting protocol 0 (it predates the handshake) is still compared by exact
   release (`legacy_release_matches`). `daemon_version_mismatch` is the one
   place this is decided.
@@ -261,6 +260,23 @@ Decided 2026-10-09.
   busy (code 32) and keeps running. The daemon decides, never the client: a
   busy daemon is never stopped on anyone's behalf, and a daemon that predates
   operation 39 is left alone.
+- **Every daemon contact warns on a daemon/client mismatch; only work fails.**
+  The CLI connects through one helper, `daemon_client`, which prints
+  `warning: bosn daemon/client mismatch: ...` on stderr, once per process,
+  for a compatible daemon of another release and for one on another protocol,
+  and never fails the command over it. Refusing an incompatible daemon stays
+  the job of the pre-flight above, for commands that send it work. Commands
+  that need no daemon (`--version`, `compose plan`, `act plan`) never contact
+  one, so a dead or stale daemon can never break them.
+- **A CLI-started daemon exits when idle (decided 2026-10-15).** After 10
+  minutes (`BOSN_DAEMON_IDLE_EXIT_SECS`; `0` never exits) with no client
+  connected and nothing busy (the operation-39 test: no unfinished job, CI run
+  or held lease), it stops, so the next command starts a daemon of its own
+  release instead of talking to a stale one. A persistent daemon is what
+  left machines on old releases. Exiting tears nothing down: containers keep
+  running, and the registry and its writer fence pass to the next daemon,
+  which reopens the same SQLite file. `Service` itself defaults to no idle
+  exit; the `bosn daemon serve` binary turns it on.
 - **Compatibility moves from release equality to a wire protocol (#509).**
   Every daemon reports `DAEMON_PROTOCOL` on its ping reply (zero means it
   predates the handshake). Bump it on any change to the request/reply wire or

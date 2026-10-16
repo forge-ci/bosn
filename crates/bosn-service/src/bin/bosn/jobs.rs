@@ -11,10 +11,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use bosn_service::{
-    Client,
-    docker_api::{DockerApi, LABEL_RUN},
-};
+use bosn_service::docker_api::{DockerApi, LABEL_RUN};
 use kernal_api::async_engine::RuntimeBuilder;
 use serde_json::Value;
 use std::fmt::Write as _;
@@ -41,7 +38,7 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
         .build()
         .ok()
         .and_then(|runtime| {
-            let client = Client::for_state(&state_dir).ok()?;
+            let client = crate::daemon_client(&state_dir).ok()?;
             runtime.run(client.jobs()).ok()
         });
     let Some(mut view) = view else {

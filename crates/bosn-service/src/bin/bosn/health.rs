@@ -8,7 +8,7 @@ use super::*;
 pub(crate) fn run_doctor(arguments: impl Iterator<Item = std::ffi::OsString>) {
     let (state_dir, json_output) =
         parse_daemon_client_arguments(arguments).unwrap_or_else(|_| usage());
-    let report = Client::for_state(&state_dir)
+    let report = crate::daemon_client(&state_dir)
         .ok()
         .and_then(|client| {
             RuntimeBuilder::current_thread()

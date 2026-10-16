@@ -142,20 +142,20 @@ fn response_envelope_rejects_wrong_correlation_protocol_kind_and_encoding() {
     let skewed = daemon("0.1.7", DAEMON_PROTOCOL);
     assert_eq!(daemon_version_mismatch(state, "0.1.6", &skewed), None);
     assert!(
-        daemon_release_skew("0.1.6", &skewed)
+        daemon_release_skew(state, "0.1.6", &skewed)
             .unwrap()
             .contains("release 0.1.7")
     );
     let same = daemon("0.1.6", DAEMON_PROTOCOL);
     assert_eq!(daemon_version_mismatch(state, "0.1.6", &same), None);
-    assert_eq!(daemon_release_skew("0.1.6", &same), None);
+    assert_eq!(daemon_release_skew(state, "0.1.6", &same), None);
     // Another protocol: refused even on the same release, naming both.
     let other = daemon("0.1.6", DAEMON_PROTOCOL + 1);
     let refused = daemon_version_mismatch(state, "0.1.6", &other).unwrap();
     assert!(refused.contains(&format!("speaking protocol {}", DAEMON_PROTOCOL + 1)));
     assert!(refused.contains(&format!("bosn 0.1.6 speaking protocol {DAEMON_PROTOCOL}")));
     assert!(refused.contains("`bosn daemon stop --state-dir /state`"));
-    assert_eq!(daemon_release_skew("0.1.6", &other), None);
+    assert_eq!(daemon_release_skew(state, "0.1.6", &other), None);
     // Protocol zero predates the handshake: the exact-release check stays.
     assert_eq!(
         daemon_version_mismatch(state, "0.1.6", &daemon("0.1.6", 0)),
@@ -163,7 +163,10 @@ fn response_envelope_rejects_wrong_correlation_protocol_kind_and_encoding() {
     );
     let newer = daemon_version_mismatch(state, "0.1.6", &daemon("0.1.7", 0)).unwrap();
     assert!(newer.contains("is bosn 0.1.7 speaking no protocol"));
-    assert_eq!(daemon_release_skew("0.1.6", &daemon("0.1.7", 0)), None);
+    assert_eq!(
+        daemon_release_skew(state, "0.1.6", &daemon("0.1.7", 0)),
+        None
+    );
     let legacy = daemon_version_mismatch(state, "0.1.6", &daemon("", 0)).unwrap();
     assert!(legacy.contains("0.1.5 or earlier"));
     // A window holding this client's protocol is accepted (#509 phase 3).
@@ -175,7 +178,7 @@ fn response_envelope_rejects_wrong_correlation_protocol_kind_and_encoding() {
     let newer_window = window(DAEMON_PROTOCOL, DAEMON_PROTOCOL + 1);
     assert_eq!(daemon_version_mismatch(state, "0.1.6", &newer_window), None);
     assert!(
-        daemon_release_skew("0.1.6", &newer_window)
+        daemon_release_skew(state, "0.1.6", &newer_window)
             .unwrap()
             .contains(&format!(
                 "protocols {DAEMON_PROTOCOL}-{}",
@@ -935,4 +938,17 @@ fn protocol_surface_is_pinned() {
         "the daemon protocol surface changed: bump DAEMON_PROTOCOL if the wire changed, \
          then record the new fingerprint in PROTOCOL_FINGERPRINT"
     );
+}
+
+#[test]
+fn a_compatible_daemon_from_another_release_is_a_named_mismatch_warning() {
+    let skewed = DaemonIdentity {
+        release: "0.1.7".into(),
+        protocol: DAEMON_PROTOCOL,
+        protocol_min: 0,
+    };
+    let warning = daemon_release_skew(Path::new("/state"), "0.1.6", &skewed).unwrap();
+    assert!(warning.starts_with("warning: bosn daemon/client mismatch"));
+    assert!(warning.contains("runs release 0.1.7, this client is 0.1.6"));
+    assert!(warning.contains("`bosn daemon stop --state-dir /state`"));
 }

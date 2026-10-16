@@ -27,7 +27,7 @@ pub enum IdleHandoff {
 
 /// What keeps this daemon busy, or `None` when it is idle: unfinished jobs,
 /// queued or running CI runs, and held leases.
-async fn busy_reason(
+pub(crate) async fn busy_reason(
     actor: &RegistryActor,
     jobs: &JobActor,
     ci: &ci::CiRuntime,

@@ -48,7 +48,7 @@ pub(crate) fn run_registry(mut arguments: impl Iterator<Item = std::ffi::OsStrin
         &format!("registry {}", invocation.action()),
         json_output,
     );
-    let client = Client::for_state(state_dir)
+    let client = crate::daemon_client(state_dir)
         .unwrap_or_else(|_| registry_failure(invocation.action(), json_output));
     let runtime = RuntimeBuilder::current_thread()
         .enable_all()

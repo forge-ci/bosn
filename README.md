@@ -95,6 +95,12 @@ the host Docker engine (act), a per-job proxy labels, limits, isolates and
 removes the job's containers, and maps cache volumes into act's job
 containers. See [docs/runners.md](docs/runners.md).
 
+The daemon starts on demand and exits after 10 idle minutes
+(`BOSN_DAEMON_IDLE_EXIT_SECS`, `0` to keep it), so the next command always runs
+the current release; containers and the registry survive the exit. Any command
+that reaches a daemon of another release warns
+`bosn daemon/client mismatch` on stderr.
+
 ```bash
 bosn jobs                                  # what is running now
 bosn daemon serve --state-dir "$HOME/.local/state/bosn" --runner-slots 8 --runner-cpus 4

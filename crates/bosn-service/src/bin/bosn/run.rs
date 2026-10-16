@@ -288,7 +288,7 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
         .enable_all()
         .build()
         .map_err(|_| "cannot start the async runtime".to_owned())?;
-    let client = Client::for_state(&state_dir).map_err(|_| "invalid state directory")?;
+    let client = crate::daemon_client(&state_dir).map_err(|_| "invalid state directory")?;
     ensure_daemon(&runtime, &client, &state_dir)?;
 
     if !arguments.no_ensure {
@@ -448,9 +448,11 @@ fn hand_off_idle_daemon(runtime: &Runtime, client: &Client, state_dir: &Path) ->
 }
 
 /// Refuse a daemon on another wire protocol rather than sending it requests it
-/// may misread. It is never restarted here: it may be running another session's
-/// jobs, so stopping it is the user's explicit choice.
+/// may misread, and warn about a compatible one from another release. It is
+/// never restarted here: it may be running another session's jobs, so stopping
+/// it is the user's explicit choice.
 fn matching_daemon(state_dir: &Path, daemon: &bosn_service::DaemonIdentity) -> Result<(), String> {
+    crate::warn_release_skew(state_dir, daemon);
     match bosn_service::daemon_version_mismatch(state_dir, env!("CARGO_PKG_VERSION"), daemon) {
         Some(mismatch) => Err(mismatch),
         None => Ok(()),

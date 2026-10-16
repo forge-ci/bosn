@@ -181,6 +181,7 @@ use std::{
 pub(crate) mod act_live_probe;
 mod cache_maintenance;
 mod daemon;
+mod daemon_idle;
 mod daemon_jobs;
 mod guest;
 mod manifest_ensure;
