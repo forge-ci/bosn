@@ -114,7 +114,8 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
     match invocation {
         DaemonInvocation::Serve { state_dir, runners } => {
             let mut service = bosn_service::Service::new(&state_dir)
-                .with_release_version(env!("CARGO_PKG_VERSION"));
+                .with_release_version(env!("CARGO_PKG_VERSION"))
+                .with_idle_exit(idle_exit_from_env());
             if !runners.is_empty() {
                 let mut capacity = match bosn_service::capacity::RunnerCapacity::load(&state_dir) {
                     Ok(capacity) => capacity,
@@ -141,7 +142,7 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
             run_daemon_status(&runtime, &state_dir, json);
         }
         DaemonInvocation::Stop { state_dir, json } => {
-            if Client::for_state(&state_dir)
+            if crate::daemon_client(&state_dir)
                 .and_then(|client| {
                     runtime.run(client.shutdown_and_wait(std::time::Duration::from_secs(30)))
                 })
@@ -165,7 +166,7 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
 }
 
 fn run_daemon_status(runtime: &kernal_api::async_engine::Runtime, state_dir: &Path, json: bool) {
-    let Ok(client) = Client::for_state(state_dir) else {
+    let Ok(client) = crate::daemon_client(state_dir) else {
         daemon_failure("status", json)
     };
     // Ask for the version first: it is the one request every daemon
@@ -231,6 +232,25 @@ impl DaemonInvocation {
             | Self::Url { json, .. }
             | Self::Token { json, .. }
             | Self::Stop { json, .. } => *json,
+        }
+    }
+}
+
+/// A daemon started by the CLI exits after this much idle time, so the next command
+/// runs a daemon of its own release instead of a stale one (`BOSN_DAEMON_IDLE_EXIT_SECS`;
+/// `0` keeps the daemon running until it is stopped).
+const DEFAULT_IDLE_EXIT: std::time::Duration = std::time::Duration::from_secs(600);
+
+fn idle_exit_from_env() -> Option<std::time::Duration> {
+    let Some(raw) = std::env::var_os("BOSN_DAEMON_IDLE_EXIT_SECS") else {
+        return Some(DEFAULT_IDLE_EXIT);
+    };
+    match raw.to_string_lossy().trim().parse::<u64>() {
+        Ok(0) => None,
+        Ok(secs) => Some(std::time::Duration::from_secs(secs)),
+        Err(_) => {
+            eprintln!("bosn daemon serve: BOSN_DAEMON_IDLE_EXIT_SECS must be whole seconds");
+            std::process::exit(2);
         }
     }
 }
@@ -309,7 +329,7 @@ fn print_run_http_value(
     field: &str,
     json_output: bool,
 ) {
-    let live = Client::for_state(state_dir)
+    let live = crate::daemon_client(state_dir)
         .and_then(|client| runtime.run(client.status()))
         .is_ok();
     if !live {

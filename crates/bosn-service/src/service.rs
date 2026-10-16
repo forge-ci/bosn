@@ -33,7 +33,18 @@ impl Service {
             state_dir,
             stop: CancellationSource::new(),
             capacity: None,
+            idle_exit: None,
         }
+    }
+    /// Exit once the daemon has been idle this long: no client connected and nothing
+    /// busy (no unfinished job, queued or running CI run, or held lease). The next
+    /// command then starts a daemon from its own, current, release. `None` never exits.
+    ///
+    /// Exiting tears nothing down: containers keep running, and the registry, its
+    /// lock and every record stay in the state directory for the next daemon.
+    pub fn with_idle_exit(mut self, idle: Option<Duration>) -> Self {
+        self.idle_exit = idle;
+        self
     }
     /// Runner capacity (#358) for this daemon, overriding `runners.toml`
     /// and the `BOSN_RUNNER_*` environment.
@@ -536,7 +547,32 @@ impl Service {
             })
         };
         let mut clients = async_engine::TaskGroup::new();
+        let mut last_active = Instant::now();
+        // A short idle limit is checked as often as it can expire.
+        let idle_check = self
+            .idle_exit
+            .map_or(IDLE_CHECK_INTERVAL, |idle| idle.min(IDLE_CHECK_INTERVAL));
+        let mut next_idle_check = Instant::now() + idle_check;
         while !self.stop.is_cancelled() {
+            if !clients.is_empty() {
+                last_active = Instant::now();
+            }
+            if let Some(idle) = self.idle_exit
+                && Instant::now() >= next_idle_check
+            {
+                next_idle_check = Instant::now() + idle_check;
+                if last_active.elapsed() >= idle
+                    && matches!(handoff::busy_reason(&actor, &jobs, &ci).await, Ok(None))
+                {
+                    eprintln!(
+                        "bosn daemon: idle for {}s; exiting so the next command starts its own \
+                         release (containers and state are kept)",
+                        idle.as_secs()
+                    );
+                    self.stop.cancel();
+                    continue;
+                }
+            }
             // TaskGroup retains completed tasks until collected.  Reap only
             // ready completions: awaiting one here would let 32 slow peers
             // prevent the accept loop from serving everyone else.
@@ -557,6 +593,7 @@ impl Service {
                 }
                 Err(_) => continue,
             };
+            last_active = Instant::now();
             if clients.len() >= 32 {
                 // Admission is bounded. Dropping this newly accepted stream is
                 // intentional; do not wait for a slow peer to make capacity.
@@ -604,6 +641,9 @@ impl Service {
     }
 }
 
+/// How often an idle-exit daemon re-checks whether it is idle.
+const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+
 pub struct Service {
     pub(crate) act_backend: Arc<dyn ci::engine::ActEngineBackend>,
     pub(crate) state_dir: PathBuf,
@@ -626,6 +666,8 @@ pub struct Service {
     /// Read-only evidence about a previous registry, consulted when the
     /// database is absent (#515).
     pub(crate) identity_probe: Arc<dyn RegistryIdentityProbe>,
+    /// See [`Service::with_idle_exit`].
+    pub(crate) idle_exit: Option<Duration>,
 }
 
 /// Stop every process in a setup container except its idle PID 1, the idle

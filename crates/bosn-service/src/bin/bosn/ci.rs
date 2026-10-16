@@ -270,7 +270,7 @@ fn connect(flags: &Flags) -> Result<(Runtime, Client), Failure> {
         .enable_all()
         .build()
         .map_err(|e| Failure::error(e.to_string()))?;
-    let client = Client::for_state(&state_dir).map_err(|e| Failure::error(e.to_string()))?;
+    let client = crate::daemon_client(&state_dir).map_err(|e| Failure::error(e.to_string()))?;
     super::run::ensure_daemon(&runtime, &client, &state_dir).map_err(Failure::error)?;
     Ok((runtime, client))
 }

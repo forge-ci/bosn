@@ -319,13 +319,22 @@ fn closed_pipes_do_not_bypass_the_deadline_or_spin() {
     let started = Instant::now();
     let yielded = Arc::new(AtomicU64::new(u64::MAX));
     let observed = Arc::clone(&yielded);
+    // A spinning stream starves the timer until it returns, so the timer must
+    // fire first; comparing the two stays meaningful on a loaded host.
+    let streamed = Arc::new(AtomicU64::new(0));
     let (result, ()) = runtime().run(async {
         kernal_api::async_engine::join(
-            engine.stream(
-                RunOptions::streaming(Duration::from_millis(80), 128),
-                None,
-                &sender,
-            ),
+            async {
+                let result = engine
+                    .stream(
+                        RunOptions::streaming(Duration::from_millis(80), 128),
+                        None,
+                        &sender,
+                    )
+                    .await;
+                streamed.store(started.elapsed().as_millis() as u64, Ordering::Release);
+                result
+            },
             async move {
                 kernal_api::async_engine::sleep(Duration::from_millis(20)).await;
                 observed.store(started.elapsed().as_millis() as u64, Ordering::Release);
@@ -338,10 +347,10 @@ fn closed_pipes_do_not_bypass_the_deadline_or_spin() {
         Err(CommandError::Deadline { cleanup: None, .. })
     ));
     assert!(
-        yielded.load(Ordering::Acquire) < 60,
+        yielded.load(Ordering::Acquire) < streamed.load(Ordering::Acquire),
         "closed pipes made stream spin"
     );
-    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 #[test]

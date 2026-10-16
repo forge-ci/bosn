@@ -77,7 +77,7 @@ pub(crate) fn run_manifest_volume_release(mut arguments: impl Iterator<Item = st
         let (state_dir, workspace, after, limit, json_output) =
             parse_gc_preview_arguments(arguments).unwrap_or_else(|_| usage());
         require_matching_daemon(&state_dir, "manifest volume-release preview", json_output);
-        let result = Client::for_state(state_dir).ok().and_then(|client| {
+        let result = crate::daemon_client(state_dir).ok().and_then(|client| {
             RuntimeBuilder::current_thread()
                 .enable_all()
                 .build()
@@ -102,21 +102,23 @@ pub(crate) fn run_manifest_volume_release(mut arguments: impl Iterator<Item = st
             "manifest volume-release apply",
             parsed.json_output,
         );
-        let result = Client::for_state(parsed.state_dir).ok().and_then(|client| {
-            RuntimeBuilder::current_thread()
-                .enable_all()
-                .build()
-                .ok()
-                .and_then(|runtime| {
-                    runtime
-                        .run(client.manifest_volume_release_apply(
-                            &parsed.workspace,
-                            &parsed.candidate,
-                            true,
-                        ))
-                        .ok()
-                })
-        });
+        let result = crate::daemon_client(parsed.state_dir)
+            .ok()
+            .and_then(|client| {
+                RuntimeBuilder::current_thread()
+                    .enable_all()
+                    .build()
+                    .ok()
+                    .and_then(|runtime| {
+                        runtime
+                            .run(client.manifest_volume_release_apply(
+                                &parsed.workspace,
+                                &parsed.candidate,
+                                true,
+                            ))
+                            .ok()
+                    })
+            });
         match result {
             Some(value) => println!(
                 "{}",
@@ -137,7 +139,7 @@ pub(crate) fn run_manifest_volume_gc(mut arguments: impl Iterator<Item = std::ff
         let (state_dir, workspace, after, limit, json_output) =
             parse_gc_preview_arguments(arguments).unwrap_or_else(|_| usage());
         require_matching_daemon(&state_dir, "manifest volume-gc preview", json_output);
-        let result = Client::for_state(state_dir).ok().and_then(|client| {
+        let result = crate::daemon_client(state_dir).ok().and_then(|client| {
             RuntimeBuilder::current_thread()
                 .enable_all()
                 .build()
@@ -162,21 +164,23 @@ pub(crate) fn run_manifest_volume_gc(mut arguments: impl Iterator<Item = std::ff
             "manifest volume-gc apply",
             parsed.json_output,
         );
-        let result = Client::for_state(parsed.state_dir).ok().and_then(|client| {
-            RuntimeBuilder::current_thread()
-                .enable_all()
-                .build()
-                .ok()
-                .and_then(|runtime| {
-                    runtime
-                        .run(client.manifest_volume_gc_apply(
-                            &parsed.workspace,
-                            &parsed.candidate,
-                            true,
-                        ))
-                        .ok()
-                })
-        });
+        let result = crate::daemon_client(parsed.state_dir)
+            .ok()
+            .and_then(|client| {
+                RuntimeBuilder::current_thread()
+                    .enable_all()
+                    .build()
+                    .ok()
+                    .and_then(|runtime| {
+                        runtime
+                            .run(client.manifest_volume_gc_apply(
+                                &parsed.workspace,
+                                &parsed.candidate,
+                                true,
+                            ))
+                            .ok()
+                    })
+            });
         match result {
             Some(value) => println!(
                 "{}",
@@ -240,7 +244,7 @@ pub(crate) fn run_manifest_converge(mut arguments: impl Iterator<Item = std::ffi
         .build()
         .unwrap_or_else(|_| usage());
     require_matching_daemon(&state_dir, "manifest converge", json_output);
-    let client = Client::for_state(state_dir).unwrap_or_else(|_| usage());
+    let client = crate::daemon_client(state_dir).unwrap_or_else(|_| usage());
     match runtime.run(client.submit_manifest_converge(request)) {
         Ok(job_id) if json_output => println!(
             "{}",
@@ -307,7 +311,7 @@ pub(crate) fn run_manifest_app_task(mut arguments: impl Iterator<Item = std::ffi
         .build()
         .unwrap_or_else(|_| usage());
     require_matching_daemon(&state_dir, "manifest app-task", json_output);
-    let client = Client::for_state(state_dir).unwrap_or_else(|_| usage());
+    let client = crate::daemon_client(state_dir).unwrap_or_else(|_| usage());
     match runtime.run(client.submit_manifest_app_task(request)) {
         Ok(job_id) if json_output => println!(
             "{}",
@@ -369,7 +373,7 @@ pub(crate) fn run_manifest_ensure(mut arguments: impl Iterator<Item = std::ffi::
         .build()
         .unwrap_or_else(|_| usage());
     require_matching_daemon(&state_dir, "manifest ensure", json_output);
-    let client = Client::for_state(state_dir).unwrap_or_else(|_| usage());
+    let client = crate::daemon_client(state_dir).unwrap_or_else(|_| usage());
     match runtime.run(client.submit_manifest_ensure(request)) {
         Ok(job_id) if json_output => println!(
             "{}",

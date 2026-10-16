@@ -141,15 +141,25 @@ fn legacy_release_matches(client_version: &str, daemon: &DaemonIdentity) -> bool
     daemon.release == client_version
 }
 
-/// A one-line note for a compatible daemon from another release (#509): the
-/// protocols match, so the client proceeds. `None` when the releases match or
-/// the daemon is not compatible (see [`daemon_version_mismatch`]).
-pub fn daemon_release_skew(client_version: &str, daemon: &DaemonIdentity) -> Option<String> {
+/// The warning for a compatible daemon from another release (#509): the
+/// protocols match, so the client proceeds, but the daemon still runs its own
+/// release's code, so a fix in the client's release does nothing until the
+/// daemon restarts. Every daemon-backed command prints it, so the mismatch is
+/// never silent. `None` when the releases match or the daemon is not
+/// compatible (see [`daemon_version_mismatch`]).
+pub fn daemon_release_skew(
+    state_dir: &Path,
+    client_version: &str,
+    daemon: &DaemonIdentity,
+) -> Option<String> {
     (daemon.serves(DAEMON_PROTOCOL) && daemon.release != client_version).then(|| {
+        let state = state_dir.display();
         format!(
-            "note: the bosn daemon is release {}, this client is {client_version}; \
-             the daemon serves {} and this client speaks protocol {DAEMON_PROTOCOL}, \
-             so proceeding",
+            "warning: bosn daemon/client mismatch: the daemon for {state} runs release {}, \
+             this client is {client_version}. The daemon serves {} and this client speaks \
+             protocol {DAEMON_PROTOCOL}, so proceeding, but the daemon keeps running its own \
+             release's code until it restarts. Restart it when idle with \
+             `bosn daemon stop --state-dir {state}`; a matching daemon starts on demand",
             daemon.release,
             describe_window(daemon.protocol_window())
         )

@@ -134,7 +134,7 @@ pub(crate) fn run_gc_owned(arguments: impl Iterator<Item = std::ffi::OsString>) 
     }
 
     require_matching_daemon(&state_dir, "gc owned", json_output);
-    let client = Client::for_state(state_dir).unwrap_or_else(|_| owned_failure(json_output));
+    let client = crate::daemon_client(state_dir).unwrap_or_else(|_| owned_failure(json_output));
     let runtime = RuntimeBuilder::current_thread()
         .enable_all()
         .build()
