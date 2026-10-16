@@ -10,7 +10,12 @@
 //! Placement is added where the command runs, never where it is described: a setup
 //! container's name is a digest of its create arguments, and provisioning the slice must
 //! not rename every container.
-use std::{ffi::OsString, process::Command, sync::OnceLock};
+use std::{
+    ffi::OsString,
+    process::{Command, Stdio},
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
 /// The CPU weight every container Bosn creates runs at (#643).
 ///
@@ -24,6 +29,9 @@ pub const BOSN_SLICE: &str = "bosn.slice";
 
 /// The `cgroup v2` default weight. A provisioned slice must sit below it.
 const DEFAULT_CPU_WEIGHT: u64 = 100;
+
+/// How long one probe command may run. A hung engine or systemd is `WeightOnly`.
+const PROBE_DEADLINE: Duration = Duration::from_secs(5);
 
 /// Local engine sockets. A remote or rootless engine never joins a host slice.
 const LOCAL_HOSTS: [&str; 2] = ["unix:///var/run/docker.sock", "unix:///run/docker.sock"];
@@ -67,18 +75,9 @@ impl Placement {
 pub fn placement() -> Placement {
     static PLACEMENT: OnceLock<Placement> = OnceLock::new();
     *PLACEMENT.get_or_init(|| {
-        let output = |program: &str, args: &[&str]| {
-            Command::new(program)
-                .args(args)
-                .output()
-                .ok()
-                .filter(|out| out.status.success())
-                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-                .unwrap_or_default()
-        };
         let host = std::env::var("DOCKER_HOST").ok();
-        let driver = output("docker", &["info", "--format", "{{.CgroupDriver}}"]);
-        let weight = output(
+        let driver = probe("docker", &["info", "--format", "{{.CgroupDriver}}"]);
+        let weight = probe(
             "systemctl",
             &["show", BOSN_SLICE, "--property=CPUWeight", "--value"],
         );
@@ -86,14 +85,47 @@ pub fn placement() -> Placement {
     })
 }
 
+/// One probe command's stdout, or empty when it fails or outlives its deadline.
+fn probe(program: &str, args: &[&str]) -> String {
+    let Ok(mut child) = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return String::new();
+    };
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(None) if started.elapsed() < PROBE_DEADLINE => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return String::new();
+            }
+        }
+    }
+    // The probes print one short line, far below any pipe buffer, so nothing blocks.
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut pipe, &mut stdout);
+    }
+    stdout
+}
+
 /// Insert the slice placement right after the low-priority weight, when both apply.
 ///
 /// Only a `create` or `run` that already asks for Bosn's low weight is placed, so any
 /// other command, `docker update` included, is never touched.
-pub(crate) fn place(prefix: &mut Vec<OsString>, placement: Placement) {
-    if placement != Placement::Slice {
-        return;
-    }
+///
+/// The host is probed only for such a create, and each probe is bounded, so no other
+/// command ever waits on `docker info` or `systemctl`.
+pub(crate) fn place(prefix: &mut Vec<OsString>, placement: impl FnOnce() -> Placement) {
     let parent = OsString::from(format!("--cgroup-parent={BOSN_SLICE}"));
     if prefix.contains(&parent) {
         return;
@@ -105,6 +137,7 @@ pub(crate) fn place(prefix: &mut Vec<OsString>, placement: Placement) {
     if prefix[..index]
         .iter()
         .any(|arg| arg == "create" || arg == "run")
+        && placement() == Placement::Slice
     {
         prefix.insert(index + 1, parent);
     }
@@ -148,8 +181,8 @@ mod tests {
         let mut args: Vec<OsString> = ["create", LOW_CPU_PRIORITY_ARG, "img"]
             .map(OsString::from)
             .into();
-        place(&mut args, Placement::Slice);
-        place(&mut args, Placement::Slice);
+        place(&mut args, || Placement::Slice);
+        place(&mut args, || Placement::Slice);
         let expected = [
             "create",
             LOW_CPU_PRIORITY_ARG,
@@ -162,15 +195,15 @@ mod tests {
     #[test]
     fn other_commands_and_weight_only_hosts_are_untouched() {
         let mut ps: Vec<OsString> = ["ps", "-q"].map(OsString::from).into();
-        place(&mut ps, Placement::Slice);
+        place(&mut ps, || unreachable!("ps is never probed"));
         assert_eq!(ps.len(), 2);
         let mut update: Vec<OsString> = ["update", LOW_CPU_PRIORITY_ARG, "c1"]
             .map(OsString::from)
             .into();
-        place(&mut update, Placement::Slice);
+        place(&mut update, || unreachable!("an update is never probed"));
         assert_eq!(update.len(), 3);
         let mut create: Vec<OsString> = ["create", LOW_CPU_PRIORITY_ARG].map(OsString::from).into();
-        place(&mut create, Placement::WeightOnly);
+        place(&mut create, || Placement::WeightOnly);
         assert_eq!(create.len(), 2);
     }
 }

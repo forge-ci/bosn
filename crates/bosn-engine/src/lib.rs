@@ -758,7 +758,7 @@ impl DockerEngine {
         let mut next = self.clone();
         next.prefix.extend(args.into_iter().map(Into::into));
         if next.binary.as_os_str() == "docker" {
-            cpu_priority::place(&mut next.prefix, placement());
+            cpu_priority::place(&mut next.prefix, placement);
         }
         next
     }
