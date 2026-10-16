@@ -220,3 +220,94 @@ mode = "shared"
         assert!(error.contains(needle), "{body}: {error}");
     }
 }
+
+fn one_mount(keys: &str) -> Result<bosn_core::manifest::Mount, bosn_core::ManifestError> {
+    let source = format!(
+        "[stack.a]\nimage='x'\n[stack.a.volumes.up]\n[stack.a.mounts.src]\nsource='.'\ndestination='/src'\n{keys}"
+    );
+    parse_manifest_toml(&source, roots()).map(|m| m.stack("a").unwrap().mounts[0].clone())
+}
+
+#[test]
+fn mount_mode_parses_with_its_readonly_alias() {
+    use bosn_core::manifest::{MountMode, OverlayUpper};
+    assert_eq!(one_mount("").unwrap().mode, MountMode::Rw);
+    assert_eq!(one_mount("mode='rw'").unwrap().mode, MountMode::Rw);
+    assert_eq!(one_mount("mode='ro'").unwrap().mode, MountMode::Ro);
+    assert_eq!(one_mount("readonly=true").unwrap().mode, MountMode::Ro);
+    assert_eq!(one_mount("readonly=false").unwrap().mode, MountMode::Rw);
+    assert_eq!(
+        one_mount("mode='ro'\nreadonly=true").unwrap().mode,
+        MountMode::Ro
+    );
+    let overlay = one_mount("mode='overlay'").unwrap();
+    assert_eq!(overlay.mode, MountMode::Overlay);
+    assert_eq!(overlay.upper, Some(OverlayUpper::Tmpfs));
+    assert_eq!(
+        one_mount("mode='overlay'\nupper='up'").unwrap().upper,
+        Some(OverlayUpper::Volume("up".into()))
+    );
+    assert_eq!(one_mount("").unwrap().upper, None);
+}
+
+#[test]
+fn mount_mode_conflicts_and_invalid_values_are_refused() {
+    for keys in [
+        "mode='ro'\nreadonly=false",
+        "mode='rw'\nreadonly=true",
+        "mode='overlay'\nreadonly=true",
+        "mode='bind'",
+        "mode=1",
+        "upper='tmpfs'",
+        "mode='ro'\nupper='up'",
+        "mode='overlay'\nupper='missing'",
+        "mode='overlay'\nupper=3",
+        "propagation='shared'",
+    ] {
+        assert!(one_mount(keys).is_err(), "{keys} parsed");
+    }
+}
+
+#[test]
+fn volume_mode_defaults_by_scope_and_rejects_unknown_values() {
+    use bosn_core::manifest::VolumeMode;
+    let parse = |body: &str| {
+        parse_manifest_toml(
+            &format!("[stack.a]\nimage='x'\n[stack.a.volumes.v]\n{body}"),
+            roots(),
+        )
+        .map(|m| m.stack("a").unwrap().volumes[0].mode)
+    };
+    assert_eq!(parse("").unwrap(), VolumeMode::Exclusive);
+    assert_eq!(parse("scope='stack'").unwrap(), VolumeMode::Exclusive);
+    assert_eq!(parse("scope='machine'").unwrap(), VolumeMode::Shared);
+    assert_eq!(
+        parse("scope='machine'\nmode='exclusive'").unwrap(),
+        VolumeMode::Exclusive
+    );
+    assert_eq!(
+        parse("scope='stack'\nmode='shared'").unwrap(),
+        VolumeMode::Shared
+    );
+    assert!(parse("mode='locked'").is_err());
+    assert!(parse("replicas=2").is_err());
+}
+
+#[test]
+fn task_keep_and_default_target_volume_are_typed_booleans() {
+    let parse = |stack: &str, task: &str| {
+        parse_manifest_toml(
+            &format!("[stack.a]\nimage='x'\n{stack}\n[task.t]\ncmd='x'\n{task}"),
+            roots(),
+        )
+    };
+    let plain = parse("", "").unwrap();
+    assert!(!plain.task("t").unwrap().keep);
+    assert!(plain.stack("a").unwrap().default_target_volume);
+    let set = parse("default_target_volume=false", "keep=true").unwrap();
+    assert!(set.task("t").unwrap().keep);
+    assert!(!set.stack("a").unwrap().default_target_volume);
+    assert!(parse("", "keep='yes'").is_err());
+    assert!(parse("default_target_volume='no'", "").is_err());
+    assert!(parse("", "ephemeral=true").is_err());
+}

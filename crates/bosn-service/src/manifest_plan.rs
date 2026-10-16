@@ -110,6 +110,9 @@ pub(crate) async fn manifest_stack_plan(
     if host_docker_socket.is_some() && stack.kind.as_deref() == Some("macos-x64-guest") {
         return Err("the host Docker socket cannot be bound into a macOS guest stack".into());
     }
+    // From here on the stack includes the default build-output volume, so it
+    // reaches the generation, the volume identities and the setup plan.
+    let stack = &with_default_target_volume(stack, &workspace, &mounts);
     // A dockurr bind exists outside the VM and is therefore intentionally not
     // a guest workdir. Keep the VM path separately for the typed SSH command;
     // the setup receipt itself must remain a pure guest container shape.
@@ -218,6 +221,7 @@ pub(crate) async fn manifest_stack_plan(
     let mut guest_task = None;
     let mut secrets = Vec::new();
     let mut github_api_proxy = false;
+    let mut keep = false;
     if let Some(task_name) = task_name {
         let task = manifest
             .task(task_name)
@@ -236,6 +240,7 @@ pub(crate) async fn manifest_stack_plan(
         }
         secrets.clone_from(&task.secrets);
         github_api_proxy = task.github_api_proxy;
+        keep = task.keep;
         tasks.insert(
             task.name.clone(),
             SetupTask {
@@ -276,6 +281,7 @@ pub(crate) async fn manifest_stack_plan(
     let task_names = tasks.keys().cloned().collect();
     let workspace_string = workspace.to_string_lossy().into_owned();
     let volumes = manifest_named_volumes(stack, &workspace_string, &generation)?;
+    let volume_modes = manifest_volume_modes(stack, &volumes);
     let mut macos_guest = macos_guest;
     if let Some(guest) = &mut macos_guest {
         guest.storage_volume = volumes
@@ -331,6 +337,8 @@ pub(crate) async fn manifest_stack_plan(
         secrets,
         github_api_proxy,
         job_caches,
+        volume_modes,
+        keep,
     })
 }
 
@@ -475,6 +483,13 @@ pub(crate) struct ManifestRuntimePlan {
     /// the Docker proxy (#358): the manifest's `job_caches`, plus act's
     /// toolcache as an exclusive machine cache unless the manifest maps it.
     pub(crate) job_caches: Vec<runners::CacheRule>,
+    /// Each planned volume's sharing mode (#666), by Docker volume name.
+    /// Carried for the task-container slice; nothing enforces it yet.
+    pub(crate) volume_modes: BTreeMap<String, bosn_core::manifest::VolumeMode>,
+    /// The selected task's `keep` (#666); false without a task. Carried, not
+    /// yet acted on, and not part of the generation: it selects the
+    /// container's lifetime, not its shape.
+    pub(crate) keep: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

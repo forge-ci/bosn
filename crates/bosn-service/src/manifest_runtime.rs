@@ -167,6 +167,20 @@ pub(crate) fn manifest_named_volumes(
         .collect()
 }
 
+/// Pair each planned volume with its declared sharing mode.
+/// [`manifest_named_volumes`] maps `stack.volumes` in order.
+pub(crate) fn manifest_volume_modes(
+    stack: &bosn_core::manifest::Stack,
+    volumes: &[ManifestVolumeResource],
+) -> BTreeMap<String, bosn_core::manifest::VolumeMode> {
+    stack
+        .volumes
+        .iter()
+        .zip(volumes)
+        .map(|(declared, planned)| (planned.name.clone(), declared.mode))
+        .collect()
+}
+
 /// Translate the limited legacy
 /// `tmpfs = ["/target[:ro|rw][,size=N{b|k|m|g}][,exec|noexec][,mode=OCTAL]"]`
 /// shape to typed setup data.  Every other option (`uid`, `nosuid`, ...), a
@@ -302,7 +316,7 @@ pub(crate) fn manifest_host_docker_socket(
     Ok(Some(SetupHostDockerSocket {
         source,
         target: mount.destination.clone(),
-        readonly: mount.readonly,
+        readonly: manifest_mount_readonly(mount)?,
         proxy_dir,
     }))
 }
@@ -341,8 +355,20 @@ pub(crate) fn manifest_workspace_mount(
     Ok(bosn_core::WorkspaceMount {
         source,
         target: mount.destination.clone(),
-        readonly: mount.readonly,
+        readonly: manifest_mount_readonly(mount)?,
     })
+}
+
+/// The bind's read-only flag. An overlay is refused rather than silently
+/// bound read-write; slice 2 of #666 implements it.
+pub(crate) fn manifest_mount_readonly(mount: &bosn_core::manifest::Mount) -> Result<bool, String> {
+    match mount.mode {
+        bosn_core::manifest::MountMode::Rw => Ok(false),
+        bosn_core::manifest::MountMode::Ro => Ok(true),
+        bosn_core::manifest::MountMode::Overlay => {
+            Err("overlay mounts are not implemented yet (#666)".into())
+        }
+    }
 }
 
 /// Resolve a legacy source without allowing an absolute path, `..`, or a
@@ -511,6 +537,12 @@ pub(crate) fn manifest_runtime_generation(
                 Retention::Pinned => b"pinned",
             },
         );
+        // Hashed only when it differs from the scope's default, so a volume
+        // without `mode` keeps its pre-existing runtime generation.
+        if volume.mode != bosn_core::manifest::VolumeMode::default_for(volume.scope) {
+            manifest_generation_field(&mut hasher, b"volume-mode");
+            manifest_generation_field(&mut hasher, volume.mode.as_str().as_bytes());
+        }
     }
     manifest_generation_field(&mut hasher, &(tmpfs.len() as u64).to_be_bytes());
     let mut tmpfs = tmpfs.to_vec();

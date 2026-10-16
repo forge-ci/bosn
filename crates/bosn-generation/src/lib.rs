@@ -7,7 +7,10 @@
 
 use std::collections::BTreeSet;
 
-use bosn_core::{Manifest, manifest::Stack};
+use bosn_core::{
+    Manifest,
+    manifest::{MountMode, OverlayUpper, Stack},
+};
 use kernal_api::hash::Sha256Hasher;
 
 pub mod collector;
@@ -515,11 +518,12 @@ fn stack_fields(h: &mut Sha256Hasher, s: &Stack) {
     }
     let mut mounts = s.mounts.clone();
     mounts.sort_by(|a, b| {
-        (&a.name, &a.source, &a.destination, a.readonly).cmp(&(
+        (&a.name, &a.source, &a.destination, a.mode, &a.upper).cmp(&(
             &b.name,
             &b.source,
             &b.destination,
-            b.readonly,
+            b.mode,
+            &b.upper,
         ))
     });
     count(h, b"mounts", mounts.len());
@@ -527,7 +531,23 @@ fn stack_fields(h: &mut Sha256Hasher, s: &Stack) {
         field(h, m.name.as_bytes());
         field(h, m.source.as_bytes());
         field(h, m.destination.as_bytes());
-        field(h, if m.readonly { b"1" } else { b"0" });
+        // rw/ro hash as the former `readonly` flag did, so their generations hold.
+        field(
+            h,
+            match m.mode {
+                MountMode::Rw => b"0",
+                MountMode::Ro => b"1",
+                MountMode::Overlay => b"overlay",
+            },
+        );
+        match &m.upper {
+            None => {}
+            Some(OverlayUpper::Tmpfs) => field(h, b"upper-tmpfs"),
+            Some(OverlayUpper::Volume(volume)) => {
+                field(h, b"upper-volume");
+                field(h, volume.as_bytes());
+            }
+        }
     }
     let mut tmpfs = s.tmpfs.clone();
     tmpfs.sort_by(|a, b| a.value.cmp(&b.value));
