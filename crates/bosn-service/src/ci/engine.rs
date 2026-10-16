@@ -44,6 +44,7 @@ pub use maintenance_loop::MaintenanceTick;
 pub use migration::ImportAttempt;
 mod act_capabilities;
 mod act_install;
+mod admission;
 mod readiness;
 mod tool_recovery;
 use act_install::act_archive;
@@ -766,13 +767,7 @@ impl ActEngineBackend for DockerActBackend {
             )
             .await?;
             if let Some(scope) = &invocation.scope {
-                let admitted = self
-                    .checked(
-                        "act serve admission",
-                        Self::exec(engine, &scope.admit_script()),
-                        CONTROL_DEADLINE,
-                    )
-                    .await?;
+                let admitted = self.admit(engine, scope).await?;
                 scope.verify_admitted(&admitted)?;
             }
             self.copy_inputs(engine, invocation, source, event).await

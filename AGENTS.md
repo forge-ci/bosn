@@ -340,6 +340,10 @@ Decided 2026-10-08. This replaces "one private nested engine per run."
   a lock. The engine's slot lease still picks the slot and Bosn passes it to
   `admit`, which serve honours or refuses; Bosn refuses any admitted scope
   other than the one it expected.
+  Serve's admissions can outlive their lease (a failed `close` still frees
+  the slot), so a `409 slot N is taken` makes Bosn close every admission no
+  lease backs, reading serve's runs before the slot table, and admit once more
+  (`ci/engine/admission.rs`).
 - **What serve owns (decided 2026-10-10, act2#67, #547 step 4).** Besides the
   run scope: each run's Docker proxy; `act serve prepare`, which loads and
   proves the pinned runner image (Bosn passes the publisher manifest and
