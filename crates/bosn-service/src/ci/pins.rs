@@ -108,9 +108,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // inside the shared engine (#547), and `act doctor` (act2#61).
             // act2.18: serve owns the run proxy, runner-image load, tool
             // cache and cache budget (act2#67).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.18/act_Linux_x86_64.tar.gz",
-            sha256: "5ebd6231663bc3b2c54d9777cd26d9333575325ebc28a3bd8f9f0ef7ada13ed7",
-            binary_sha256: "a64a5e95cd570d165cecb83097c7b57f963e9f00b2e4a61c2bbc3574606cdc41",
+            // act2.19 allows 5 min (not 1) for job container cleanup, so a
+            // large job's slow delete no longer fails green steps (#653).
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.19/act_Linux_x86_64.tar.gz",
+            sha256: "52485b9b4a3adfb45a1173b9a37f2c2384c47ca611cab9b6a8e27153cd77d712",
+            binary_sha256: "deb9b45f54a876e7e452f8479f6131ec89edaac91c856ddae9404a7e9d8e88d7",
         }),
         _ => None,
     }
