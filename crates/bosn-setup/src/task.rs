@@ -145,7 +145,7 @@ impl SetupTaskCommand {
                 let mut args = vec![
                     "run".into(),
                     "--rm".into(),
-                    bosn_core::LOW_CPU_PRIORITY_ARG.into(),
+                    bosn_engine::LOW_CPU_PRIORITY_ARG.into(),
                 ];
                 for mount in mounts {
                     let source = mount

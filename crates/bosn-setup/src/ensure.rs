@@ -26,7 +26,8 @@ use checks::*;
 use derive::*;
 pub use derive::{setup_container_name, verify_setup_observation};
 
-const LABEL_MANAGED: &str = "com.zackees.bosn.setup-managed";
+/// Stamped on every setup container and volume; no registry id rides with it.
+pub const LABEL_MANAGED: &str = "com.zackees.bosn.setup-managed";
 const LABEL_CONTENT_SHA256: &str = "com.zackees.bosn.setup-content-sha256";
 const LABEL_CONTAINER_NAME: &str = "com.zackees.bosn.setup-container";
 const MANAGED_VALUE: &str = "v1";
@@ -169,7 +170,7 @@ impl SetupEnsureCommand {
                     "private".into(),
                     "--ipc".into(),
                     "private".into(),
-                    bosn_core::LOW_CPU_PRIORITY_ARG.into(),
+                    bosn_engine::LOW_CPU_PRIORITY_ARG.into(),
                 ];
                 for (key, value) in labels {
                     args.push("--label".into());

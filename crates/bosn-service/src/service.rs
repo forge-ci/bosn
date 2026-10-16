@@ -237,6 +237,16 @@ impl Service {
                 "bosn retention: could not enroll this registry in the machine catalog: {error}"
             );
         }
+        // #645: containers created before #643 still run at the default CPU weight.
+        let reweight_owner = act_owner.clone();
+        if async_engine::launch_blocking(move || {
+            crate::cpu_reweight::reweight_running(&reweight_owner)
+        })
+        .await
+        .is_err()
+        {
+            eprintln!("bosn priority: the re-weight pass did not run");
+        }
         let act_image_proofs = act_engine::bundled_engine_manifests()
             .map_err(|error| Error::Io(std::io::Error::other(error.to_string())))?;
         let ep = endpoint(&self.state_dir)?;

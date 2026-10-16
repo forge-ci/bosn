@@ -285,12 +285,15 @@ Decided 2026-10-09.
   ignored so existing configs keep working. A run whose wanted engine differs
   from the machine's engine waits for it to drain (#544), never gets its own.
 
-## Low CPU priority (#643)
+## Low CPU priority (#643, #645)
 
-Every container Bosn creates runs at `bosn_core::LOW_CPU_PRIORITY_ARG`
+Every container Bosn creates runs at `bosn_engine::LOW_CPU_PRIORITY_ARG`
 (`--cpu-shares=256`, cgroup v2 `cpu.weight` about 10) so builds yield to the
 desktop under contention. CPU caps (`--cpus`) bound how much; the weight decides
-who wins. A new `docker create`/`run` site must pass the constant.
+who wins. A new `docker create`/`run` site must pass the constant. When an
+operator provisions a low-weight `bosn.slice`, `DockerEngine::with_args` adds
+`--cgroup-parent=bosn.slice` at execution, never in a creation profile, so the
+slice never renames a setup container. See [CPU priority](docs/cpu-priority.md).
 
 ## CI engine architecture (#544, #547)
 

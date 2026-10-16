@@ -519,7 +519,7 @@ fn absent_container_is_created_then_started_with_only_plan_data() {
     let calls = engine.calls.lock().unwrap().clone();
     assert_eq!(calls.len(), 5);
     // #643: the app container is created at Bosn's low CPU weight.
-    let low = bosn_core::LOW_CPU_PRIORITY_ARG.to_owned();
+    let low = bosn_engine::LOW_CPU_PRIORITY_ARG.to_owned();
     assert!(calls.iter().any(|call| call.docker_args().contains(&low)));
     assert!(
         matches!(&calls[0], SetupEnsureCommand::Inspect { container_name } if container_name == &setup_container_name(&plan, &workspace, &image).unwrap())

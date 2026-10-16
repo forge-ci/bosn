@@ -149,7 +149,7 @@ pub(super) fn helper_create_args(identity: &helper::Identity) -> Vec<String> {
     let mut args = owned(&[
         "create",
         "--rm",
-        bosn_core::LOW_CPU_PRIORITY_ARG,
+        bosn_engine::LOW_CPU_PRIORITY_ARG,
         "--name",
         &identity.name,
         "--label",
@@ -211,7 +211,7 @@ mod tests {
         let args = helper_create_args(&identity);
         assert!(
             args.iter()
-                .any(|arg| arg == bosn_core::LOW_CPU_PRIORITY_ARG)
+                .any(|arg| arg == bosn_engine::LOW_CPU_PRIORITY_ARG)
         );
     }
 
