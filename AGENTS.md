@@ -219,10 +219,15 @@ The `rust` job compiles the workspace once per edit. Restructure it; never drop 
 
 ## Toolchain note (host hazard)
 
-`clud`, on launch, re-pins its blessed `soldr==0.7.11` as the `uv` tool
-(`~/.local/bin/soldr`), which predates the `prepare` subcommand and breaks local cross
-builds. CI is unaffected (it uses `zackees/setup-soldr@v0`). If a local `soldr`
-build fails with "tool not found: prepare", run `uv tool install 'soldr==0.9.15'`.
+Never install an exact old Soldr on the host (`uv tool install soldr==<x>`,
+`pip install soldr==<x>`, or a PEP 723 `soldr==<x>` script dependency).
+`~/.local/bin/soldr` and the `~/.soldr` cache root are shared by every
+repository and session on the machine: a pinned install downgrades all of
+them, and an old Soldr daemon can take over `~/.soldr` and lock newer daemons
+out until it is killed. Use the latest release (`uv tool install soldr`, or
+`uv tool upgrade soldr`). CI pins its own Soldr through `zackees/setup-soldr`,
+and `docker/test.Dockerfile` pins one inside the container; neither touches
+the host.
 
 ## Daemon version contract (#509, #324)
 
