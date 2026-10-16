@@ -81,6 +81,8 @@ mod manifest_runtime;
 mod manifest_target_volume;
 pub mod mcp;
 pub mod owned_accounting;
+mod owner;
+pub use owner::{ClientOwner, Liveness};
 pub mod raw_run_log;
 mod registry_actor;
 mod registry_api;

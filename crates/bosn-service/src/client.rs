@@ -714,6 +714,23 @@ impl Client {
         &self,
         request: ManifestEnsureJobRequest,
     ) -> Result<u64, Error> {
+        self.submit_manifest_ensure_owned(request, None).await
+    }
+    /// Submit like [`Self::submit_manifest_ensure`], for a caller that follows
+    /// the job to its end: this process owns it, and the daemon cancels it as
+    /// soon as this process exits ([`ClientOwner`]).
+    pub async fn follow_manifest_ensure(
+        &self,
+        request: ManifestEnsureJobRequest,
+    ) -> Result<u64, Error> {
+        self.submit_manifest_ensure_owned(request, ClientOwner::current())
+            .await
+    }
+    async fn submit_manifest_ensure_owned(
+        &self,
+        request: ManifestEnsureJobRequest,
+        owner: Option<ClientOwner>,
+    ) -> Result<u64, Error> {
         let workspace = request
             .workspace
             .to_str()
@@ -731,14 +748,17 @@ impl Client {
             output_limit,
         )?;
         match self
-            .call(Request {
-                workspace,
-                stack: request.stack,
-                setup_config: request.manifest,
-                setup_deadline_ms: deadline_ms,
-                setup_output_limit: output_limit,
-                ..Request::operation(22)
-            })
+            .call(
+                Request {
+                    workspace,
+                    stack: request.stack,
+                    setup_config: request.manifest,
+                    setup_deadline_ms: deadline_ms,
+                    setup_output_limit: output_limit,
+                    ..Request::operation(22)
+                }
+                .owned_by(owner),
+            )
             .await?
         {
             Reply::Job(id) => Ok(id),
@@ -783,15 +803,16 @@ impl Client {
         &self,
         request: ManifestAppTaskJobRequest,
     ) -> Result<u64, Error> {
-        self.submit_manifest_app_task_with_lease(request, None)
+        self.submit_manifest_app_task_with_lease(request, None, None)
             .await
     }
     /// Submit like [`Self::submit_manifest_app_task`], for a caller that
-    /// follows the job to its end by polling `job_status`/`job_logs`. The
-    /// daemon cancels the job (queued or running) once no poll has arrived
-    /// for `lease`, so a follower killed by SIGTERM, SIGHUP or SIGKILL does
-    /// not leave its job running to the deadline (#357). The lease must be
-    /// within [`FOLLOW_LEASE_MIN`]..=[`FOLLOW_LEASE_MAX`].
+    /// follows the job to its end by polling `job_status`/`job_logs`. This
+    /// process owns the job: the daemon cancels it (queued or running) as
+    /// soon as this process exits ([`ClientOwner`]), or once no poll has
+    /// arrived for `lease`, so a follower killed by SIGTERM, SIGHUP or
+    /// SIGKILL does not leave its job running to the deadline (#357). The
+    /// lease must be within [`FOLLOW_LEASE_MIN`]..=[`FOLLOW_LEASE_MAX`].
     pub async fn follow_manifest_app_task(
         &self,
         request: ManifestAppTaskJobRequest,
@@ -800,13 +821,14 @@ impl Client {
         if !(FOLLOW_LEASE_MIN..=FOLLOW_LEASE_MAX).contains(&lease) {
             return Err(Error::Protocol("invalid manifest app task follow lease"));
         }
-        self.submit_manifest_app_task_with_lease(request, Some(lease))
+        self.submit_manifest_app_task_with_lease(request, Some(lease), ClientOwner::current())
             .await
     }
-    async fn submit_manifest_app_task_with_lease(
+    pub(crate) async fn submit_manifest_app_task_with_lease(
         &self,
         request: ManifestAppTaskJobRequest,
         lease: Option<Duration>,
+        owner: Option<ClientOwner>,
     ) -> Result<u64, Error> {
         let follow_lease_ms = lease.map_or(0, |lease| lease.as_millis() as u64);
         let workspace = request
@@ -827,16 +849,19 @@ impl Client {
             output_limit,
         )?;
         match self
-            .call(Request {
-                workspace,
-                stack: request.stack,
-                setup_config: request.manifest,
-                setup_task_name: request.task_name,
-                setup_deadline_ms: deadline_ms,
-                setup_output_limit: output_limit,
-                follow_lease_ms,
-                ..Request::operation(23)
-            })
+            .call(
+                Request {
+                    workspace,
+                    stack: request.stack,
+                    setup_config: request.manifest,
+                    setup_task_name: request.task_name,
+                    setup_deadline_ms: deadline_ms,
+                    setup_output_limit: output_limit,
+                    follow_lease_ms,
+                    ..Request::operation(23)
+                }
+                .owned_by(owner),
+            )
             .await?
         {
             Reply::Job(id) => Ok(id),

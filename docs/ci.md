@@ -6,8 +6,9 @@ bosn daemon creates for that run and removes afterwards. It serves agents
 #323.
 
 ```sh
-bosn ci run --wait                      # push trigger, minimal mode, ci.yml
+bosn ci run                             # push trigger, minimal mode, ci.yml; waits
 bosn ci run --trigger pr --mode test    # pull_request + ci-test label
+bosn ci run --detach                    # queue it, print the run ID and return
 bosn ci run --workflow .github/workflows/installer-check.yml --job public-host \
   --event workflow_call --input release_tag=2.8.25 --input mode=candidate \
   --matrix target:x86_64-unknown-linux-musl --env PYTEST_ADDOPTS=-s
@@ -15,13 +16,44 @@ bosn ci list
 bosn ci show RUN                        # Run -> stage -> job -> step tree
 bosn ci logs RUN --follow               # or --since-seq N --limit N
 bosn ci report RUN --json               # agent contract: first failure + tail
-bosn ci cancel RUN | retry RUN [--job K] | wait RUN --deadline-ms N
+bosn ci cancel RUN | retry RUN [--job K] [--detach] | wait RUN --deadline-ms N
 bosn ci runners [list|drain|resume|set-limit N|prune-cache|cache|clear-cache]
 ```
 
 `--timeout-secs N` (default 2 hours) bounds the whole run from the moment it
 starts: resolving and pulling images, preparing the engine and running act. A
 run that exceeds it ends `timed_out`, and its engine is still removed.
+
+## A run lives as long as its client
+
+`bosn ci run` and `bosn ci retry` wait for the run, and the run belongs to that
+command. Unless `--detach` is given, the run is cancelled, and its scope and
+containers are removed, as soon as the command stops:
+
+- **The client stops it first.** Ctrl-C or a termination request (SIGTERM; on
+  Windows Ctrl-Break, closing the console or shutdown) releases the run: the
+  daemon cancels it unless another owner still holds it, and the command keeps
+  following it until it ends. A second request exits at once. `--deadline-ms`
+  releases the run the same way when the deadline passes.
+- **The daemon is the second line of defense.** Each submission carries the
+  client's PID and the host's creation key for it (`/proc` start ticks on
+  Linux, the process creation `FILETIME` on Windows, the start time on macOS),
+  so a later process that reuses the PID is never mistaken for the client. The
+  daemon looks every owner up twice a second and cancels the runs whose owners
+  have all exited (SIGKILL, a crash, a closed terminal, an unreaped zombie).
+
+An identical submission that joins a running run adds its client as another
+owner, so the run lives while any of them does; a detached submission pins it.
+A run created detached never gains an owner. `bosn ci wait RUN` only watches:
+it owns nothing, and stopping it leaves the run alone. `--wait` is the default
+and still accepted.
+
+`bosn run` follows the same rule for its ensure and task jobs: Ctrl-C or a
+termination request cancels the job (stopping its processes in the container),
+and the daemon cancels the jobs of a client that died. `bosn run --task T
+--detach` submits the task, prints its job ID and returns. The submit-only
+commands (`bosn setup ...`, `bosn manifest ...`) print a job ID and return, so
+their jobs are always detached.
 
 ## Agents: MCP tools and `bosn.Client`
 
@@ -35,8 +67,11 @@ dispatches through the same code.
 - Arguments are parsed eagerly into typed structs; an unknown field is
   refused.
 - Every reply is a typed document of at most 64 KiB.
-- `bosn_ci_run` returns a durable run ID at once. Waiting goes through
-  `bosn_ci_wait`, which accepts a deadline of at most 10 minutes per call.
+- `bosn_ci_run` returns the run ID at once. The run belongs to the process
+  that submitted it (the `bosn mcp` server, or the Python process) and is
+  cancelled when that process exits, unless `detach: true` is passed
+  (`bosn_ci_retry` takes `detach` too). Waiting goes through `bosn_ci_wait`,
+  which accepts a deadline of at most 10 minutes per call.
 - Logs are cursor pages (`since_seq` to `next_seq`); each record comes back
   exactly once.
 - `bosn_ci_report` gives the first failing job and step with only that step's

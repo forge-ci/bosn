@@ -17,6 +17,7 @@
 //! * A running runner job holds a numbered slot (the lowest free index) for
 //!   accounting, until it settles.
 
+use crate::{ClientOwner, Liveness, owner::Owners};
 use std::{
     collections::{BTreeMap, VecDeque},
     time::{Duration, Instant, SystemTime},
@@ -179,6 +180,8 @@ pub struct Jobs {
     started: VecDeque<u64>,
     /// Follow leases of unfinished jobs; see [`Lease`].
     leases: BTreeMap<u64, Lease>,
+    /// The client processes that keep unfinished jobs alive.
+    owners: Owners<u64>,
 }
 
 impl Jobs {
@@ -426,6 +429,27 @@ impl Jobs {
             }
         }
     }
+    /// Record a submission's owner for job `id`, which it created or joined
+    /// (see [`Owners::submitted`]).
+    pub fn own(&mut self, id: u64, owner: Option<ClientOwner>, created: bool) {
+        if self.jobs.get(&id).is_some_and(|job| !job.state.terminal()) {
+            self.owners.submitted(&id, owner, created);
+        }
+    }
+    /// Queued or running jobs whose every owner has exited, with their
+    /// owners' PIDs. Each owner is looked up once with `liveness`.
+    pub fn orphaned(
+        &mut self,
+        liveness: impl FnMut(&ClientOwner) -> Liveness,
+    ) -> Vec<(u64, Vec<u32>)> {
+        let mut orphaned = self.owners.orphaned(liveness);
+        orphaned.retain(|(id, _)| {
+            self.jobs
+                .get(id)
+                .is_some_and(|job| matches!(job.state, JobState::Queued | JobState::Running))
+        });
+        orphaned
+    }
     /// Queued or running jobs whose follower has not polled within its lease.
     /// A job already cancelling is left to finish.
     pub fn expired_leases(&self, now: Instant) -> Vec<u64> {
@@ -535,6 +559,7 @@ impl Jobs {
             self.runner_slots[slot] = None;
         }
         self.leases.remove(&id);
+        self.owners.forget(&id);
         if was_running {
             *self.running.get_mut(&class).unwrap() -= 1;
         }
@@ -708,6 +733,7 @@ impl Default for Jobs {
             finished: VecDeque::new(),
             started: VecDeque::new(),
             leases: BTreeMap::new(),
+            owners: Owners::default(),
         }
     }
 }

@@ -301,6 +301,25 @@ Decided 2026-10-09.
   ignored so existing configs keep working. A run whose wanted engine differs
   from the machine's engine waits for it to drain (#544), never gets its own.
 
+## Work dies with its client unless detached (decided 2026-10-16)
+
+- **A following client owns its work.** `bosn run` (ensure and task jobs),
+  `bosn ci run`/`retry` (which now wait by default) and the MCP/Python
+  `bosn_ci_run`/`bosn_ci_retry` hand the daemon their PID and the host's
+  creation key for it (request tags 30-31, `ClientOwner`). `--detach`
+  (`detach: true` over MCP) sends no owner and the work outlives the client.
+  Submit-only commands (`bosn setup ...`, `bosn manifest ...`) stay detached.
+- **The client is the first line of defense:** Ctrl-C or a termination request
+  cancels its job or releases its CI run (operation `release`: cancelled only
+  when no other owner holds it). A second request exits at once.
+- **The daemon is the second line:** it looks every owner up twice a second
+  (one process-table read each; a reused PID or an unreaped zombie counts as
+  gone, an unreadable one as alive) and cancels work whose owners are all gone.
+  Cancelling stops the container work (CI scope close, the #357 task stop).
+- An identical submission that joins work adds its owner; a detached joiner
+  pins it; work created unowned never gains an owner. The 30 s follow lease of
+  `bosn run` (#357) stays as a backstop.
+
 ## Low CPU priority (#643, #645)
 
 Every container Bosn creates runs at `bosn_engine::LOW_CPU_PRIORITY_ARG`

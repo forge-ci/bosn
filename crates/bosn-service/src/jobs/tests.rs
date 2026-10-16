@@ -337,3 +337,62 @@ fn a_quiet_followers_queued_job_waits_and_starts_when_it_polls_again() {
     jobs.touch(quiet, quiet_at);
     assert_eq!(jobs.jobs[&quiet].state, JobState::Running);
 }
+
+fn client(pid: u32) -> ClientOwner {
+    ClientOwner::from_wire(pid, &[1, 0]).unwrap().unwrap()
+}
+
+/// The owner sweep's view: these PIDs are alive, every other one is gone.
+fn alive(pids: &'static [u32]) -> impl FnMut(&ClientOwner) -> Liveness {
+    move |owner| {
+        if pids.contains(&owner.pid()) {
+            Liveness::Alive
+        } else {
+            Liveness::Gone
+        }
+    }
+}
+
+#[test]
+fn jobs_whose_owners_exited_are_orphaned_queued_or_running() {
+    let mut jobs = Jobs::new(1);
+    let running = match jobs.submit("a", "s", "x").unwrap() {
+        Submission::Started(id) => id,
+        other => panic!("{other:?}"),
+    };
+    let queued = match jobs.submit("b", "s", "x").unwrap() {
+        Submission::Queued(id) => id,
+        other => panic!("{other:?}"),
+    };
+    let detached = match jobs.submit("c", "s", "x").unwrap() {
+        Submission::Queued(id) => id,
+        other => panic!("{other:?}"),
+    };
+    jobs.own(running, Some(client(10)), true);
+    jobs.own(queued, Some(client(11)), true);
+    jobs.own(detached, None, true);
+    assert!(jobs.orphaned(alive(&[10, 11])).is_empty());
+    assert_eq!(jobs.orphaned(alive(&[10])), vec![(queued, vec![11])]);
+    assert_eq!(jobs.orphaned(alive(&[])), vec![(running, vec![10])]);
+    assert!(jobs.orphaned(alive(&[])).is_empty(), "reported once");
+}
+
+#[test]
+fn a_joined_owner_keeps_shared_work_alive_and_finished_jobs_forget_owners() {
+    let mut jobs = Jobs::new(1);
+    let id = match jobs.submit("a", "s", "x").unwrap() {
+        Submission::Started(id) => id,
+        other => panic!("{other:?}"),
+    };
+    jobs.own(id, Some(client(10)), true);
+    assert_eq!(jobs.submit("a", "s", "x").unwrap(), Submission::Joined(id));
+    jobs.own(id, Some(client(11)), false);
+    assert!(
+        jobs.orphaned(alive(&[11])).is_empty(),
+        "the joiner holds it"
+    );
+    jobs.settle(id, true).unwrap();
+    assert!(jobs.owners.is_empty(), "a finished job forgets its owners");
+    jobs.own(id, Some(client(12)), false);
+    assert!(jobs.owners.is_empty(), "a finished job gains no owner");
+}

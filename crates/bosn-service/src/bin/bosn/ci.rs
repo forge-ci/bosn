@@ -14,7 +14,7 @@ use bosn_service::{
     Client,
     ci::{
         Conclusion, DispatcherHealth, JsonReply, LogsQuery, RunState, RunView, RunnerAction,
-        RunnerStatus, SubmitOptions,
+        RunnerStatus, SubmitOptions, SubmitReply,
         model::{ItemConclusion, ItemStatus},
         params::RunParams,
         provider::{Mode, Provider, Trigger},
@@ -22,16 +22,19 @@ use bosn_service::{
 };
 use kernal_api::async_engine::{Runtime, RuntimeBuilder};
 
+use crate::stop_signal::{StopRequest, StopSignals};
+
 pub const USAGE: &str = "usage: bosn ci plan [--workspace P] [--provider github] [--workflow F] [--job J] [--trigger pr|push|release | --event workflow_dispatch|workflow_call] [--input K=V]... [--matrix K:V]... [--env K=V]... [--ci-output JOB/PATH:OUTPUT]... [--mode minimal|test|full] [--sha S] [--json]
    or: bosn ci plan --adapter RELATIVE_JSON --workspace P --event pull_request|push|release --mode minimal|test|full --sha 40_HEX --repo-owner O --repo-name N [--base-sha S] [--pr-number N --head-owner O --head-name N --head-ref R --base-ref R --author-login L] [--json]  (fleet adapter V1 plan, JSON on stdout)
-   or: bosn ci run <plan options> [--engine act] [--pr-number N] [--timeout-secs N] [--github-token] [--wait [--deadline-ms N]] [--json]
+   or: bosn ci run <plan options> [--engine act] [--pr-number N] [--timeout-secs N] [--github-token] [--deadline-ms N | --detach] [--json]
+       (waits for the run, which lives only as long as this command: Ctrl-C, a termination or its death cancels it; --detach queues it and returns)
    or: bosn ci list [--workspace P] [--state queued|running|done] [--limit N] [--json]
    or: bosn ci show RUN [--json]
    or: bosn ci logs RUN [--job K] [--step S] [--since-seq N] [--follow] [--json]
    or: bosn ci wait RUN [--deadline-ms N] [--json]
    or: bosn ci cancel RUN [--json]
    or: bosn ci report RUN [--tail N] [--json]
-   or: bosn ci retry RUN [--job K] [--json]
+   or: bosn ci retry RUN [--job K] [--deadline-ms N | --detach] [--json]  (waits like `run`)
    or: bosn ci runners [list|drain|resume|set-limit N|prune-cache [--older-than-secs N] [--max-bytes N]|cache|clear-cache] [--json]
    or: bosn ci doctor [--json]  (act2's `act doctor` in the shared engine; exits 1 when a required check fails)
    or: bosn ui [--path /ci/runs/RUN] [--print|--browser]  (the widget when installed, else the browser; needs `[ui] enabled = true` in <state>/config.toml)
@@ -260,6 +263,7 @@ fn submit_options(flags: &Flags) -> Result<SubmitOptions, Failure> {
             Vec::new()
         },
         params: params(flags)?,
+        detach: flags.has("--detach"),
     })
 }
 
@@ -332,34 +336,60 @@ fn plan(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
     Ok(0)
 }
 
+/// Switches of the verbs that submit a run. `--wait` is the default and
+/// accepted for older callers.
+const SUBMIT_SWITCHES: &[&str] = &["--json", "--wait", "--detach", "--github-token"];
+
 fn submit(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
-    let flags = Flags::parse(
-        arguments,
-        PLAN_FLAGS,
-        &["--json", "--wait", "--github-token"],
-    )?;
+    let flags = Flags::parse(arguments, PLAN_FLAGS, SUBMIT_SWITCHES)?;
+    detach_conflicts(&flags)?;
     let options = submit_options(&flags)?;
     // Refuse a bad checkout or trigger before starting any daemon.
     bosn_service::ci::plan(&options).map_err(describe)?;
     let (runtime, client) = connect(&flags)?;
     let submitted = call(&runtime, client.ci_submit(options))?;
     maybe_start_widget(&runtime, &client, &flags);
-    if !flags.has("--wait") {
-        print(&submitted, flags.json(), |s| {
-            let how = if s.coalesced {
-                " (joined an identical run)"
-            } else {
-                ""
-            };
-            println!("run {} queued{how}", s.run);
+    follow_submitted(&runtime, &client, &submitted, &flags)
+}
+
+fn detach_conflicts(flags: &Flags) -> Result<(), Failure> {
+    if flags.has("--detach") && (flags.has("--wait") || flags.get("--deadline-ms").is_some()) {
+        return Err(Failure {
+            exit: EXIT_REFUSED,
+            message: "--detach does not wait; drop --wait and --deadline-ms".into(),
+        });
+    }
+    Ok(())
+}
+
+/// A detached run is reported and left queued; otherwise this command owns
+/// the run and waits for it.
+fn follow_submitted(
+    runtime: &Runtime,
+    client: &Client,
+    submitted: &SubmitReply,
+    flags: &Flags,
+) -> Result<i32, Failure> {
+    let how = if submitted.coalesced {
+        " (joined an identical run)"
+    } else {
+        ""
+    };
+    if flags.has("--detach") {
+        print(submitted, flags.json(), |s| {
+            println!("run {} queued{how}, detached", s.run);
             println!("follow: bosn ci logs {} --follow", s.run);
         });
         return Ok(0);
     }
     if !flags.json() {
-        eprintln!("run {} submitted; waiting", submitted.run);
+        eprintln!(
+            "run {} submitted{how}; waiting (Ctrl-C cancels it; --detach leaves a run running)",
+            submitted.run
+        );
     }
-    finish(&runtime, &client, &submitted.run, &flags)
+    let mut stop = StopSignals::new(runtime).map_err(Failure::error)?;
+    finish(runtime, client, &submitted.run, flags, Some(&mut stop))
 }
 
 /// The CLI's fallback auto-launch: when the daemon reports no widget and
@@ -381,11 +411,37 @@ fn maybe_start_widget(runtime: &Runtime, client: &Client, flags: &Flags) {
 }
 
 /// Wait for a run, then print its full record and return its exit code
-/// (2 when the deadline passes first).
-fn finish(runtime: &Runtime, client: &Client, run: &str, flags: &Flags) -> Result<i32, Failure> {
+/// (2 when the deadline passes first). `owned` holds the stop signals of a
+/// command that owns the run: a stop request, or the deadline, releases the
+/// run (cancelling it unless another owner still holds it). After a release
+/// that cancelled the run the command follows it to its end; otherwise, or on
+/// a second stop request, it returns at once.
+fn finish(
+    runtime: &Runtime,
+    client: &Client,
+    run: &str,
+    flags: &Flags,
+    mut owned: Option<&mut StopSignals<'_>>,
+) -> Result<i32, Failure> {
     let deadline = flags
         .number::<u64>("--deadline-ms")?
         .map(|ms| Instant::now() + Duration::from_millis(ms));
+    // Whether the release cancelled the run.
+    let release = || {
+        let cancelled = runtime
+            .run(client.ci_release(run.into()))
+            .is_ok_and(|reply| reply.cancelled);
+        if !flags.json() {
+            let outcome = if cancelled {
+                "cancelling it"
+            } else {
+                "it keeps running for its other owners"
+            };
+            eprintln!("run {run}: released; {outcome}");
+        }
+        cancelled
+    };
+    let mut released = false;
     loop {
         let shown = call(runtime, client.ci_show(run.into(), true))?;
         let expired = deadline.is_some_and(|d| Instant::now() >= d);
@@ -397,17 +453,34 @@ fn finish(runtime: &Runtime, client: &Client, run: &str, flags: &Flags) -> Resul
             return Ok(code);
         }
         if expired {
+            let shown = if owned.is_some() && !released {
+                release();
+                call(runtime, client.ci_show(run.into(), true))?
+            } else {
+                shown
+            };
             print(&shown, flags.json(), print_tree);
             return Ok(EXIT_NOT_FINISHED);
         }
-        std::thread::sleep(POLL);
+        match owned.as_deref_mut() {
+            None => std::thread::sleep(POLL),
+            Some(stop) => match stop.wait(runtime, POLL) {
+                StopRequest::None => {}
+                StopRequest::First => {
+                    if !std::mem::replace(&mut released, true) && !release() {
+                        return Ok(EXIT_NOT_FINISHED);
+                    }
+                }
+                StopRequest::Again => std::process::exit(EXIT_NOT_FINISHED),
+            },
+        }
     }
 }
 
 fn wait(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
     let flags = Flags::parse(arguments, &["--state-dir", "--deadline-ms"], &["--json"])?;
     let (runtime, client) = connect(&flags)?;
-    finish(&runtime, &client, &flags.run()?, &flags)
+    finish(&runtime, &client, &flags.run()?, &flags, None)
 }
 
 fn list(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
@@ -540,14 +613,22 @@ fn report(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
 }
 
 fn retry(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
-    let flags = Flags::parse(arguments, &["--state-dir", "--job"], &["--json"])?;
+    let flags = Flags::parse(
+        arguments,
+        &["--state-dir", "--job", "--deadline-ms"],
+        SUBMIT_SWITCHES,
+    )?;
+    detach_conflicts(&flags)?;
     let (runtime, client) = connect(&flags)?;
     let retried = call(
         &runtime,
-        client.ci_retry(flags.run()?, flags.get("--job").map(str::to_string)),
+        client.ci_retry(
+            flags.run()?,
+            flags.get("--job").map(str::to_string),
+            flags.has("--detach"),
+        ),
     )?;
-    print(&retried, flags.json(), |r| println!("run {} queued", r.run));
-    Ok(0)
+    follow_submitted(&runtime, &client, &retried, &flags)
 }
 
 /// `bosn ui [--path P] [--print] [--browser]`: a single-use dashboard link,

@@ -32,6 +32,7 @@ use crate::{RegistryActor, secrets::SecretMasker};
 mod cleanup;
 mod dispatch;
 mod observer;
+mod owners;
 mod persist;
 mod plan;
 mod runners;
@@ -73,6 +74,8 @@ struct CiState {
     order: Vec<String>,
     /// The cache volume is being removed: dispatch holds new runs.
     clearing_cache: bool,
+    /// The client processes that keep unfinished runs alive.
+    owners: crate::owner::Owners<String>,
 }
 
 /// The detached dispatch loop's channel, handle and recovery count (#453).
@@ -151,6 +154,7 @@ impl CiRuntime {
             runs: BTreeMap::new(),
             order: Vec::new(),
             clearing_cache: false,
+            owners: crate::owner::Owners::default(),
         };
         let writer = RecordWriter::new(store.clone());
         for mut record in store.load_runs() {
@@ -202,14 +206,25 @@ impl CiRuntime {
         };
         runtime.spawn_dispatcher(kicked);
         runtime.start_shared_reaper();
+        runtime.start_owner_sweep();
         runtime
     }
 
     /// Dispatch one typed request; the reply is that operation's typed reply
     /// (see [`super::reply`]) serialized for the wire.
     pub async fn handle(&self, request: CiRequest) -> Result<Value, CiError> {
+        self.handle_owned(request, None).await
+    }
+
+    /// [`Self::handle`] for a request whose client named itself as `owner`:
+    /// a run it submits lives only while it (or another owner) does.
+    pub async fn handle_owned(
+        &self,
+        request: CiRequest,
+        owner: Option<crate::ClientOwner>,
+    ) -> Result<Value, CiError> {
         match request {
-            CiRequest::Submit { request } => wire(self.submit(*request).await),
+            CiRequest::Submit { request } => wire(self.submit(*request, owner).await),
             CiRequest::List {
                 workspace,
                 state,
@@ -245,7 +260,8 @@ impl CiRuntime {
                 ),
             ),
             CiRequest::Cancel { run } => wire(self.cancel(&run)),
-            CiRequest::Retry { run, job } => wire(self.retry(&run, job).await),
+            CiRequest::Release { run } => wire(self.release(&run, owner)),
+            CiRequest::Retry { run, job } => wire(self.retry(&run, job, owner).await),
             CiRequest::Report { run, tail } => wire(
                 self.report(&run, tail.unwrap_or(DEFAULT_REPORT_TAIL).clamp(1, 500))
                     .await,
@@ -339,7 +355,11 @@ impl CiRuntime {
         Some(record)
     }
 
-    async fn submit(&self, request: SubmitRequest) -> Result<SubmitReply, CiError> {
+    async fn submit(
+        &self,
+        request: SubmitRequest,
+        owner: Option<crate::ClientOwner>,
+    ) -> Result<SubmitReply, CiError> {
         let staging = self.store.staging(&request.staging);
         let admitted = async {
             request.validate()?;
@@ -373,7 +393,7 @@ impl CiRuntime {
             );
             let payload = serde_json::to_vec_pretty(&payload).unwrap_or_default();
             let record = RunRecord::queued(new_uuid().await?, &request, event, &payload);
-            self.admit(record, staging.clone(), payload).await
+            self.admit(record, staging.clone(), payload, owner).await
         }
         .await;
         if admitted.is_err() && valid_uuid(&request.staging) {
@@ -390,6 +410,7 @@ impl CiRuntime {
         record: RunRecord,
         staging: PathBuf,
         payload: Vec<u8>,
+        owner: Option<crate::ClientOwner>,
     ) -> Result<SubmitReply, CiError> {
         let (store, writer, id) = (self.store.clone(), self.writer.clone(), record.id.clone());
         let first = Save {
@@ -410,12 +431,14 @@ impl CiRuntime {
             let mut state = self.lock();
             match state.scheduler.submit(record.key(), record.id.clone()) {
                 Admission::Coalesced(existing) => {
+                    state.owners.submitted(&existing, owner, false);
                     Admitted::Joined(state.runs.get_mut(&existing).map(|slot| {
                         slot.record.submitters += 1;
                         self.announce(slot)
                     }))
                 }
                 Admission::Queued(id) => {
+                    state.owners.submitted(&id, owner, true);
                     self.feed.publish(&record);
                     let view = RunView::of(record.clone(), false);
                     state.insert(record.clone(), 1);
@@ -515,12 +538,18 @@ impl CiRuntime {
     }
 
     fn cancel(&self, run: &str) -> Result<CancelReply, CiError> {
+        self.cancel_because(run, "cancelled while queued")
+    }
+
+    /// Cancel a run; a queued one ends now with `queued_reason`.
+    fn cancel_because(&self, run: &str, queued_reason: &str) -> Result<CancelReply, CiError> {
         let mut state = self.lock();
         if state.scheduler.cancel_queued(run) {
+            state.owners.forget(&run.to_string());
             drop(state);
             self.update(run, |slot| {
                 slot.record
-                    .finish(Conclusion::Cancelled, Some("cancelled while queued".into()));
+                    .finish(Conclusion::Cancelled, Some(queued_reason.into()));
             });
             return Ok(CancelReply {
                 run: run.into(),
@@ -543,7 +572,12 @@ impl CiRuntime {
         })
     }
 
-    async fn retry(&self, run: &str, job: Option<String>) -> Result<SubmitReply, CiError> {
+    async fn retry(
+        &self,
+        run: &str,
+        job: Option<String>,
+        owner: Option<crate::ClientOwner>,
+    ) -> Result<SubmitReply, CiError> {
         let original = self.record(run)?;
         if original.state != RunState::Done {
             return Err(CiError::refused("the run is still in progress"));
@@ -567,7 +601,8 @@ impl CiRuntime {
         .await?;
         let (staging, payload) =
             staged.map_err(|e| CiError::new("internal", format!("cannot copy snapshot: {e}")))?;
-        self.admit(original.retry(id, job), staging, payload).await
+        self.admit(original.retry(id, job), staging, payload, owner)
+            .await
     }
 
     async fn report(&self, run: &str, tail: usize) -> Result<RunReport, CiError> {
@@ -711,6 +746,7 @@ impl CiRuntime {
                 }
             }
             state.scheduler.finish(run);
+            state.owners.forget(&run.to_string());
             rewrite
         };
         if let Some(save) = rewrite {

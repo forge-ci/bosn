@@ -171,7 +171,7 @@ impl Live {
 
     /// Queue a run of the current workflow; returns its ID.
     fn submit(&self, extra: &[&str]) -> String {
-        let mut args = vec!["ci", "run", "--json"];
+        let mut args = vec!["ci", "run", "--detach", "--json"];
         args.extend_from_slice(extra);
         let (code, reply) = self.json(&args);
         assert_eq!(code, Some(0), "{reply}");

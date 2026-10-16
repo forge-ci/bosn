@@ -374,15 +374,18 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                     },
                 }
             }
-            22 => match validate_manifest_ensure_request_wire(&r) {
-                Ok(()) => match jobs
-                    .submit_manifest_ensure(ManifestEnsureJobRequest {
-                        workspace: PathBuf::from(r.workspace),
-                        manifest: r.setup_config,
-                        stack: r.stack,
-                        deadline: Duration::from_millis(r.setup_deadline_ms),
-                        output_limit: r.setup_output_limit as usize,
-                    })
+            22 => match validate_manifest_ensure_request_wire(&r).and_then(|()| r.owner()) {
+                Ok(owner) => match jobs
+                    .submit_manifest_ensure(
+                        ManifestEnsureJobRequest {
+                            workspace: PathBuf::from(r.workspace),
+                            manifest: r.setup_config,
+                            stack: r.stack,
+                            deadline: Duration::from_millis(r.setup_deadline_ms),
+                            output_limit: r.setup_output_limit as usize,
+                        },
+                        owner,
+                    )
                     .await
                 {
                     Ok(job_id) => ReplyWire {
@@ -425,8 +428,8 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                     ..Default::default()
                 },
             },
-            23 => match validate_manifest_app_task_request_wire(&r) {
-                Ok(()) => match jobs
+            23 => match validate_manifest_app_task_request_wire(&r).and_then(|()| r.owner()) {
+                Ok(owner) => match jobs
                     .submit_manifest_app_task(
                         ManifestAppTaskJobRequest {
                             workspace: PathBuf::from(r.workspace),
@@ -437,6 +440,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                             output_limit: r.setup_output_limit as usize,
                         },
                         (r.follow_lease_ms != 0).then(|| Duration::from_millis(r.follow_lease_ms)),
+                        owner,
                     )
                     .await
                 {
@@ -912,9 +916,12 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                     ..Default::default()
                 },
             },
-            36 => match serde_json::from_str::<ci::CiRequest>(&r.ci_request) {
-                Err(error) => ci_error_wire("invalid_request", error.to_string()),
-                Ok(request) => match ci.handle(request).await {
+            36 => match serde_json::from_str::<ci::CiRequest>(&r.ci_request)
+                .map_err(|error| error.to_string())
+                .and_then(|request| Ok((request, r.owner().map_err(|e| e.to_string())?)))
+            {
+                Err(error) => ci_error_wire("invalid_request", error),
+                Ok((request, owner)) => match ci.handle_owned(request, owner).await {
                     Ok(value) => ReplyWire {
                         code: 360,
                         ci_reply: value.to_string(),

@@ -259,7 +259,7 @@ fn run_verbs_keep_their_exit_codes_and_output_against_a_drained_daemon() {
     conforms(&drained, "RunnersReply");
     assert_eq!(drained["runners"]["drained"], true);
 
-    let submitted = bosn(&["ci", "run", "--json"], &repo, &state);
+    let submitted = bosn(&["ci", "run", "--detach", "--json"], &repo, &state);
     assert_eq!(submitted.status.code(), Some(0), "queued is not a failure");
     let submitted = json(&submitted);
     conforms(&submitted, "SubmitReply");
@@ -318,6 +318,20 @@ fn run_verbs_keep_their_exit_codes_and_output_against_a_drained_daemon() {
         "{}",
         String::from_utf8_lossy(&shown.stdout)
     );
+
+    // Without --detach the command owns its run: when it stops waiting (here
+    // at its deadline) it releases the run, which is cancelled.
+    let owned = bosn(
+        &["ci", "run", "--deadline-ms", "300", "--json"],
+        &repo,
+        &state,
+    );
+    assert_eq!(owned.status.code(), Some(2), "not finished by the deadline");
+    let owned = json(&owned);
+    conforms(&owned, "RunView");
+    assert_eq!(owned["state"], "done", "released at the deadline: {owned}");
+    let refused = bosn(&["ci", "run", "--detach", "--wait"], &repo, &state);
+    assert_eq!(refused.status.code(), Some(3), "--detach does not wait");
 }
 
 #[test]

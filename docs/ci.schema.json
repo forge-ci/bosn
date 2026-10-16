@@ -357,6 +357,24 @@
         },
         {
           "additionalProperties": false,
+          "description": "The submitting client is exiting: cancel the run unless another\nowner still holds it. The owner is the request's own (see\n[`crate::ClientOwner`]); detached runs are never released.",
+          "properties": {
+            "op": {
+              "const": "release",
+              "type": "string"
+            },
+            "run": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "run"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "job": {
               "type": [

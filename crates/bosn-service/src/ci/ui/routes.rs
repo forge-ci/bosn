@@ -462,6 +462,7 @@ mod tests {
         // CiRequest cannot compile until it is placed in one of the two.
         let socket_only = [
             "submit",
+            "release",
             "doctor",
             "ui_grant",
             "widget_hello",
@@ -474,6 +475,7 @@ mod tests {
             "show",
             "logs",
             "cancel",
+            "release",
             "retry",
             "report",
             "runners",
@@ -499,6 +501,7 @@ mod tests {
             CiRequest::Show { .. } => "show",
             CiRequest::Logs { .. } => "logs",
             CiRequest::Cancel { .. } => "cancel",
+            CiRequest::Release { .. } => "release",
             CiRequest::Retry { .. } => "retry",
             CiRequest::Report { .. } => "report",
             CiRequest::Runners { .. } => "runners",

@@ -145,7 +145,7 @@ that keeps the token out of containers is in
 [docs/github-api-proxy.md](docs/github-api-proxy.md).
 Bosn runs its containers at low CPU priority so the desktop stays responsive;
 see [docs/cpu-priority.md](docs/cpu-priority.md).
-Local CI on an isolated, daemon-owned engine (`bosn ci run --wait`, with
+Local CI on an isolated, daemon-owned engine (`bosn ci run`, with
 reports and stable exit codes for agents) is in [docs/ci.md](docs/ci.md).
 
 Before pushing this repository, run its gate from a clean, committed checkout:

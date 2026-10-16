@@ -17,7 +17,9 @@ use bosn_service::{
     Client, JobStatus, MANIFEST_MAX_DEADLINE, MANIFEST_MAX_OUTPUT, ManifestAppTaskJobRequest,
     ManifestEnsureJobRequest,
 };
-use kernal_api::async_engine::{self, Runtime, RuntimeBuilder};
+use kernal_api::async_engine::{Runtime, RuntimeBuilder};
+
+use crate::stop_signal::{StopRequest, StopSignals};
 
 /// Default budget for the ensure step (a cold Dockerfile build).
 pub const DEFAULT_ENSURE_DEADLINE: Duration = Duration::from_secs(60 * 60);
@@ -46,6 +48,9 @@ pub struct RunArguments {
     pub deadline: Option<Duration>,
     pub output_limit: usize,
     pub no_ensure: bool,
+    /// Submit the task and exit, leaving it running. Otherwise this process
+    /// owns its jobs: stopping it (or its death) cancels them.
+    pub detach: bool,
 }
 
 pub fn run(arguments: impl Iterator<Item = OsString>) {
@@ -61,7 +66,7 @@ pub fn run(arguments: impl Iterator<Item = OsString>) {
     std::process::exit(code)
 }
 
-pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
+pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
 
 pub fn parse_arguments(
     mut arguments: impl Iterator<Item = OsString>,
@@ -73,15 +78,20 @@ pub fn parse_arguments(
     let mut deadline = None;
     let mut output_limit = None;
     let mut no_ensure = false;
+    let mut detach = false;
     while let Some(flag) = arguments.next() {
         let flag = flag
             .into_string()
             .map_err(|_| "arguments must be UTF-8".to_owned())?;
-        if flag == "--no-ensure" {
-            if no_ensure {
-                return Err("--no-ensure given twice".into());
+        if flag == "--no-ensure" || flag == "--detach" {
+            let switch = if flag == "--detach" {
+                &mut detach
+            } else {
+                &mut no_ensure
+            };
+            if std::mem::replace(switch, true) {
+                return Err(format!("{flag} given twice"));
             }
-            no_ensure = true;
             continue;
         }
         let value = arguments
@@ -148,12 +158,7 @@ pub fn parse_arguments(
             other => return Err(format!("unknown option {other}")),
         }
     }
-    if task.is_none() && stack.is_none() {
-        return Err("--task or --stack is required".into());
-    }
-    if task.is_none() && no_ensure {
-        return Err("--no-ensure requires --task".into());
-    }
+    require_target(task.is_some(), stack.is_some(), no_ensure || detach)?;
     Ok(RunArguments {
         task,
         stack,
@@ -162,7 +167,19 @@ pub fn parse_arguments(
         deadline,
         output_limit: output_limit.unwrap_or(MANIFEST_MAX_OUTPUT),
         no_ensure,
+        detach,
     })
+}
+
+/// A run names a task or a stack; the task-only switches need a task.
+fn require_target(task: bool, stack: bool, task_switches: bool) -> Result<(), String> {
+    if !task && !stack {
+        return Err("--task or --stack is required".into());
+    }
+    if !task && task_switches {
+        return Err("--no-ensure and --detach require --task".into());
+    }
+    Ok(())
 }
 
 fn valid_name(value: &str) -> Option<String> {
@@ -296,14 +313,15 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
             "bosn run: ensuring stack {stack} for {}",
             workspace.display()
         );
+        let request = ManifestEnsureJobRequest {
+            workspace: workspace.clone(),
+            manifest: manifest.clone(),
+            stack: stack.clone(),
+            deadline: arguments.deadline.unwrap_or(DEFAULT_ENSURE_DEADLINE),
+            output_limit: arguments.output_limit,
+        };
         let job = runtime
-            .run(client.submit_manifest_ensure(ManifestEnsureJobRequest {
-                workspace: workspace.clone(),
-                manifest: manifest.clone(),
-                stack: stack.clone(),
-                deadline: arguments.deadline.unwrap_or(DEFAULT_ENSURE_DEADLINE),
-                output_limit: arguments.output_limit,
-            }))
+            .run(submit_ensure(&client, request, arguments.detach))
             .map_err(|error| format!("manifest ensure was refused: {error}"))?;
         let status = follow_job(&runtime, &client, &state_dir, job, false)?;
         match status.state.as_str() {
@@ -323,20 +341,25 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
         return Ok(0);
     };
     eprintln!("bosn run: running task {task} in stack {stack}");
+    let request = ManifestAppTaskJobRequest {
+        workspace,
+        manifest,
+        stack,
+        task_name: task.clone(),
+        deadline: arguments.deadline.unwrap_or(DEFAULT_TASK_DEADLINE),
+        output_limit: arguments.output_limit,
+    };
     let job = runtime
-        .run(client.follow_manifest_app_task(
-            ManifestAppTaskJobRequest {
-                workspace,
-                manifest,
-                stack,
-                task_name: task.clone(),
-                deadline: arguments.deadline.unwrap_or(DEFAULT_TASK_DEADLINE),
-                output_limit: arguments.output_limit,
-            },
-            FOLLOW_LEASE,
-        ))
+        .run(submit_task(&client, request, arguments.detach))
         .map_err(|error| format!("manifest app task was refused: {error}"))?;
     eprintln!("{}", job_banner(job, &state_dir));
+    if arguments.detach {
+        let state = state_dir.display();
+        eprintln!(
+            "bosn run: detached; follow it with `bosn job logs --state-dir {state} --job-id {job}`"
+        );
+        return Ok(0);
+    }
     let status = follow_job(&runtime, &client, &state_dir, job, true)?;
     match status.state.as_str() {
         "Succeeded" => Ok(0),
@@ -351,6 +374,33 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
                 None => Err(format!("task {task} did not complete (job {job}): {error}")),
             }
         }
+    }
+}
+
+/// Submit the ensure job, owned by this process unless `detach`.
+async fn submit_ensure(
+    client: &Client,
+    request: ManifestEnsureJobRequest,
+    detach: bool,
+) -> Result<u64, bosn_service::Error> {
+    if detach {
+        client.submit_manifest_ensure(request).await
+    } else {
+        client.follow_manifest_ensure(request).await
+    }
+}
+
+/// Submit the task job: owned by this process and followed under the
+/// [`FOLLOW_LEASE`], or detached.
+async fn submit_task(
+    client: &Client,
+    request: ManifestAppTaskJobRequest,
+    detach: bool,
+) -> Result<u64, bosn_service::Error> {
+    if detach {
+        client.submit_manifest_app_task(request).await
+    } else {
+        client.follow_manifest_app_task(request, FOLLOW_LEASE).await
     }
 }
 
@@ -511,7 +561,9 @@ pub fn queued_notice(job: u64, state_dir: &Path) -> String {
 
 /// Stream one job's logs until it reaches a terminal state. Task stdout and
 /// stderr go to this process's stdout and stderr (ensure output all goes to
-/// stderr); daemon progress lines go to stderr. Ctrl-C cancels the job.
+/// stderr); daemon progress lines go to stderr. Ctrl-C or a termination
+/// request cancels the job, which stops its container work, and a second one
+/// exits at once (the daemon cancels the jobs of a client that is gone).
 fn follow_job(
     runtime: &Runtime,
     client: &Client,
@@ -519,9 +571,7 @@ fn follow_job(
     job: u64,
     task_output: bool,
 ) -> Result<JobStatus, String> {
-    let mut interrupt = runtime
-        .interrupt_signal()
-        .map_err(|_| "cannot observe Ctrl-C".to_owned())?;
+    let mut stop = StopSignals::new(runtime)?;
     let mut after = 0;
     let mut cancel_sent = false;
     let mut queued_reported = false;
@@ -594,15 +644,15 @@ fn follow_job(
             }
             continue;
         }
-        let interrupted = runtime.run(async {
-            async_engine::timeout(POLL_INTERVAL, interrupt.wait())
-                .await
-                .is_ok()
-        });
-        if interrupted && !cancel_sent {
-            eprintln!("bosn run: interrupted; cancelling job {job}");
-            let _ = runtime.run(client.cancel_job(job));
-            cancel_sent = true;
+        match stop.wait(runtime, POLL_INTERVAL) {
+            StopRequest::None => {}
+            StopRequest::First if !cancel_sent => {
+                eprintln!("bosn run: stopping; cancelling job {job}");
+                let _ = runtime.run(client.cancel_job(job));
+                cancel_sent = true;
+            }
+            StopRequest::First => {}
+            StopRequest::Again => std::process::exit(EXIT_INTERRUPTED),
         }
     }
 }
@@ -642,6 +692,17 @@ mod tests {
         assert_eq!(parsed.deadline, None);
         assert_eq!(parsed.output_limit, MANIFEST_MAX_OUTPUT);
         assert!(!parsed.no_ensure);
+        assert!(
+            !parsed.detach,
+            "a run is owned by its client unless detached"
+        );
+    }
+
+    #[test]
+    fn detach_needs_a_task_and_is_given_once() {
+        assert!(args(&["--task", "t", "--detach"]).unwrap().detach);
+        assert!(args(&["--stack", "s", "--detach"]).is_err());
+        assert!(args(&["--task", "t", "--detach", "--detach"]).is_err());
     }
 
     #[test]
