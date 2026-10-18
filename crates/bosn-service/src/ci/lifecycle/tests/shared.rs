@@ -105,6 +105,45 @@ fn an_engine_with_other_pins_waits_for_the_busy_one_to_drain() {
 }
 
 #[test]
+fn a_claim_from_another_bosn_release_is_not_adopted() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults::default()));
+        let other = second_daemon(&dir);
+        let maker = SharedEngine::new_with_release(registry.clone(), backend.clone(), "0.1.13");
+        let caller =
+            SharedEngine::new_with_release(other.registry.clone(), backend.clone(), "0.1.23");
+        let first = lease(&maker, 1, want(1, &dir, 8)).await.unwrap();
+        assert_eq!(
+            backend
+                .machine
+                .claim
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .release
+                .as_deref(),
+            Some("0.1.13")
+        );
+        let notes = waits(&caller, 2, want(2, &dir, 8)).await;
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("waiting for it to drain")),
+            "{notes:?}"
+        );
+        assert_eq!(backend.live(), 1, "a second engine was not created");
+        maker.release(first).await;
+        assert!(maker.retire_idle(Duration::ZERO).await);
+        let next = lease(&caller, 2, want(2, &dir, 8)).await.unwrap();
+        caller.release(next).await;
+        caller.close().await;
+        maker.close().await;
+        other.stop().await;
+    });
+}
+
+#[test]
 fn two_daemons_share_one_engine_and_only_its_maker_retires_it() {
     with_registry(|registry, dir| async move {
         let backend = Arc::new(FakeBackend::with(Faults::default()));
@@ -158,6 +197,7 @@ fn a_claim_whose_daemon_died_is_taken_over() {
             id: "claim-dead".into(),
             engine: format!("bosn-act-{}", run_id(0x9999)),
             registry: "99999999-2222-4333-8444-555555555555".into(),
+            release: None,
             daemon: Process {
                 start: me.start + 1,
                 ..me

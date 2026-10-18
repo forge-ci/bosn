@@ -35,6 +35,7 @@ fn a_claim_round_trips_through_its_labels() {
         id: "c1".into(),
         engine: "bosn-act-0a1b2c3d-4e5f-4a6b-8c7d-000000000002".into(),
         registry: "r".into(),
+        release: Some(env!("CARGO_PKG_VERSION").into()),
         daemon: Daemon::current(),
         created: 42,
     };
@@ -44,6 +45,12 @@ fn a_claim_round_trips_through_its_labels() {
     );
     assert!(claim.ours("r"));
     assert!(!claim.ours("other"));
+    let mut older = claim.labels();
+    older.remove(&format!("{CLAIM_PREFIX}release"));
+    assert_eq!(
+        EngineClaim::from_labels("c1", &older).unwrap().release,
+        None
+    );
     let mut foreign = claim.labels();
     foreign.remove(CLAIM_LABEL);
     assert!(EngineClaim::from_labels("c1", &foreign).is_err());

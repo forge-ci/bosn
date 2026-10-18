@@ -122,15 +122,25 @@ enum Step {
 pub struct SharedEngine {
     registry: RegistryActor,
     backend: Arc<dyn ActEngineBackend>,
+    release: String,
     held: async_engine::Mutex<Option<Held>>,
     state: Mutex<State>,
 }
 
 impl SharedEngine {
     pub fn new(registry: RegistryActor, backend: Arc<dyn ActEngineBackend>) -> Self {
+        Self::new_with_release(registry, backend, env!("CARGO_PKG_VERSION"))
+    }
+
+    pub fn new_with_release(
+        registry: RegistryActor,
+        backend: Arc<dyn ActEngineBackend>,
+        release: impl Into<String>,
+    ) -> Self {
         Self {
             registry,
             backend,
+            release: release.into(),
             held: async_engine::Mutex::new(None),
             state: Mutex::default(),
         }

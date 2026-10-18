@@ -124,6 +124,7 @@ pub struct CiRuntime {
     backend: Arc<dyn ActEngineBackend>,
     /// The engine concurrent runs share (#547).
     shared: Arc<super::shared_engine::SharedEngine>,
+    release: Arc<str>,
     feed: Feed,
     /// Set once when the opt-in UI listener is serving.
     ui: Arc<OnceLock<Arc<UiHandle>>>,
@@ -141,6 +142,22 @@ impl CiRuntime {
         registry: RegistryActor,
         backend: Arc<dyn ActEngineBackend>,
         default_limit: usize,
+    ) -> Self {
+        Self::start_with_release(
+            state_dir,
+            registry,
+            backend,
+            default_limit,
+            env!("CARGO_PKG_VERSION"),
+        )
+    }
+
+    pub fn start_with_release(
+        state_dir: &Path,
+        registry: RegistryActor,
+        backend: Arc<dyn ActEngineBackend>,
+        default_limit: usize,
+        release: &str,
     ) -> Self {
         let store = Store::open(state_dir).unwrap_or_else(|_| Store::new(state_dir));
         let settings = store.load_settings().unwrap_or(Settings {
@@ -192,10 +209,12 @@ impl CiRuntime {
                 task: Mutex::new(None),
                 recoveries: std::sync::atomic::AtomicU64::new(0),
             }),
-            shared: Arc::new(super::shared_engine::SharedEngine::new(
+            shared: Arc::new(super::shared_engine::SharedEngine::new_with_release(
                 registry.clone(),
                 Arc::clone(&backend),
+                release,
             )),
+            release: Arc::from(release),
             registry,
             backend,
             feed: Feed::new(),

@@ -9,6 +9,7 @@ use kernal_api::async_engine::{self, CancellationToken};
 use super::{
     super::{
         engine::{ActEngineBackend, RunLimits, RunScope},
+        limits::{reserved_engine_memory, room_for_engine},
         machine::{
             CLAIM_PREPARE_LIMIT, Daemon, EngineClaim, EngineIdentity, Foreign, LEGACY_GRACE,
             MachineEngine, Survey,
@@ -113,10 +114,30 @@ impl SharedEngine {
             );
         }
         self.state().legacy_since = None;
+        // Recheck immediately before creation: another daemon may have made
+        // a legacy engine after this run's immutable profile was planned.
+        let host = self.backend.host_resources().await?;
+        let reserved = reserved_engine_memory(&machine.engines().await?, None, host.total_memory);
+        let wanted_memory = want
+            .intent
+            .creation_profile
+            .as_ref()
+            .ok_or("shared engine has no creation profile")?
+            .memory_bytes;
+        if !room_for_engine(host.total_memory, reserved, wanted_memory) {
+            return Ok(Err(Step::Wait(format!(
+                "other Bosn engines reserve {} GiB of {} GiB; waiting for memory before \
+                 creating a {} GiB shared engine",
+                reserved / (1 << 30),
+                host.total_memory / (1 << 30),
+                wanted_memory / (1 << 30),
+            ))));
+        }
         let claim = EngineClaim {
             id: String::new(),
             engine: want.intent.engine_name(),
             registry: owner.into(),
+            release: Some(self.release.clone()),
             daemon: Daemon::current(),
             created: now(),
         };
@@ -176,6 +197,7 @@ impl SharedEngine {
         if let Some(engine) = running
             && engine.identity.as_ref() == Some(identity)
             && engine.registry == claim.registry
+            && claim.release.as_deref() == Some(self.release.as_str())
         {
             return adopted(engine).map(Ok);
         }
@@ -185,9 +207,11 @@ impl SharedEngine {
             if let Some(engine) = running {
                 let _ = machine.request_retire(&engine.id).await;
                 return Ok(Err(Step::Wait(format!(
-                    "the machine's shared engine {} belongs to another daemon and is not the \
-                     engine this run needs; waiting for it to drain and retire",
-                    engine.name
+                    "the machine's shared engine {} belongs to Bosn release {} and is not the \
+                     engine this {} client needs; waiting for it to drain and retire",
+                    engine.name,
+                    claim.release.as_deref().unwrap_or("unknown"),
+                    self.release,
                 ))));
             }
             return Ok(Err(Step::Wait(format!(

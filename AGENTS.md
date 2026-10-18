@@ -380,6 +380,14 @@ Decided 2026-10-08. This replaces "one private nested engine per run."
 - **No per-run engines with an external cache-sharing protocol.** The cache has
   one owner inside the engine, not leases coordinated across engines (the
   approach in #546, rejected).
+- **Mixed-release memory safety (2026-10-17, #652).** When sizing a new shared
+  engine, reserve the Docker memory limits of every other running Bosn act
+  engine, including pre-claim engines from older daemons; an unlimited limit
+  reserves the whole host. Keep at least 2 GiB outside those limits, refuse an
+  unsafe pinned limit, and recheck the running-engine inventory immediately
+  before creating the shared engine. A claim records its Bosn release; another
+  release's claim, including an older unlabelled one, is drained rather than
+  adopted even when its act pins match. Do not stop a busy older engine.
 - **act2 owns CI; Bosn stays a generic Docker lifecycle manager.** An act2
   serve mode inside the engine owns run admission, concurrency, isolation, the
   action/tool/image cache and in-engine cleanup. Bosn manages the engine as an
