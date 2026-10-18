@@ -549,6 +549,21 @@ service (`managed_retention/pressure.rs`); the planner only gets the policy. A
 root the daemon cannot stat is no pressure, logged once. The pass logs
 `bosn retention: disk pressure (X GiB free, Y%); idle volume budget 0`.
 
+## CI late-create cleanup (#676)
+
+An unacknowledged Docker create keeps its durable helper or engine intent while
+the request may still land. The retry loop accepts a fresh, explicit Docker
+absence observation only after the 30 s control deadline plus 10 min grace
+(630 s). Helper intents use their immutable creation time; engine intents use
+the last durable update, which can only extend the wait. The engine records the
+create request at the moment it is sent, after preparation. Startup migrates a
+legacy engine without a create marker once into a durable uncertain marker
+with a fresh timestamp; later retries use that timestamp. An absent helper is
+finished without inventing a container ID. Any observed object still goes
+through exact ownership and removal checks. Repeated deferrals log once per
+intent and reason until that intent retires; the log state is process-local and
+does not affect cleanup decisions.
+
 ## Shared CI cache budget (#544)
 
 Decided 2026-10-10, moved behind act2 the same day (#547 step 4). While no

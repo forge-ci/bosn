@@ -62,8 +62,58 @@ mod startup_recovery {
     use super::*;
     use bosn_registry::{
         Registry,
-        act::{ActEngineIntent, ActEngineObservation, ActEngineState, ActRunOutcome},
+        act::{
+            ActEngineIntent, ActEngineObservation, ActEngineRecord, ActEngineState, ActRunOutcome,
+        },
     };
+
+    #[test]
+    fn unresolved_engine_absence_closes_only_after_the_late_create_window() {
+        let current = now();
+        let mut record = ActEngineRecord {
+            schema_version: 3,
+            registry_id: "11111111-2222-4333-8444-555555555555".into(),
+            intent: ActEngineIntent {
+                run_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".into(),
+                workspace: "/private/source".into(),
+                candidate_sha: "a".repeat(40),
+                payload_sha256: "b".repeat(64),
+                snapshot_sha256: "c".repeat(64),
+                act_version: "0.2.88".into(),
+                act_image_digest: format!("sha256:{}", "d".repeat(64)),
+                engine_image_digest: format!("sha256:{}", "e".repeat(64)),
+                runner_image_digest: format!("sha256:{}", "f".repeat(64)),
+                creation_profile: None,
+                created_at: current,
+                spare: false,
+            },
+            state: ActEngineState::CleanupRequired,
+            engine_id: None,
+            execution: None,
+            execution_claim: None,
+            outcome: Some(ActRunOutcome::Interrupted),
+            updated_at: current,
+            removal: None,
+            binding: None,
+            tool_recovery: None,
+            tool_recovery_reserved_at: None,
+            tool_recovery_source_stopped_at: None,
+            create_requested: Some(true),
+        };
+        assert!(startup::confirm_absence(&record).is_err());
+        record.intent.created_at -= 11.0 * 60.0;
+        record.updated_at = record.intent.created_at;
+        assert!(startup::confirm_absence(&record).is_ok());
+        record.create_requested = None;
+        assert!(startup::confirm_absence(&record).is_err());
+    }
+
+    fn assert_legacy_marker(mode: &str, record: &ActEngineRecord) {
+        if mode == "legacy" && record.engine_id.is_none() {
+            assert_eq!(record.create_requested, Some(true));
+            assert!(record.updated_at > 1.0);
+        }
+    }
 
     #[test]
     fn startup_recovery_cannot_succeed_without_seal() {
@@ -102,6 +152,7 @@ mod startup_recovery {
         const OWNER: &str = "11111111-2222-4333-8444-555555555555";
         for mode in [
             "absent",
+            "old-cleanup",
             "failed-list",
             "foreign",
             "missing-proof",
@@ -147,6 +198,10 @@ mod startup_recovery {
                 if n != 2 {
                     // Creation was sent and never resolved: an empty lookup proves nothing.
                     tx.request_act_create(&intent.run_id, 1.5).unwrap();
+                    if mode == "old-cleanup" {
+                        tx.request_act_cleanup(&intent.run_id, ActRunOutcome::Interrupted, 2.0)
+                            .unwrap();
+                    }
                 }
                 if n == 2 {
                     let observed = ActEngineObservation {
@@ -287,7 +342,11 @@ if mode=='foreign':print('f'*64)
                     assert_eq!(report.runs.len(), 3);
                     assert_eq!(
                         report.runs.iter().filter(|run| run.engine_removed).count(),
-                        usize::from(mode == "absent")
+                        match mode {
+                            "absent" => 1,
+                            "old-cleanup" => 3,
+                            _ => 0,
+                        }
                     );
                     assert_eq!(
                         report
@@ -295,7 +354,11 @@ if mode=='foreign':print('f'*64)
                             .iter()
                             .filter(|run| run.deferred_reason.is_some())
                             .count(),
-                        if mode == "absent" { 2 } else { 3 }
+                        match mode {
+                            "absent" => 2,
+                            "old-cleanup" => 0,
+                            _ => 3,
+                        }
                     );
                 }
                 assert!(
@@ -313,13 +376,14 @@ if mode=='foreign':print('f'*64)
             let reopened = Registry::open_writer(&db).unwrap();
             for (index, intent) in intents.iter().enumerate() {
                 let record = reopened.act_engine(&intent.run_id).unwrap().unwrap();
-                if mode == "absent" && index == 1 {
+                if (mode == "absent" && index == 1) || mode == "old-cleanup" {
                     assert_eq!(record.state, ActEngineState::Terminal);
                     assert_eq!(record.outcome, Some(ActRunOutcome::Interrupted));
                     assert_ne!(record.execution, Some(ActRunOutcome::Passed));
                 } else if !matches!(mode, "cancelled" | "invalid" | "ceiling" | "dropped") {
                     assert_eq!(record.state, ActEngineState::CleanupRequired);
                     assert!(record.removal.is_none());
+                    assert_legacy_marker(mode, &record);
                 }
             }
             if matches!(

@@ -4,6 +4,7 @@ use super::*;
 
 pub(crate) mod registry_identity;
 pub(crate) use registry_identity::*;
+mod cleanup_log;
 
 impl Service {
     pub fn new(state_dir: impl Into<PathBuf>) -> Self {
@@ -487,6 +488,7 @@ impl Service {
             async_engine::launch(async move {
                 let mut cursor = None;
                 let mut helper_cursor = None;
+                let mut deferrals = cleanup_log::Deferrals::default();
                 loop {
                     if stop.is_cancelled() {
                         break;
@@ -500,13 +502,16 @@ impl Service {
                         Ok(Ok(Ok(report))) => {
                             cursor = report.next_cursor;
                             if let Some(run) = report.retired {
+                                deferrals.clear(cleanup_log::Kind::Engine, &run);
                                 daemon_log!("bosn CI cleanup retry removed {run}");
                             }
                             if let Some(reason) = report.deferred {
-                                daemon_log!(
-                                    "bosn CI cleanup retry deferred for {}: {reason}",
-                                    cursor.as_deref().unwrap_or("unknown")
-                                );
+                                let id = cursor.as_deref().unwrap_or("unknown");
+                                deferrals.log_once(cleanup_log::Kind::Engine, id, &reason, || {
+                                    daemon_log!(
+                                        "bosn CI cleanup retry deferred for {id}: {reason}"
+                                    );
+                                });
                             }
                         }
                         Ok(Ok(Err(error))) => daemon_log!("bosn CI cleanup retry failed: {error}"),
@@ -524,10 +529,21 @@ impl Service {
                         Ok(Ok(Ok(report))) => {
                             helper_cursor = report.next_nonce;
                             if let Some(name) = report.removed {
+                                if let Some(nonce) = helper_cursor.as_deref() {
+                                    deferrals.clear(cleanup_log::Kind::Helper, nonce);
+                                }
                                 daemon_log!("bosn CI helper cleanup removed {name}");
                             }
                             if let Some(reason) = report.deferred {
-                                daemon_log!("bosn CI helper cleanup deferred: {reason}");
+                                let nonce = helper_cursor.as_deref().unwrap_or("unknown");
+                                deferrals.log_once(
+                                    cleanup_log::Kind::Helper,
+                                    nonce,
+                                    &reason,
+                                    || {
+                                        daemon_log!("bosn CI helper cleanup deferred: {reason}");
+                                    },
+                                );
                             }
                         }
                         Ok(Ok(Err(error))) => daemon_log!("bosn CI helper cleanup failed: {error}"),

@@ -4,7 +4,7 @@ use crate::{
     RegistryActor,
     act_registry::{ActRegistryCommand, ActRegistryReply},
 };
-use bosn_registry::cache_helper::{CacheHelperRecord, CacheHelperState};
+use bosn_registry::cache_helper::{CacheHelperRecord, CacheHelperState, LATE_CREATE_WINDOW_SECS};
 
 #[derive(Default)]
 pub struct HelperCleanupRetry {
@@ -74,6 +74,15 @@ impl DockerActBackend {
         let identity = Identity::from_intent(&record.intent)?;
         let tracker = Tracker::new(registry, &record.intent.nonce);
         if record.state == CacheHelperState::Pending {
+            if crate::ci::lifecycle::now_seconds() - record.intent.created_at
+                >= LATE_CREATE_WINDOW_SECS
+                && self
+                    .confirm_measurement_absent(&identity.name)
+                    .await
+                    .is_ok()
+            {
+                return tracker.finish_absent().await;
+            }
             return self
                 .recover_measurement(&identity, &record.intent.volume, Some(&tracker))
                 .await;

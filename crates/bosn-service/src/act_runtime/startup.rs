@@ -91,13 +91,22 @@ pub async fn recover_startup_act_engines(
                     })
                     .await
                     .map_err(|e| error(e.to_string()))?;
+                let reply = registry
+                    .act_registry(ActRegistryCommand::Get {
+                        run: record.intent.run_id.clone(),
+                    })
+                    .await
+                    .map_err(|e| error(e.to_string()))?;
+                let ActRegistryReply::Record(Some(updated)) = reply else {
+                    return Err(error("startup interrupted record is missing"));
+                };
                 let remaining = budget.saturating_sub(started.elapsed());
                 let result = retire_engine(
                     registry,
                     engine,
                     owner,
                     proofs,
-                    &record,
+                    &updated,
                     remaining,
                     cancellation,
                 )
@@ -327,11 +336,17 @@ pub(crate) async fn retire_engine(
     .map_err(|e| error(format!("engine removal: {e}")))
 }
 
-/// An empty lookup proves removal only after this creation was observed, or when `docker
-/// create` was provably never sent (#554). No waiting period establishes that an unresolved
-/// Docker request is done.
+/// An empty lookup closes an unresolved create only after the last durable
+/// record update has aged past the Docker control deadline plus grace. Using
+/// `updated_at` conservatively restarts the wait after a later interruption.
 pub(crate) fn confirm_absence(record: &bosn_registry::act::ActEngineRecord) -> std::io::Result<()> {
-    if record.engine_id.is_none() && record.create_requested != Some(false) {
+    if record.engine_id.is_none() && record.create_requested.is_none() {
+        return Err(error("legacy engine create window has not been started"));
+    }
+    if record.engine_id.is_none()
+        && record.create_requested == Some(true)
+        && now() - record.updated_at < bosn_registry::cache_helper::LATE_CREATE_WINDOW_SECS
+    {
         return Err(error(
             "engine creation remains unresolved; retaining cleanup_required for reconciliation",
         ));

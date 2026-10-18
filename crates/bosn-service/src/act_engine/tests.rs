@@ -593,6 +593,7 @@ else: sys.exit(9)
             let (sender, receiver) = async_engine::channel(16);
             let actor = RegistryActor { sender };
             let task = async_engine::launch(crate::registry_actor(writer, receiver, None));
+            let at = crate::act_runtime::now();
             let created = create_owned_engine(
                 &actor,
                 &engine,
@@ -600,7 +601,7 @@ else: sys.exit(9)
                 OWNER,
                 &format!("sha256:{}", "2".repeat(64)),
                 limits(),
-                1.0,
+                at,
             )
             .await;
             if matches!(mode, "foreign" | "start-failed") {
@@ -613,7 +614,7 @@ else: sys.exit(9)
                         intent: intent(),
                         observed: observed.clone(),
                         token: token.into(),
-                        at: 2.0,
+                        at: at + 1.0,
                     })
                     .await
                     .unwrap();
@@ -622,7 +623,7 @@ else: sys.exit(9)
                         run: intent().run_id,
                         token: token.into(),
                         outcome: ActRunOutcome::Passed,
-                        at: 2.0,
+                        at: at + 1.0,
                     })
                     .await
                     .unwrap();
@@ -631,12 +632,12 @@ else: sys.exit(9)
                         run: intent().run_id,
                         token: token.into(),
                         outcome: ActRunOutcome::Passed,
-                        at: 2.0,
+                        at: at + 1.0,
                     })
                     .await
                     .unwrap();
                 assert_eq!(
-                    remove_owned_engine(&actor, &engine, &intent().run_id, observed, 2.0)
+                    remove_owned_engine(&actor, &engine, &intent().run_id, observed, at + 1.0)
                         .await
                         .is_ok(),
                     matches!(mode, "success" | "slow-remove")

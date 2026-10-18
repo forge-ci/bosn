@@ -124,6 +124,10 @@ pub enum ActRegistryCommand {
         id: String,
         at: f64,
     },
+    HelperAbsent {
+        nonce: String,
+        at: f64,
+    },
     HelperPending {
         after_nonce: Option<String>,
         limit: usize,
@@ -204,6 +208,11 @@ pub(crate) fn apply(
             return Err(bosn_registry::Error::BadRow("act startup terminal intent"));
         }
         if record.state == bosn_registry::act::ActEngineState::CleanupRequired {
+            if record.engine_id.is_none() && record.create_requested.is_none() {
+                let mut transaction = registry.begin_immediate()?;
+                transaction.mark_legacy_act_create_uncertain(run, *at)?;
+                transaction.commit()?;
+            }
             return Ok(ActRegistryReply::Committed);
         }
         let mut transaction = registry.begin_immediate()?;
@@ -216,6 +225,9 @@ pub(crate) fn apply(
             )?;
         } else {
             transaction.request_act_cleanup(run, ActRunOutcome::Interrupted, *at)?;
+        }
+        if record.engine_id.is_none() && record.create_requested.is_none() {
+            transaction.mark_legacy_act_create_uncertain(run, *at)?;
         }
         transaction.commit()?;
         return Ok(ActRegistryReply::Committed);
@@ -363,6 +375,10 @@ pub(crate) fn apply(
         }
         ActRegistryCommand::HelperFinish { nonce, id, at } => {
             transaction.finish_cache_helper(&nonce, &id, at)?;
+            ActRegistryReply::Committed
+        }
+        ActRegistryCommand::HelperAbsent { nonce, at } => {
+            transaction.finish_absent_cache_helper(&nonce, at)?;
             ActRegistryReply::Committed
         }
         ActRegistryCommand::Pending { .. }

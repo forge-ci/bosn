@@ -613,6 +613,12 @@ stubbed job.
   and its engine retired (`act_runtime::recover_startup_act_engines`); the
   window then seals. A container that holds an engine name without the exact
   ownership and isolation identity is never removed.
+  If Docker acknowledged no create ID, cleanup keeps the intent while a late
+  create may appear. After the 30-second control deadline and ten-minute grace,
+  a fresh absent-container probe lets the daemon close the intent; an observed
+  container still requires exact ownership checks. Cache measurement helpers
+  follow the same rule. The daemon logs each cleanup deferral once per intent
+  and reason while it runs, then logs its removal.
 - **Scheduling.** Each daemon owns one FIFO queue for its state root, with
   a live concurrency limit that defaults to physical cores / 4 (at least one)
   and is changed with

@@ -582,6 +582,24 @@ impl Immediate<'_> {
         record.updated_at = record.updated_at.max(at);
         self.store_act_record(&record)
     }
+    /// Historical records have no create-request marker. Start their settle
+    /// window once at recovery, then preserve that timestamp across retries.
+    pub fn mark_legacy_act_create_uncertain(&mut self, run: &str, at: f64) -> Result<(), Error> {
+        let mut record = self
+            .act_record(run)?
+            .ok_or(Error::BadRow("act intent missing"))?;
+        if record.state != ActEngineState::CleanupRequired
+            || record.engine_id.is_some()
+            || record.create_requested.is_some()
+            || !at.is_finite()
+            || at < record.updated_at
+        {
+            return Err(Error::BadRow("legacy act create uncertainty"));
+        }
+        record.create_requested = Some(true);
+        record.updated_at = at;
+        self.store_act_record(&record)
+    }
     /// Exact ownership predicate for both registration and pending-intent
     /// crash recovery. A deterministic name alone never authorizes adoption.
     pub fn verify_act_engine(
