@@ -13,11 +13,15 @@
 //!   (so a missing-source check sees the same names), and
 //! * it is not an ancestor of the Dockerfile or the ignore file in use.
 
-use crate::dockerfile::{DockerfileError, Rule, glob, ignore_rules, ignored, local_sources};
+use crate::dockerfile::{
+    DockerfileError, Rule, glob, ignore_rules, ignored, local_sources, source_matches,
+};
 
 pub(crate) struct WalkPruner {
     rules: Vec<Rule>,
     sources: Vec<Vec<String>>,
+    source_patterns: Vec<String>,
+    all: bool,
     protected: Vec<String>,
 }
 
@@ -35,8 +39,8 @@ impl WalkPruner {
                 .map_err(|_| DockerfileError::InvalidUtf8(".dockerignore".into()))?,
             None => Vec::new(),
         };
-        let (sources, _) = local_sources(text)?;
-        let sources = sources
+        let (source_patterns, all) = local_sources(text)?;
+        let sources = source_patterns
             .iter()
             .map(|s| components(s))
             .filter(|c| !c.is_empty())
@@ -48,8 +52,38 @@ impl WalkPruner {
         Ok(Self {
             rules,
             sources,
+            source_patterns,
+            all,
             protected,
         })
+    }
+
+    pub(crate) fn source_count(&self) -> usize {
+        self.source_patterns.len()
+    }
+
+    /// Retain selected entries and one witness for each source, including an
+    /// ignored source. The latter preserves `select_context`'s missing-source
+    /// validation without storing an ignored subtree.
+    pub(crate) fn classify(
+        &self,
+        path: &str,
+        seen_sources: &mut [bool],
+    ) -> Result<(bool, bool), DockerfileError> {
+        let mut witness = false;
+        let mut matches_source = false;
+        for (source, seen) in self.source_patterns.iter().zip(seen_sources) {
+            if source_matches(source, path)? {
+                matches_source = true;
+                if !*seen {
+                    *seen = true;
+                    witness = true;
+                }
+            }
+        }
+        let selected = self.protected.iter().any(|p| p == path)
+            || ((self.all || matches_source) && !ignored(&self.rules, path)?);
+        Ok((selected, selected || witness))
     }
 
     /// True when the walk may skip everything beneath directory `dir`.
