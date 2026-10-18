@@ -25,6 +25,8 @@ pub struct Faults {
     pub save: bool,
     /// Closing the run's scope fails (#481).
     pub close: bool,
+    /// Keep cleanup in progress long enough to observe cancellation state.
+    pub close_delay: Duration,
     /// The shared cache cannot be measured.
     pub cache_measure: bool,
 }
@@ -342,7 +344,11 @@ impl ActEngineBackend for FakeBackend {
     ) -> crate::ci::engine::BoxFuture<'a, Result<crate::ci::engine::Closed, String>> {
         let fails = self.faults().save;
         let close_fails = self.faults().close;
+        let close_delay = self.faults().close_delay;
         Box::pin(async move {
+            if !close_delay.is_zero() {
+                async_engine::sleep(close_delay).await;
+            }
             if close_fails {
                 return Err("scope close refused".into());
             }

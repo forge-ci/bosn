@@ -29,6 +29,7 @@ use super::{
     workflow,
 };
 use crate::{RegistryActor, secrets::SecretMasker};
+mod cancel;
 mod capacity;
 mod cleanup;
 mod dispatch;
@@ -566,41 +567,6 @@ impl CiRuntime {
             next_seq: page.next_seq,
             total_records: visible,
             done,
-        })
-    }
-
-    fn cancel(&self, run: &str) -> Result<CancelReply, CiError> {
-        self.cancel_because(run, "cancelled while queued")
-    }
-
-    /// Cancel a run; a queued one ends now with `queued_reason`.
-    fn cancel_because(&self, run: &str, queued_reason: &str) -> Result<CancelReply, CiError> {
-        let mut state = self.lock();
-        if state.scheduler.cancel_queued(run) {
-            state.owners.forget(&run.to_string());
-            drop(state);
-            self.update(run, |slot| {
-                slot.record
-                    .finish(Conclusion::Cancelled, Some(queued_reason.into()));
-            });
-            return Ok(CancelReply {
-                run: run.into(),
-                cancelled: true,
-                state: RunState::Done,
-            });
-        }
-        let slot = state.slot(run)?;
-        let cancelled = match (&slot.cancel, slot.record.state) {
-            (Some(source), RunState::Running) => {
-                source.cancel();
-                true
-            }
-            _ => false,
-        };
-        Ok(CancelReply {
-            run: run.into(),
-            cancelled,
-            state: slot.record.state,
         })
     }
 

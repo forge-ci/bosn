@@ -41,7 +41,7 @@ async function refreshList() {
       "aria-current": String(run.id === selected),
       onclick: () => select(run.id),
     },
-      el("span", {}, badge(run.conclusion || run.state), " ", run.workflow.replace(".github/workflows/", "")),
+      el("span", {}, badge(runWord(run)), " ", run.workflow.replace(".github/workflows/", "")),
       el("span", { class: "meta" }, `${run.sha.slice(0, 12)}${run.dirty ? " +dirty" : ""} · ${run.trigger}/${run.mode} · ${run.actor}`),
     ))));
 }
@@ -66,12 +66,14 @@ async function showRun() {
   const report = run.state === "done" ? await api(`/v1/runs/${selected}/report?tail=40`) : null;
   const parts = [
     el("h2", {}, `Run ${run.id}`),
-    el("p", {}, badge(run.conclusion || run.state), " ", `exit ${run.exit_code ?? "–"} · ${run.workflow} · ${run.sha}${run.dirty ? " +dirty" : ""}`),
+    el("p", {}, badge(runWord(run)), " ", `exit ${run.exit_code ?? "–"} · ${run.workflow} · ${run.sha}${run.dirty ? " +dirty" : ""}`),
     el("p", { class: "meta" }, `${run.trigger}/${run.mode} · ${run.actor} · cleanup: ${run.cleanup || "–"}`),
     el("div", { class: "controls" },
       run.state === "done"
         ? el("button", { type: "button", onclick: () => post(`/v1/runs/${run.id}/retry`).then((r) => select(r.run)) }, "Retry")
-        : confirmButton("Cancel", () => post(`/v1/runs/${run.id}/cancel`), showRun),
+        : runWord(run) === "cancelling"
+          ? el("span", {}, "Cancelling")
+          : confirmButton("Cancel", () => post(`/v1/runs/${run.id}/cancel`), showRun),
     ),
   ];
   if (run.reason) parts.push(el("p", { class: "meta" }, run.reason));

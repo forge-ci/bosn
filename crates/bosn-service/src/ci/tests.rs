@@ -970,6 +970,7 @@ fn the_cache_volume_is_measured_and_cleared_only_while_nothing_runs() {
 mod params;
 
 mod cache_usage;
+mod cancel;
 #[cfg(unix)]
 mod owners;
 mod source_identity;

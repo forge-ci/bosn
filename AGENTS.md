@@ -358,6 +358,14 @@ boundary; readiness and handoff remain async waits.
   pins it; work created unowned never gains an owner. The 30 s follow lease of
   `bosn run` (#357) stays as a backstop.
 
+**CI cancellation display (#675).** Accepting cancellation of a running run
+records `cancel_requested_at` before signalling the engine. The wire lifecycle
+stays `running` while teardown owns its scheduler slot; new clients render that
+timestamped state as `cancelling`. The optional field is additive for older
+protocol clients. Only completed teardown changes the lifecycle to
+`done/cancelled`. A queued cancel still finishes immediately. Repeated requests
+keep the first timestamp and do not publish duplicate status transitions.
+
 ## CI capacity accounting (#672, decided 2026-10-17)
 
 CI admission defaults to `max(1, physical_cores / 4)`, counting package/core

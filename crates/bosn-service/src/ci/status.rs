@@ -22,6 +22,8 @@ pub struct StatusSnapshot {
     pub seq: u64,
     pub run: String,
     pub state: RunState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_requested_at: Option<f64>,
     pub conclusion: Option<Conclusion>,
     pub log_records: u64,
     pub tree: RunTree,
@@ -33,6 +35,7 @@ impl StatusSnapshot {
             seq,
             run: record.id.clone(),
             state: record.state,
+            cancel_requested_at: record.cancel_requested_at,
             conclusion: record.conclusion,
             log_records: record.log_records,
             tree: record.tree.clone(),
@@ -41,7 +44,10 @@ impl StatusSnapshot {
 
     /// Log growth alone is not a status transition.
     pub fn same_status(&self, other: &Self) -> bool {
-        if self.state != other.state || self.conclusion != other.conclusion {
+        if self.state != other.state
+            || self.cancel_requested_at != other.cancel_requested_at
+            || self.conclusion != other.conclusion
+        {
             return false;
         }
         let mut left = self.tree.clone();

@@ -927,9 +927,12 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // #678 adds widget release and dismiss PID fields. The old daemon rejects
 // unknown request fields, so this is protocol 2. A protocol-1 widget omits
 // both fields; the new daemon accepts it as an older widget and serves 1.
+// #675 adds optional cancel_requested_at to run records and status events.
+// Older peers ignore the additive field; running stays the wire state until
+// teardown completes, so no protocol bump is required.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "448f6a46b5d0d3eeed792400ff8f14a0681cbf5e6ef9bf079f4fae4e08ca9891",
+    "86a0486fc5ff67ead8b7e336f8fff18f618128d269608ded0242fa920fd3ed82",
 );
 
 #[test]

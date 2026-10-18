@@ -7,9 +7,14 @@
 const ICON = {
   success: "✓", failure: "✗", error: "✗", timed_out: "⏱", cancelled: "⊘",
   skipped: "↷", unsupported: "⚠", remote_only: "☁", incomplete: "⚠", refused: "⚠",
-  in_progress: "●", running: "●", queued: "○", completed: "✓", done: "✓",
+  in_progress: "●", running: "●", cancelling: "◌", queued: "○", completed: "✓", done: "✓",
 };
 const CONFIRM_MS = 4000;
+
+function runWord(run) {
+  if (run.conclusion) return run.conclusion;
+  return run.state === "running" && run.cancel_requested_at != null ? "cancelling" : run.state;
+}
 
 const $ = (id) => document.getElementById(id);
 

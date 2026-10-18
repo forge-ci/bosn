@@ -22,6 +22,8 @@ pub enum RunEvent {
     Run {
         run: String,
         state: RunState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cancel_requested_at: Option<f64>,
         conclusion: Option<Conclusion>,
         log_records: u64,
         jobs: JobCounts,
@@ -38,6 +40,7 @@ impl RunEvent {
         Self::Run {
             run: record.id.clone(),
             state: record.state,
+            cancel_requested_at: record.cancel_requested_at,
             conclusion: record.conclusion,
             log_records: record.log_records,
             jobs: view.jobs,
