@@ -125,7 +125,8 @@ with tempfile.TemporaryDirectory() as directory:
     work = pathlib.Path(directory) / 'work'
     binary = work / 'bin' / 'act'
     binary.parent.mkdir(parents=True)
-    binary.write_text('#!/usr/bin/env python3\nimport json,os,pathlib,sys,time\nos.fstat(8)\npathlib.Path(os.environ["BOSN_LEASE_READY"]).write_text(json.dumps(sys.argv[1:]))\ntime.sleep(60)\n')
+    # Ready markers are parsed after exists(); publish complete bytes by rename.
+    binary.write_text('#!/usr/bin/env python3\nimport json,os,pathlib,sys,time\nos.fstat(8)\nready=pathlib.Path(os.environ["BOSN_LEASE_READY"])\ntemporary=ready.with_name(ready.name+".tmp")\ntemporary.write_text(json.dumps(sys.argv[1:]))\nos.replace(temporary,ready)\ntime.sleep(60)\n')
     binary.chmod(0o700)
     command = [value.replace(sys.argv[3], str(cache)).replace(sys.argv[4], str(work))
                for value in json.loads(sys.argv[1])]
