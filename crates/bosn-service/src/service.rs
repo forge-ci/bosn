@@ -178,7 +178,7 @@ impl Service {
                 .await
                 .map_err(|_| Error::ActorClosed)?
                 {
-                    eprintln!(
+                    daemon_log!(
                         "bosn: {} is missing; restoring registry identity {id} from the machine \
                          catalog (its ownership records are lost, its labelled objects stay owned)",
                         db.display()
@@ -210,7 +210,7 @@ impl Service {
                     // and unreported. Adopting them is an explicit act with an
                     // explicit record, and this daemon does not perform it.
                     let message = prior_registry_refusal(&prior, &db);
-                    eprintln!("{message}");
+                    daemon_log!("{message}");
                     return Err(Error::Protocol(
                         "registry missing but this machine already has Bosn-labelled objects",
                     ));
@@ -221,7 +221,7 @@ impl Service {
                     // daemon must still be able to start — but it is far too
                     // much to mint an identity silently.
                     for detail in &prior.unreadable {
-                        eprintln!(
+                        daemon_log!(
                             "bosn: prior-registry probe could not be completed ({detail}); \
                              this machine is not known to be a clean first run"
                         );
@@ -239,12 +239,12 @@ impl Service {
             Err(error) => return Err(Error::Io(error)),
         };
         let _run_http = run_http::start(&self.state_dir).await.map_err(Error::Io)?;
-        eprintln!("bosn run output listening on {}", _run_http.local_addr);
+        daemon_log!("bosn run output listening on {}", _run_http.local_addr);
         let act_owner = registry.registry_id()?;
         // #545: enroll in the machine catalog, so if this state directory is later deleted the
         // machine daemon can still reclaim what this registry created.
         if let Err(error) = managed_retention::catalog::enroll(&self.state_dir, &act_owner) {
-            eprintln!(
+            daemon_log!(
                 "bosn retention: could not enroll this registry in the machine catalog: {error}"
             );
         }
@@ -256,7 +256,7 @@ impl Service {
         .await
         .is_err()
         {
-            eprintln!("bosn priority: the re-weight pass did not run");
+            daemon_log!("bosn priority: the re-weight pass did not run");
         }
         let act_image_proofs = act_engine::bundled_engine_manifests()
             .map_err(|error| Error::Io(std::io::Error::other(error.to_string())))?;
@@ -287,7 +287,7 @@ impl Service {
             }
         };
         DOCKER_PROXY_ENABLED.store(capacity.docker_proxy, std::sync::atomic::Ordering::Relaxed);
-        eprintln!("bosn runners: {}", capacity.describe());
+        daemon_log!("bosn runners: {}", capacity.describe());
         let runners = Arc::new(runners::Runners::new(&self.state_dir, capacity.clone()));
         if let Some(dir) = runners.proxy_dir() {
             runners::ensure_proxy_dir(dir)?;
@@ -344,7 +344,7 @@ impl Service {
             Ok(report) => {
                 for run in report.runs {
                     if let Some(reason) = run.deferred_reason {
-                        eprintln!(
+                        daemon_log!(
                             "bosn Act startup cleanup deferred for {}: {reason}",
                             run.run_id
                         );
@@ -383,17 +383,17 @@ impl Service {
                 Ok(Some(server)) => {
                     ci.attach_ui(Arc::clone(&server.handle));
                     ci.maybe_launch_widget(ci::widget::LaunchTrigger::DaemonStart);
-                    eprintln!("bosn ci: dashboard listening on {}", server.handle.origin);
+                    daemon_log!("bosn ci: dashboard listening on {}", server.handle.origin);
                     Some(server)
                 }
                 Ok(None) => None,
                 Err(error) => {
-                    eprintln!("bosn ci: dashboard listener failed to start: {error}");
+                    daemon_log!("bosn ci: dashboard listener failed to start: {error}");
                     None
                 }
             },
             Err(error) => {
-                eprintln!("bosn ci: dashboard disabled, config unreadable: {error}");
+                daemon_log!("bosn ci: dashboard disabled, config unreadable: {error}");
                 None
             }
         };
@@ -429,10 +429,10 @@ impl Service {
                         match warning {
                             Some(warning) => {
                                 for line in unmanaged::warning_lines(&warning) {
-                                    eprintln!("bosn maintenance: {line}");
+                                    daemon_log!("bosn maintenance: {line}");
                                 }
                             }
-                            None if !scan.is_trustworthy() => eprintln!(
+                            None if !scan.is_trustworthy() => daemon_log!(
                                 "bosn maintenance: the unmanaged census could not be read \
                                  completely, so this machine is not known to be clean"
                             ),
@@ -455,7 +455,7 @@ impl Service {
                         .spawn(pass)
                         .is_err()
                     {
-                        eprintln!("bosn maintenance: could not start the maintenance thread");
+                        daemon_log!("bosn maintenance: could not start the maintenance thread");
                     } else if async_engine::cancellable(&stop, finished).await.is_err() {
                         break;
                     }
@@ -500,17 +500,17 @@ impl Service {
                         Ok(Ok(Ok(report))) => {
                             cursor = report.next_cursor;
                             if let Some(run) = report.retired {
-                                eprintln!("bosn CI cleanup retry removed {run}");
+                                daemon_log!("bosn CI cleanup retry removed {run}");
                             }
                             if let Some(reason) = report.deferred {
-                                eprintln!(
+                                daemon_log!(
                                     "bosn CI cleanup retry deferred for {}: {reason}",
                                     cursor.as_deref().unwrap_or("unknown")
                                 );
                             }
                         }
-                        Ok(Ok(Err(error))) => eprintln!("bosn CI cleanup retry failed: {error}"),
-                        Ok(Err(_)) => eprintln!("bosn CI cleanup retry pass deadline exceeded"),
+                        Ok(Ok(Err(error))) => daemon_log!("bosn CI cleanup retry failed: {error}"),
+                        Ok(Err(_)) => daemon_log!("bosn CI cleanup retry pass deadline exceeded"),
                         Err(_) => break,
                     }
                     // Helper intents survive uncertain create/cleanup and daemon death.
@@ -524,14 +524,14 @@ impl Service {
                         Ok(Ok(Ok(report))) => {
                             helper_cursor = report.next_nonce;
                             if let Some(name) = report.removed {
-                                eprintln!("bosn CI helper cleanup removed {name}");
+                                daemon_log!("bosn CI helper cleanup removed {name}");
                             }
                             if let Some(reason) = report.deferred {
-                                eprintln!("bosn CI helper cleanup deferred: {reason}");
+                                daemon_log!("bosn CI helper cleanup deferred: {reason}");
                             }
                         }
-                        Ok(Ok(Err(error))) => eprintln!("bosn CI helper cleanup failed: {error}"),
-                        Ok(Err(_)) => eprintln!("bosn CI helper cleanup deadline exceeded"),
+                        Ok(Ok(Err(error))) => daemon_log!("bosn CI helper cleanup failed: {error}"),
+                        Ok(Err(_)) => daemon_log!("bosn CI helper cleanup deadline exceeded"),
                         Err(_) => break,
                     }
                     if async_engine::cancellable(
@@ -564,7 +564,7 @@ impl Service {
                 if last_active.elapsed() >= idle
                     && matches!(handoff::busy_reason(&actor, &jobs, &ci).await, Ok(None))
                 {
-                    eprintln!(
+                    daemon_log!(
                         "bosn daemon: idle for {}s; exiting so the next command starts its own \
                          release (containers and state are kept)",
                         idle.as_secs()
@@ -730,7 +730,7 @@ pub(crate) fn reap_orphaned_runs(runners: &runners::Runners) -> Vec<String> {
             "reaped orphaned job {} ({} {} in {}): {detail}",
             record.job_id, record.stack, record.task, record.workspace
         );
-        eprintln!("bosn runners: {line}");
+        daemon_log!("bosn runners: {line}");
         lines.push(line);
         reaped.insert(record.run);
     }
@@ -739,11 +739,11 @@ pub(crate) fn reap_orphaned_runs(runners: &runners::Runners) -> Vec<String> {
             for run in stray.difference(&reaped) {
                 let teardown = runners.teardown(run);
                 let line = format!("reaped stray run {run}: {}", teardown.summary());
-                eprintln!("bosn runners: {line}");
+                daemon_log!("bosn runners: {line}");
                 lines.push(line);
             }
         }
-        Err(error) => eprintln!("bosn runners: stray-run sweep skipped: {error}"),
+        Err(error) => daemon_log!("bosn runners: stray-run sweep skipped: {error}"),
     }
     runners.clear_ledger();
     lines

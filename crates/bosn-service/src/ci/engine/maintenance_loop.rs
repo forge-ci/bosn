@@ -49,7 +49,7 @@ impl DockerActBackend {
                             async_engine::cancellable(stop, receiver.recv()).await
                         {
                             if let Err(error) = tick.persistence {
-                                eprintln!("bosn cache maintenance persistence failed: {error}");
+                                daemon_log!("bosn cache maintenance persistence failed: {error}");
                             }
                         }
                     };
@@ -71,7 +71,7 @@ impl DockerActBackend {
                     {
                         Err(_) => return,
                         Ok(Err(error)) => {
-                            eprintln!("bosn cache discovery evidence persistence failed: {error}")
+                            daemon_log!("bosn cache discovery evidence persistence failed: {error}")
                         }
                         Ok(Ok(())) => {}
                     }

@@ -59,7 +59,7 @@ impl DockerActBackend {
                 if closed.is_empty() {
                     return Err(error);
                 }
-                eprintln!(
+                daemon_log!(
                     "bosn ci: closed {} orphaned act serve admission(s) ({}) before admitting run {}",
                     closed.len(),
                     closed.join(", "),

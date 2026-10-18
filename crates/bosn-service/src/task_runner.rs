@@ -192,7 +192,7 @@ impl RunnerAttachment {
                 teardown.summary()
             );
             if !teardown.failures.is_empty() {
-                eprintln!("bosn: job {} {}", self.context.record.job_id, &line[7..]);
+                daemon_log!("bosn: job {} {}", self.context.record.job_id, &line[7..]);
             }
             let _ = logs.send(line).await;
         }

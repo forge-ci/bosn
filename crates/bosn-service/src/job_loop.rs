@@ -55,7 +55,7 @@ pub(crate) async fn job_actor(
                     "[bosn] stalled: no output and no Docker activity for {}s; tearing down this job (stall_seconds)",
                     after.as_secs()
                 );
-                eprintln!("bosn: job {id} {}", &line[7..]);
+                daemon_log!("bosn: job {id} {}", &line[7..]);
                 let _ = jobs.log(id, line);
                 let _ = cancel_job_in_actor(
                     id,
@@ -70,7 +70,7 @@ pub(crate) async fn job_actor(
         }
         if stopping.is_none() {
             for (id, line) in clients_gone(&mut jobs, sweep) {
-                eprintln!("bosn: job {id} {}", &line[7..]);
+                daemon_log!("bosn: job {id} {}", &line[7..]);
                 let _ = jobs.log(id, line);
                 let _ = cancel_job_in_actor(
                     id,
@@ -902,7 +902,7 @@ pub(crate) fn launch_started_setup_jobs(
                 "success"
             };
             if let Err(error) = logs.finish(state) {
-                eprintln!("bosn: job {id} could not persist raw run completion: {error}");
+                daemon_log!("bosn: job {id} could not persist raw run completion: {error}");
             }
             drop(logs);
             let _ = forwarder.await;

@@ -54,7 +54,7 @@ impl RecordWriter {
             .or_insert_with(|| Written {
                 last_status: status::repair_and_last(&self.store, &save.record.id).unwrap_or_else(
                     |error| {
-                        eprintln!("bosn ci: could not inspect status journal: {error}");
+                        daemon_log!("bosn ci: could not inspect status journal: {error}");
                         None
                     },
                 ),
@@ -66,7 +66,7 @@ impl RecordWriter {
         self.store.save_run(&save.record);
         entry.version = save.version;
         if let Err(error) = Self::append_status(&self.store, entry, &save.record) {
-            eprintln!("bosn ci: could not append status journal: {error}");
+            daemon_log!("bosn ci: could not append status journal: {error}");
         }
     }
 

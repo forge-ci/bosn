@@ -306,6 +306,22 @@ Decided 2026-10-09.
   ignored so existing configs keep working. A run whose wanted engine differs
   from the machine's engine waits for it to drain (#544), never gets its own.
 
+## Async daemon waits (decided 2026-10-17)
+
+Daemon IPC, startup readiness, handoff, job following and CI following wait on
+the async runtime. A CLI entry point may use `Runtime::run` as its synchronous
+boundary, but its wait loop uses `async_engine::sleep` or an async signal, not
+`std::thread::sleep`. Keep blocking filesystem and process setup at the CLI
+boundary or move it to a blocking worker when it must run inside an async task.
+As adjacent paths change, move them to this shape rather than adding another
+blocking poll loop.
+
+Daemon-originated diagnostics use `daemon_log!` so every line carries Unix
+milliseconds in `daemon.log`. This includes startup errors from `bosn
+daemon serve`. Keep the log useful for matching an IPC loss to the daemon's
+last activity and restart; do not add plain `eprintln!` in daemon execution
+paths.
+
 ## Work dies with its client unless detached (decided 2026-10-16)
 
 - **A following client owns its work.** `bosn run` (ensure and task jobs),

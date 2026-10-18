@@ -35,7 +35,7 @@ pub fn policy_for_disk(policy: RetentionPolicy, disk: Option<DiskSpace>) -> Rete
     match disk {
         None => {
             if !UNMEASURED_LOGGED.swap(true, Ordering::Relaxed) {
-                eprintln!(
+                daemon_log!(
                     "bosn retention: cannot measure the disk under Docker's data root; \
                      assuming no disk pressure"
                 );
@@ -43,7 +43,7 @@ pub fn policy_for_disk(policy: RetentionPolicy, disk: Option<DiskSpace>) -> Rete
         }
         Some(space) => {
             if let Some(line) = pressure_line(space) {
-                eprintln!("bosn retention: {line}");
+                daemon_log!("bosn retention: {line}");
             }
         }
     }

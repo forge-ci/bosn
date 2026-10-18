@@ -302,7 +302,7 @@ impl LogWriter {
 /// State writes are best effort for the run itself, but never silent.
 fn logged(what: &str, result: io::Result<()>) {
     if let Err(error) = result {
-        eprintln!("bosn ci: could not write the {what}: {error}");
+        daemon_log!("bosn ci: could not write the {what}: {error}");
     }
 }
 

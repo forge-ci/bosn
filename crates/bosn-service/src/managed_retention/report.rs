@@ -26,7 +26,7 @@ pub fn maintenance_pass(state_dir: &Path) {
     let outcome = maintenance_pass_with(&engine, state_dir, policy);
     // One timestamped line per pass, so `<state>/daemon.log` shows that passes run (#545).
     let summary = &outcome.retention.summary;
-    eprintln!(
+    daemon_log!(
         "bosn retention: pass finished at unix {:.0}: applied={} planned={} removed={} \
          removed_bytes={} failed={}",
         super::now_seconds(),
@@ -65,7 +65,7 @@ pub fn maintenance_pass_with(
             super::idle::MAX_STOPS_PER_PASS,
         );
         for line in idle.report_lines() {
-            eprintln!("bosn retention: {line}");
+            daemon_log!("bosn retention: {line}");
         }
         stopped_idle = idle.stopped;
     }
@@ -81,20 +81,20 @@ pub fn maintenance_pass_with(
 pub fn report_pass(outcome: &ManagedRetentionOutcome) {
     let summary = &outcome.summary;
     if let Some(refused) = &summary.refused {
-        eprintln!("bosn retention: {refused}");
+        daemon_log!("bosn retention: {refused}");
         return;
     }
     // #518: the stopped-container pile is reported whether or not anything is reclaimable, and
     // whether or not the operator opted in. It is the only signal a default install gets.
     report_setup_containers(&outcome.setup_containers, summary.applied);
     if let Some(line) = pass_report_line(summary) {
-        eprintln!("bosn retention: {line}");
+        daemon_log!("bosn retention: {line}");
     }
     if let Some(line) = held_report_line(summary) {
-        eprintln!("bosn retention: {line}");
+        daemon_log!("bosn retention: {line}");
     }
     for failure in &summary.failures {
-        eprintln!("bosn retention: {failure}");
+        daemon_log!("bosn retention: {failure}");
     }
 }
 
@@ -151,7 +151,7 @@ pub(super) fn held_report_line(summary: &ManagedRetentionSummary) -> Option<Stri
 /// unreclaimable. `applied` only changes the advice, never the facts.
 fn report_setup_containers(report: &SetupContainerReport, applied: bool) {
     if let Some(line) = setup_container_report_line(report, applied) {
-        eprintln!("bosn retention: {line}");
+        daemon_log!("bosn retention: {line}");
     }
 }
 

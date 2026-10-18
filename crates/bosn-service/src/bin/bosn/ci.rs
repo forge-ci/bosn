@@ -20,7 +20,7 @@ use bosn_service::{
         provider::{Mode, Provider, Trigger},
     },
 };
-use kernal_api::async_engine::{Runtime, RuntimeBuilder};
+use kernal_api::async_engine::{self, Runtime, RuntimeBuilder};
 
 use crate::stop_signal::{StopRequest, StopSignals};
 
@@ -297,6 +297,19 @@ fn describe(error: bosn_service::Error) -> Failure {
             },
             message: format!("{code}: {message}"),
         },
+        bosn_service::Error::Io(io_error)
+            if matches!(
+                io_error.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::BrokenPipe
+            ) =>
+        {
+            Failure::error(format!(
+                "lost contact with the bosn daemon while the CI request was in progress ({io_error}); check daemon.log in the state directory for a restart or crash"
+            ))
+        }
         other => Failure::error(format!("daemon request failed: {other}")),
     }
 }
@@ -463,7 +476,7 @@ fn finish(
             return Ok(EXIT_NOT_FINISHED);
         }
         match owned.as_deref_mut() {
-            None => std::thread::sleep(POLL),
+            None => runtime.run(async_engine::sleep(POLL)),
             Some(stop) => match stop.wait(runtime, POLL) {
                 StopRequest::None => {}
                 StopRequest::First => {
@@ -568,7 +581,7 @@ fn logs(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
             return Ok(0);
         }
         if !page.more {
-            std::thread::sleep(POLL);
+            runtime.run(async_engine::sleep(POLL));
         }
     }
 }
@@ -714,7 +727,7 @@ fn wait_for_widget(runtime: &Runtime, client: &Client) -> bool {
         if widget_presence(runtime, client).is_ok_and(|p| p == WidgetPresence::Connected) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(200));
+        runtime.run(async_engine::sleep(Duration::from_millis(200)));
     }
     false
 }
@@ -949,5 +962,22 @@ fn mark(conclusion: Option<ItemConclusion>, status: ItemStatus) -> &'static str 
         (Some(ItemConclusion::RemoteOnly), _) => "[remote-only]",
         (None, ItemStatus::InProgress) => "[..]",
         (None, _) => "[queued]",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lost_daemon_socket_names_the_failure_and_log() {
+        let error = bosn_service::Error::Io(std::io::Error::from(std::io::ErrorKind::NotFound));
+        let failure = describe(error);
+        assert!(
+            failure
+                .message
+                .contains("lost contact with the bosn daemon")
+        );
+        assert!(failure.message.contains("daemon.log"));
     }
 }
