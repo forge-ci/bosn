@@ -81,6 +81,7 @@ struct Held {
     memory_bytes: u64,
     nano_cpus: u64,
     pids: u64,
+    cpu_source: Option<super::reply::CiCpuSource>,
     /// This daemon's runs in it.
     slots: BTreeSet<u16>,
 }
@@ -314,6 +315,18 @@ impl SharedEngine {
         let held = self.held.lock().await;
         held.as_ref()
             .map(|current| (current.name.clone(), current.slots.len()))
+    }
+
+    /// Limits of the running engine this daemon currently holds.
+    pub async fn capacity_limits(&self) -> Option<(u64, u64, Option<super::reply::CiCpuSource>)> {
+        let held = self.held.lock().await;
+        held.as_ref().map(|current| {
+            (
+                current.nano_cpus / 1_000_000_000,
+                current.memory_bytes,
+                current.cpu_source,
+            )
+        })
     }
 
     /// Stop leasing and retire this daemon's engine if no run (of any

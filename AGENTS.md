@@ -358,6 +358,22 @@ boundary; readiness and handoff remain async waits.
   pins it; work created unowned never gains an owner. The 30 s follow lease of
   `bosn run` (#357) stays as a backstop.
 
+## CI capacity accounting (#672, decided 2026-10-17)
+
+CI admission defaults to `max(1, physical_cores / 4)`, counting package/core
+pairs among the process's allowed CPUs on Linux or `hw.physicalcpu` on macOS,
+capped by available logical CPUs. When topology is unavailable or a CPU quota
+is smaller than the allowed set, use half the logical count (at least one).
+Read topology off the async daemon lane. The task lane keeps its separate
+`logical_cpus * 2` slot default and per-slot CPU quota. The shared CI engine
+keeps the 8-CPU default ceiling; `[engine] cpus` overrides it. `bosn jobs`
+and `bosn ci doctor` name both lanes, the CI admission limit, and the
+engine's effective CPUs, source and memory. A running engine reports its
+frozen limits from the machine claim even before this daemon adopts it. The
+claim freezes the CPU source; older claims without that label report the
+source as unknown. Before an engine exists, report the limits a new engine
+would use.
+
 ## Low CPU priority (#643, #645)
 
 Every container Bosn creates runs at `bosn_engine::LOW_CPU_PRIORITY_ARG`

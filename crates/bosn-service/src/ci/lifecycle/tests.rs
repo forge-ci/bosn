@@ -90,6 +90,7 @@ pub fn shared_plan(run: &str) -> super::super::spare::SparePlan {
         intent,
         act: super::super::engine::act_artifact("x86_64").unwrap(),
         cache: test_cache(),
+        cpu_source: super::super::reply::CiCpuSource::DefaultCeiling,
     }
 }
 pub fn test_cache() -> CacheVolume {

@@ -4,6 +4,8 @@
 //! state roots do not share this limit or establish an aggregate CPU budget.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+#[cfg(any(test, target_os = "linux"))]
+use std::path::Path;
 
 /// Everything that makes two submissions the same execution.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -45,6 +47,91 @@ pub struct Scheduler {
 /// Default limit: physical cores / 4, at least one.
 pub fn default_limit(cores: usize) -> usize {
     (cores / 4).max(1)
+}
+
+/// Count unique package/core pairs in the process's allowed CPU set. A CPU
+/// quota smaller than that set does not identify which cores are available,
+/// so use half the quota instead of counting the whole host.
+#[cfg(any(test, target_os = "linux"))]
+fn physical_cores_linux(root: &Path, logical: usize, allowed: &str) -> usize {
+    let fallback = (logical / 2).max(1);
+    let Some(ids) = allowed_cpu_ids(allowed) else {
+        return fallback;
+    };
+    if ids.len() > logical {
+        return fallback;
+    }
+    let mut cores = BTreeSet::new();
+    for index in ids {
+        let topology = root.join(format!("cpu{index}/topology"));
+        let pair = ["physical_package_id", "core_id"].map(|file| {
+            std::fs::read_to_string(topology.join(file))
+                .ok()
+                .and_then(|value| value.trim().parse::<u32>().ok())
+        });
+        let [Some(package), Some(core)] = pair else {
+            return fallback;
+        };
+        cores.insert((package, core));
+    }
+    cores.len().max(1)
+}
+
+/// Linux's `Cpus_allowed_list` grammar: comma-separated IDs or inclusive
+/// ranges. Refuse malformed or implausibly large intervals before allocating.
+#[cfg(any(test, target_os = "linux"))]
+fn allowed_cpu_ids(list: &str) -> Option<BTreeSet<usize>> {
+    let mut ids = BTreeSet::new();
+    for part in list.trim().split(',') {
+        let (first, last) = part.split_once('-').unwrap_or((part, part));
+        let first: usize = first.parse().ok()?;
+        let last: usize = last.parse().ok()?;
+        if last < first || last - first > 4096 {
+            return None;
+        }
+        ids.extend(first..=last);
+    }
+    (!ids.is_empty()).then_some(ids)
+}
+
+/// Probe host topology off the async daemon lane. The scheduler's CPU quota
+/// view caps the result when affinity or a cgroup exposes fewer logical CPUs.
+pub async fn detected_physical_cores() -> usize {
+    let logical = std::thread::available_parallelism().map_or(1, usize::from);
+    kernal_api::async_engine::launch_blocking(move || {
+        #[cfg(target_os = "linux")]
+        {
+            let allowed = std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|status| {
+                    status.lines().find_map(|line| {
+                        line.strip_prefix("Cpus_allowed_list:")
+                            .map(str::trim)
+                            .map(str::to_owned)
+                    })
+                })
+                .unwrap_or_default();
+            physical_cores_linux(Path::new("/sys/devices/system/cpu"), logical, &allowed)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("sysctl")
+                .args(["-n", "hw.physicalcpu"])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .and_then(|output| String::from_utf8(output.stdout).ok())
+                .and_then(|text| text.trim().parse::<usize>().ok())
+                .filter(|count| *count > 0)
+                .map_or((logical / 2).max(1), |count| count.min(logical))
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            (logical / 2).max(1)
+        }
+    })
+    .await
+    .unwrap_or((logical / 2).max(1))
 }
 
 impl Scheduler {
@@ -149,6 +236,25 @@ mod tests {
             secrets: Vec::new(),
             params: Default::default(),
         }
+    }
+
+    #[test]
+    fn default_admission_uses_physical_cores_on_a_hyperthreaded_host() {
+        let root = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+        for logical in 0..16 {
+            let topology = root.path().join(format!("cpu{logical}/topology"));
+            std::fs::create_dir_all(&topology).unwrap();
+            std::fs::write(topology.join("physical_package_id"), "0\n").unwrap();
+            std::fs::write(topology.join("core_id"), format!("{}\n", logical / 2)).unwrap();
+        }
+        let physical = physical_cores_linux(root.path(), 16, "0-15");
+        assert_eq!(physical, 8);
+        assert_eq!(default_limit(physical), 2);
+        assert_eq!(
+            physical_cores_linux(root.path(), 8, "0,2,4,6,8,10,12,14"),
+            8
+        );
+        assert_eq!(physical_cores_linux(root.path(), 8, "0-15"), 4);
     }
 
     #[test]

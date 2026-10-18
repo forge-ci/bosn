@@ -369,11 +369,10 @@ impl Service {
             &self.state_dir,
             actor.clone(),
             Arc::clone(&self.act_backend),
-            ci::scheduler::default_limit(
-                std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get),
-            ),
+            ci::scheduler::default_limit(ci::scheduler::detected_physical_cores().await),
             &self.identity.release,
         );
+        ci.configure_task_capacity(&capacity);
         // The opt-in dashboard listener lives as long as the daemon.
         let config = ci::config::load(&self.state_dir);
         if let Ok(config) = &config {

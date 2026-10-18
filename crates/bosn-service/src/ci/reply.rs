@@ -183,6 +183,9 @@ pub struct CancelReply {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RunnersReply {
     pub runners: RunnerStatus,
+    /// Current shared-engine limits, or the limits a new engine would use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_capacity: Option<CiEngineCapacity>,
     pub pruned_runs: Option<Vec<String>>,
     /// Set by `cache_usage` and `clear_cache`.
     #[serde(default)]
@@ -195,12 +198,73 @@ pub struct RunnersReply {
 
 /// `bosn ci doctor`: act2's `act doctor` report, taken inside the machine's
 /// shared engine against its `act serve` (#547).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DoctorReply {
     /// The shared engine it ran in; `None` when this daemon holds none (the
     /// next run makes it), and then there is no report.
     pub engine: Option<String>,
     pub report: Option<ActDoctorReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_capacity: Option<CiEngineCapacity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admission_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_capacity: Option<TaskLaneCapacity>,
+}
+
+/// Task lane's independent slot and CPU quota policy.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct TaskLaneCapacity {
+    #[serde(alias = "runner_slots")]
+    pub slots: usize,
+    /// Zero means no per-slot CPU quota.
+    pub cpus_per_slot: f64,
+    #[serde(alias = "host_cpus")]
+    pub host_logical_cpus: Option<usize>,
+    pub control_slots: usize,
+    #[serde(default)]
+    pub stall_seconds: Option<u64>,
+    #[serde(default)]
+    pub docker_proxy: bool,
+}
+
+/// Effective CI engine capacity, distinct from the task runner lane.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CiEngineCapacity {
+    pub cpus: u64,
+    pub memory_bytes: u64,
+    pub cpu_source: CiCpuSource,
+    /// `true` when the values are from a running engine; otherwise they are
+    /// the next engine's sized limits on the current host.
+    pub running: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CiCpuSource {
+    Config,
+    DefaultCeiling,
+    /// An engine made before the source label was recorded.
+    Unknown,
+}
+
+impl CiCpuSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Config => "config",
+            Self::DefaultCeiling => "default_ceiling",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "config" => Some(Self::Config),
+            "default_ceiling" => Some(Self::DefaultCeiling),
+            "unknown" => Some(Self::Unknown),
+            _ => None,
+        }
+    }
 }
 
 /// `act doctor --json`, as act2 prints it.

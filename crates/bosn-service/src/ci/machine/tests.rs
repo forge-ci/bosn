@@ -36,6 +36,7 @@ fn a_claim_round_trips_through_its_labels() {
         engine: "bosn-act-0a1b2c3d-4e5f-4a6b-8c7d-000000000002".into(),
         registry: "r".into(),
         release: Some(env!("CARGO_PKG_VERSION").into()),
+        cpu_source: Some(super::super::reply::CiCpuSource::DefaultCeiling),
         daemon: Daemon::current(),
         created: 42,
     };
@@ -47,9 +48,19 @@ fn a_claim_round_trips_through_its_labels() {
     assert!(!claim.ours("other"));
     let mut older = claim.labels();
     older.remove(&format!("{CLAIM_PREFIX}release"));
+    older.remove(&format!("{CLAIM_PREFIX}cpu-source"));
+    let older = EngineClaim::from_labels("c1", &older).unwrap();
+    assert_eq!((older.release, older.cpu_source), (None, None));
+    let mut bad_source = claim.labels();
+    bad_source.insert(format!("{CLAIM_PREFIX}cpu-source"), "surprise".into());
+    assert!(EngineClaim::from_labels("c1", &bad_source).is_err());
+    let mut unknown_source = claim.labels();
+    unknown_source.insert(format!("{CLAIM_PREFIX}cpu-source"), "unknown".into());
     assert_eq!(
-        EngineClaim::from_labels("c1", &older).unwrap().release,
-        None
+        EngineClaim::from_labels("c1", &unknown_source)
+            .unwrap()
+            .cpu_source,
+        Some(super::super::reply::CiCpuSource::Unknown)
     );
     let mut foreign = claim.labels();
     foreign.remove(CLAIM_LABEL);

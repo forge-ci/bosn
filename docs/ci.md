@@ -509,7 +509,10 @@ stubbed job.
     quarters of what is available, rounded down to whole 4 GiB steps (so the
     engine another daemon made still matches, #553) and held between 4 and
     48 GiB; CPUs are
-    min(cores, 8); 4096 processes. Memory reserves no RAM until it is
+    min(Docker-host logical CPUs, 8) by default, or `[engine] cpus` when set;
+    4096 processes. The 8-CPU ceiling is shared by every concurrent CI run
+    in that engine. `bosn jobs` and `bosn ci doctor` show its effective CPU
+    and memory limits, and identify the CPU setting's source. Memory reserves no RAM until it is
     written; it only bounds a runaway job.
   - **Storage is disk by default (#425).** The engine's `/var/lib/docker` is
     a labelled per-run Docker volume (`bosn-act-storage-<intent UUID>`) on the
@@ -595,10 +598,15 @@ stubbed job.
   window then seals. A container that holds an engine name without the exact
   ownership and isolation identity is never removed.
 - **Scheduling.** Each daemon owns one FIFO queue for its state root, with
-  a live concurrency limit that defaults to cores / 4 and is changed with
+  a live concurrency limit that defaults to physical cores / 4 (at least one)
+  and is changed with
   `bosn ci runners set-limit N`. Independent state roots have independent
   limits; this is not an aggregate CPU budget across daemons. Each engine's
-  CPU ceiling is configured separately.
+  CPU ceiling is configured separately. Linux reads package and core IDs from
+  sysfs for the process's allowed CPU set; macOS reads `hw.physicalcpu`. If
+  topology is unavailable or a CPU quota is smaller than the allowed set, the
+  daemon assumes half of available logical threads, at least one. The physical
+  count is capped by available logical threads.
   - Identical submissions share one run ID. "Identical" means the same SHA,
     dirty digest, workflow, job, trigger, mode, provider, engine, event payload
     (branch, PR number, repository, inputs), matrix filter, env and timeout.

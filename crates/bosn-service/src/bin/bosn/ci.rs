@@ -42,6 +42,9 @@ pub const USAGE: &str = "usage: bosn ci plan [--workspace P] [--provider github]
 
 #[path = "ci/adapter.rs"]
 pub mod adapter;
+#[path = "ci/capacity.rs"]
+mod capacity;
+pub use capacity::{format_ci_capacity, format_task_capacity};
 
 const EXIT_REFUSED: i32 = 3;
 /// `wait` reached its deadline, or `report` on a run still in progress.
@@ -813,30 +816,37 @@ fn doctor(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
     let flags = Flags::parse(arguments, &["--state-dir"], &["--json"])?;
     let (runtime, client) = connect(&flags)?;
     let reply = call(&runtime, client.ci_doctor())?;
-    print(&reply, flags.json(), |r| match (&r.engine, &r.report) {
-        (Some(engine), Some(report)) => {
-            println!("engine: {engine}");
-            for check in &report.checks {
-                let need = if check.required {
-                    "required"
-                } else {
-                    "optional"
-                };
-                println!(
-                    "{:<4} {:<19} {:<8} {}",
-                    check.status.as_str(),
-                    check.id,
-                    need,
-                    check.summary
-                );
-                if let Some(fix) = check.remediation.as_deref()
-                    && check.status != bosn_service::ci::ActDoctorStatus::Pass
-                {
-                    println!("     fix: {fix}");
+    print(&reply, flags.json(), |r| {
+        println!("{}", format_task_capacity(r.task_capacity.as_ref()));
+        println!(
+            "{}",
+            format_ci_capacity(r.admission_limit, r.engine_capacity.as_ref())
+        );
+        match (&r.engine, &r.report) {
+            (Some(engine), Some(report)) => {
+                println!("engine: {engine}");
+                for check in &report.checks {
+                    let need = if check.required {
+                        "required"
+                    } else {
+                        "optional"
+                    };
+                    println!(
+                        "{:<4} {:<19} {:<8} {}",
+                        check.status.as_str(),
+                        check.id,
+                        need,
+                        check.summary
+                    );
+                    if let Some(fix) = check.remediation.as_deref()
+                        && check.status != bosn_service::ci::ActDoctorStatus::Pass
+                    {
+                        println!("     fix: {fix}");
+                    }
                 }
             }
+            _ => println!("no shared CI engine is running; the next `bosn ci run` makes it"),
         }
-        _ => println!("no shared CI engine is running; the next `bosn ci run` makes it"),
     });
     Ok(match &reply.report {
         Some(report) if !report.ok => 1,

@@ -11,6 +11,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use bosn_service::ci::{RunnerAction, RunnersReply, TaskLaneCapacity};
 use bosn_service::docker_api::{DockerApi, LABEL_RUN};
 use kernal_api::async_engine::RuntimeBuilder;
 use serde_json::Value;
@@ -33,15 +34,17 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
     }
     let state_dir = state_dir.unwrap_or_else(bosn_service::mcp::default_state_dir);
     super::require_matching_daemon(&state_dir, "jobs", json);
-    let view = RuntimeBuilder::current_thread()
+    let reports = RuntimeBuilder::current_thread()
         .enable_all()
         .build()
         .ok()
         .and_then(|runtime| {
             let client = crate::daemon_client(&state_dir).ok()?;
-            runtime.run(client.jobs()).ok()
+            let jobs = runtime.run(client.jobs()).ok()?;
+            let ci = runtime.run(client.ci_runners(RunnerAction::List)).ok();
+            Some((jobs, ci))
         });
-    let Some(mut view) = view else {
+    let Some((mut view, ci)) = reports else {
         if json {
             println!(
                 "{}",
@@ -57,9 +60,12 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
     };
     attach_containers(&mut view);
     if json {
+        if let Some(ci) = &ci {
+            view["ci"] = serde_json::to_value(ci).unwrap_or(Value::Null);
+        }
         emit(&format!("{view}\n"));
     } else {
-        print_table(&view);
+        emit(&format_table(&view, ci.as_ref()));
     }
 }
 
@@ -101,28 +107,21 @@ fn attach_containers(view: &mut Value) {
     }
 }
 
-#[expect(clippy::too_many_lines, reason = "baseline, ci.yml#229")]
-fn print_table(view: &Value) {
+fn format_table(view: &Value, ci: Option<&RunnersReply>) -> String {
     let mut out = String::new();
-    let capacity = &view["capacity"];
-    let cpus = capacity["cpus_per_slot"]
-        .as_f64()
-        .filter(|c| *c > 0.0)
-        .map_or_else(|| "unlimited CPUs".to_owned(), |c| format!("{c} CPUs"));
+    let capacity: Option<TaskLaneCapacity> = serde_json::from_value(view["capacity"].clone()).ok();
     let _ = writeln!(
         out,
-        "runner slots: {} x {cpus} (host {} CPUs), control slots: {}, stall teardown: {}, docker proxy: {}",
-        capacity["runner_slots"],
-        capacity["host_cpus"],
-        capacity["control_slots"],
-        capacity["stall_seconds"]
-            .as_u64()
-            .map_or_else(|| "off".to_owned(), |s| format!("{s}s")),
-        if capacity["docker_proxy"].as_bool() == Some(true) {
-            "on"
-        } else {
-            "off"
-        },
+        "{}",
+        super::ci::format_task_capacity(capacity.as_ref()),
+    );
+    let _ = writeln!(
+        out,
+        "{}",
+        super::ci::format_ci_capacity(
+            ci.map(|reply| reply.runners.limit),
+            ci.and_then(|reply| reply.engine_capacity.as_ref()),
+        )
     );
     for lane in ["runner", "control"] {
         let _ = writeln!(
@@ -134,8 +133,7 @@ fn print_table(view: &Value) {
     let jobs = view["jobs"].as_array().cloned().unwrap_or_default();
     if jobs.is_empty() {
         let _ = writeln!(out, "no jobs");
-        emit(&out);
-        return;
+        return out;
     }
     let _ = writeln!(
         out,
@@ -208,7 +206,7 @@ fn print_table(view: &Value) {
             let _ = writeln!(out, "{:>5}  error: {}", "", truncate(error, 160));
         }
     }
-    emit(&out);
+    out
 }
 
 fn duration(seconds: u64) -> String {
@@ -226,5 +224,51 @@ fn truncate(value: &str, width: usize) -> String {
         let mut text: String = value.chars().take(width.saturating_sub(1)).collect();
         text.push('~');
         text
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jobs_capacity_names_task_and_ci_lanes_with_the_engine_ceiling() {
+        let view = serde_json::json!({
+            "capacity": {
+                "runner_slots": 32,
+                "cpus_per_slot": 4.0,
+                "host_cpus": 16,
+                "control_slots": 8,
+                "stall_seconds": 1800,
+                "docker_proxy": true
+            },
+            "lanes": {
+                "runner": {"running": 0, "queued": 0},
+                "control": {"running": 0, "queued": 0}
+            },
+            "jobs": []
+        });
+        let ci: RunnersReply = serde_json::from_value(serde_json::json!({
+            "runners": {
+                "limit": 2, "running": 0, "queued": 0, "drained": false,
+                "engine": "act", "act_version": "act2.19", "widget": "absent"
+            },
+            "engine_capacity": {
+                "cpus": 8, "memory_bytes": 17179869184_u64,
+                "cpu_source": "default_ceiling", "running": true
+            },
+            "pruned_runs": null
+        }))
+        .unwrap();
+        assert_eq!(
+            format_table(&view, Some(&ci)),
+            concat!(
+                "task lane: 32 slots x 4 CPUs per slot (host 16 logical CPUs), control slots: 8, stall teardown: 1800s, docker proxy: on\n",
+                "CI lane: admission limit 2; running engine 8 CPUs (default 8-CPU ceiling), 16 GiB memory\n",
+                " runner: 0 running, 0 queued\n",
+                "control: 0 running, 0 queued\n",
+                "no jobs\n"
+            )
+        );
     }
 }

@@ -205,6 +205,51 @@
       ],
       "type": "object"
     },
+    "CiCpuSource": {
+      "oneOf": [
+        {
+          "enum": [
+            "config",
+            "default_ceiling"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "An engine made before the source label was recorded.",
+          "type": "string"
+        }
+      ]
+    },
+    "CiEngineCapacity": {
+      "description": "Effective CI engine capacity, distinct from the task runner lane.",
+      "properties": {
+        "cpu_source": {
+          "$ref": "#/$defs/CiCpuSource"
+        },
+        "cpus": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "running": {
+          "description": "`true` when the values are from a running engine; otherwise they are\nthe next engine's sized limits on the current host.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cpus",
+        "memory_bytes",
+        "cpu_source",
+        "running"
+      ],
+      "type": "object"
+    },
     "CiRequest": {
       "description": "Every CI operation. Each maps to one typed handler; there is no generic\ncommand surface.",
       "oneOf": [
@@ -593,6 +638,14 @@
     "DoctorReply": {
       "description": "`bosn ci doctor`: act2's `act doctor` report, taken inside the machine's\nshared engine against its `act serve` (#547).",
       "properties": {
+        "admission_limit": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "engine": {
           "description": "The shared engine it ran in; `None` when this daemon holds none (the\nnext run makes it), and then there is no report.",
           "type": [
@@ -600,10 +653,30 @@
             "null"
           ]
         },
+        "engine_capacity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CiEngineCapacity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "report": {
           "anyOf": [
             {
               "$ref": "#/$defs/ActDoctorReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task_capacity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskLaneCapacity"
             },
             {
               "type": "null"
@@ -1971,6 +2044,17 @@
           "default": null,
           "description": "Set by `cache_usage` and `clear_cache`."
         },
+        "engine_capacity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CiEngineCapacity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Current shared-engine limits, or the limits a new engine would use."
+        },
         "maintenance": {
           "anyOf": [
             {
@@ -2271,6 +2355,53 @@
         "sha",
         "tree_digest",
         "dirty"
+      ],
+      "type": "object"
+    },
+    "TaskLaneCapacity": {
+      "description": "Task lane's independent slot and CPU quota policy.",
+      "properties": {
+        "control_slots": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cpus_per_slot": {
+          "description": "Zero means no per-slot CPU quota.",
+          "format": "double",
+          "type": "number"
+        },
+        "docker_proxy": {
+          "default": false,
+          "type": "boolean"
+        },
+        "host_logical_cpus": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "slots": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stall_seconds": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "slots",
+        "cpus_per_slot",
+        "control_slots"
       ],
       "type": "object"
     },
