@@ -15,7 +15,7 @@ fn intent() -> CacheHelperIntent {
         nonce: NONCE.into(),
         image: engine_image(),
         volume: super::super::CACHE_VOLUME.into(),
-        created_at: 1.0,
+        created_at: crate::ci::lifecycle::now_seconds(),
         role: None,
     }
 }
@@ -82,6 +82,32 @@ fn uncertain_absence_stays_pending_and_a_later_create_is_reaped() {
         let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
         assert!(commands.contains(&format!("rm -f -v {ID}")));
         assert!(!commands.contains("volume rm"));
+    });
+}
+
+#[test]
+fn absent_helper_finishes_after_the_late_create_window() {
+    with_registry(|registry, state| async move {
+        let mut value = intent();
+        value.created_at -= 11.0 * 60.0;
+        journal::Tracker::new(&registry, NONCE)
+            .begin(value.clone())
+            .await
+            .unwrap();
+        let (dir, backend) = fixture(true, "removed");
+        seed_observation(dir.path(), &value);
+        std::fs::write(dir.path().join("lookup-mode"), "absent").unwrap();
+
+        let result = backend
+            .retry_measurements(&registry, OWNER, None)
+            .await
+            .unwrap();
+        assert_eq!(result.removed.as_deref(), Some(value.name().as_str()));
+        assert!(result.deferred.is_none());
+        let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
+        let record = reader.cache_helper(NONCE).unwrap().unwrap();
+        assert_eq!(record.state, CacheHelperState::Removed);
+        assert!(record.container_id.is_none());
     });
 }
 

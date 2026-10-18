@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 const PREFIX: &str = "ci.cache-helper.v1:";
 const RECORD_BYTES: usize = 4096;
 pub const MAX_HELPER_PAGE: usize = 64;
+/// Docker control deadline (30 s) plus ten minutes for a late create to settle.
+pub const LATE_CREATE_WINDOW_SECS: f64 = 630.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -101,7 +103,11 @@ fn decode(detail: &str, nonce: &str, owner: &str) -> Result<CacheHelperRecord, E
         || record.intent.nonce != nonce
         || !record.updated_at.is_finite()
         || record.updated_at < record.intent.created_at
-        || (record.state == CacheHelperState::Pending) != record.container_id.is_none()
+        || match record.state {
+            CacheHelperState::Pending => record.container_id.is_some(),
+            CacheHelperState::Created => record.container_id.is_none(),
+            CacheHelperState::Removed => false,
+        }
         || record.container_id.as_ref().is_some_and(|id| !hex_id(id))
     {
         return Err(Error::BadRow("cache helper snapshot"));
@@ -212,6 +218,24 @@ impl Immediate<'_> {
             || at < record.updated_at
         {
             return Err(Error::BadRow("cache helper removal proof"));
+        }
+        record.state = CacheHelperState::Removed;
+        record.updated_at = at;
+        self.store_helper(&record)
+    }
+
+    /// A trusted Docker name probe may finish an unacknowledged create only
+    /// after its bounded late-create window. No immutable ID is fabricated.
+    pub fn finish_absent_cache_helper(&mut self, nonce: &str, at: f64) -> Result<(), Error> {
+        let mut record = self
+            .helper_record(nonce)?
+            .ok_or(Error::BadRow("cache helper intent missing"))?;
+        if record.state != CacheHelperState::Pending
+            || record.container_id.is_some()
+            || !at.is_finite()
+            || at < record.intent.created_at + LATE_CREATE_WINDOW_SECS
+        {
+            return Err(Error::BadRow("cache helper late-create absence proof"));
         }
         record.state = CacheHelperState::Removed;
         record.updated_at = at;

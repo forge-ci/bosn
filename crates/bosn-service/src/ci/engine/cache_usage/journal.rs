@@ -73,4 +73,11 @@ impl<'a> Tracker<'a> {
         })
         .await
     }
+    pub async fn finish_absent(&self) -> Result<(), String> {
+        self.commit(ActRegistryCommand::HelperAbsent {
+            nonce: self.nonce.into(),
+            at: crate::ci::lifecycle::now_seconds(),
+        })
+        .await
+    }
 }

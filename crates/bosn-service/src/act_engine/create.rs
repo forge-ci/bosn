@@ -469,12 +469,13 @@ pub(super) async fn create_owned_engine_inner(
     }
     ensure_storage_volume(engine, &intent, owner).await?;
     socket::of(&intent).map_or(Ok(()), socket::ensure_dir)?;
+    let at = crate::act_runtime::now().max(at).max(intent.created_at);
     // From here an engine may exist even if this daemon never learns its ID, so its absence can
     // no longer be proven by an empty lookup. Before here it can (#554).
     registry
         .act_registry(ActRegistryCommand::CreateRequested {
             run: intent.run_id.clone(),
-            at: at.max(intent.created_at),
+            at,
         })
         .await
         .map_err(|e| ActEngineError(e.to_string()))?;

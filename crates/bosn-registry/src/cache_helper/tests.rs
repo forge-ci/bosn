@@ -104,6 +104,35 @@ fn pending_create_survives_restart_and_cannot_finish_without_a_known_id() {
 }
 
 #[test]
+fn aged_absence_receipt_finishes_without_fabricating_an_id() {
+    let dir = fs::TemporaryDirectory::new().unwrap();
+    let path = dir.path().join("registry.sqlite3");
+    let value = intent(141);
+    let mut registry = Registry::create_writer(&path, OWNER).unwrap();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.begin_cache_helper(&value).unwrap();
+    assert!(
+        tx.finish_absent_cache_helper(&value.nonce, LATE_CREATE_WINDOW_SECS)
+            .is_err()
+    );
+    tx.finish_absent_cache_helper(&value.nonce, 1.0 + LATE_CREATE_WINDOW_SECS)
+        .unwrap();
+    tx.commit().unwrap();
+    drop(registry);
+    let reader = Registry::open_writer(&path).unwrap();
+    let record = reader.cache_helper(&value.nonce).unwrap().unwrap();
+    assert_eq!(record.state, CacheHelperState::Removed);
+    assert!(record.container_id.is_none());
+    assert!(
+        reader
+            .pending_cache_helpers(None, 64)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[test]
 fn helper_identity_conflicts_and_invalid_receipts_leave_the_claim_intact() {
     let dir = fs::TemporaryDirectory::new().unwrap();
     let mut registry = Registry::create_writer(dir.path().join("registry.sqlite3"), OWNER).unwrap();
