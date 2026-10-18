@@ -29,6 +29,7 @@ use super::{
     workflow,
 };
 use crate::{RegistryActor, secrets::SecretMasker};
+mod capacity;
 mod cleanup;
 mod dispatch;
 mod observer;
@@ -129,6 +130,7 @@ pub struct CiRuntime {
     /// Set once when the opt-in UI listener is serving.
     ui: Arc<OnceLock<Arc<UiHandle>>>,
     widget: Arc<Mutex<WidgetState>>,
+    task_capacity: Arc<OnceLock<super::reply::TaskLaneCapacity>>,
     widget_config: Arc<Mutex<WidgetConfig>>,
     launch_failure_logged: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -220,6 +222,7 @@ impl CiRuntime {
             feed: Feed::new(),
             ui: Arc::new(OnceLock::new()),
             widget: Arc::new(Mutex::new(WidgetState::default())),
+            task_capacity: Arc::new(OnceLock::new()),
             widget_config: Arc::new(Mutex::new(WidgetConfig::default())),
             launch_failure_logged: Arc::default(),
         };

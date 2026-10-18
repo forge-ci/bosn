@@ -50,32 +50,35 @@ impl CiRuntime {
             | RunnerAction::Resume
             | RunnerAction::SetLimit { .. } => {}
         }
-        let mut state = self.lock();
-        match action {
-            RunnerAction::List
-            | RunnerAction::PruneCache { .. }
-            | RunnerAction::CacheUsage
-            | RunnerAction::ClearCache => {}
-            RunnerAction::Drain => state.scheduler.set_drained(true),
-            RunnerAction::Resume => state.scheduler.set_drained(false),
-            RunnerAction::SetLimit { limit } => {
-                if !(1..=256).contains(&limit) {
-                    return Err(CiError::refused("limit must be between 1 and 256"));
+        {
+            let mut state = self.lock();
+            match action {
+                RunnerAction::List
+                | RunnerAction::PruneCache { .. }
+                | RunnerAction::CacheUsage
+                | RunnerAction::ClearCache => {}
+                RunnerAction::Drain => state.scheduler.set_drained(true),
+                RunnerAction::Resume => state.scheduler.set_drained(false),
+                RunnerAction::SetLimit { limit } => {
+                    if !(1..=256).contains(&limit) {
+                        return Err(CiError::refused("limit must be between 1 and 256"));
+                    }
+                    state.scheduler.set_limit(limit);
                 }
-                state.scheduler.set_limit(limit);
             }
+            self.store.save_settings(&Settings {
+                limit: state.scheduler.limit(),
+                drained: state.scheduler.drained(),
+            });
         }
-        self.store.save_settings(&Settings {
-            limit: state.scheduler.limit(),
-            drained: state.scheduler.drained(),
-        });
-        drop(state);
         // A dead dispatcher is rebuilt here, before the status is read, so
         // the reply reports the recovered admission state (#453).
         self.kick();
         let status = self.runner_status(&self.lock());
+        let engine_capacity = self.engine_capacity().await;
         Ok(RunnersReply {
             runners: status,
+            engine_capacity,
             pruned_runs: pruned,
             cache,
             maintenance,

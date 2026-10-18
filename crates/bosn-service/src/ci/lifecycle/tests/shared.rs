@@ -63,6 +63,14 @@ fn concurrent_leases_share_one_engine_on_distinct_slots() {
         let backend = Arc::new(FakeBackend::with(Faults::default()));
         let shared = SharedEngine::new(registry.clone(), backend.clone());
         let a = lease(&shared, 1, want(1, &dir, 8)).await.unwrap();
+        assert_eq!(
+            shared.capacity_limits().await,
+            Some((
+                2,
+                8 << 30,
+                Some(crate::ci::reply::CiCpuSource::DefaultCeiling)
+            ))
+        );
         // Sizing differs, the pins do not: the same engine serves it.
         let b = lease(&shared, 2, want(2, &dir, 16)).await.unwrap();
         assert_eq!(a.engine_id, b.engine_id, "one engine");
@@ -144,6 +152,44 @@ fn a_claim_from_another_bosn_release_is_not_adopted() {
 }
 
 #[test]
+fn capacity_reports_another_daemons_frozen_engine_even_after_config_changes() {
+    with_registry(|registry, dir| async move {
+        use crate::ci::{CiRequest, RunnerAction, RunnersReply, reply::CiCpuSource};
+
+        let backend = Arc::new(FakeBackend::with(Faults::default()));
+        let maker = SharedEngine::new(registry.clone(), backend.clone());
+        let lease = lease(&maker, 1, want(1, &dir, 8)).await.unwrap();
+        std::fs::write(dir.join("config.toml"), "[engine]\ncpus = 'invalid'\n").unwrap();
+        let other = second_daemon(&dir);
+        let caller = crate::ci::CiRuntime::start_with_release(
+            &dir,
+            other.registry.clone(),
+            backend.clone(),
+            1,
+            env!("CARGO_PKG_VERSION"),
+        );
+        let report: RunnersReply = serde_json::from_value(
+            caller
+                .handle(CiRequest::Runners {
+                    action: RunnerAction::List,
+                })
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let capacity = report.engine_capacity.unwrap();
+        assert!(capacity.running);
+        assert_eq!(capacity.cpus, 2);
+        assert_eq!(capacity.memory_bytes, 8 << 30);
+        assert_eq!(capacity.cpu_source, CiCpuSource::DefaultCeiling);
+        maker.release(lease).await;
+        maker.close().await;
+        caller.close_shared().await;
+        other.stop().await;
+    });
+}
+
+#[test]
 fn two_daemons_share_one_engine_and_only_its_maker_retires_it() {
     with_registry(|registry, dir| async move {
         let backend = Arc::new(FakeBackend::with(Faults::default()));
@@ -198,6 +244,7 @@ fn a_claim_whose_daemon_died_is_taken_over() {
             engine: format!("bosn-act-{}", run_id(0x9999)),
             registry: "99999999-2222-4333-8444-555555555555".into(),
             release: None,
+            cpu_source: None,
             daemon: Process {
                 start: me.start + 1,
                 ..me

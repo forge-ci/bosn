@@ -921,9 +921,12 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // creation key) and the `release` CI operation, without a bump: an older
 // daemon ignores the owner fields (its work stays unowned, as before) and
 // refuses the unknown op, which the client treats as "nothing released".
+// #672 added optional engine/task capacity fields to runners and doctor
+// replies. Older clients ignore them; newer clients default them to absent
+// when talking to an older daemon, so the protocol remains 1.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "7e3451e67bfbbf172bb177adfbae9b5e2d78ed69b4538e9677eef22976219399",
+    "3b386ba0cc7d97f45dacfb6e77847008dd2f548d05d3ffeeae95b4cbce8a40b6",
 );
 
 #[test]

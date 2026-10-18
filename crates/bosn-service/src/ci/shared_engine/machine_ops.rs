@@ -138,6 +138,7 @@ impl SharedEngine {
             engine: want.intent.engine_name(),
             registry: owner.into(),
             release: Some(self.release.clone()),
+            cpu_source: Some(want.cpu_source),
             daemon: Daemon::current(),
             created: now(),
         };
@@ -178,6 +179,7 @@ impl SharedEngine {
             memory_bytes: profile.memory_bytes,
             nano_cpus: profile.nano_cpus,
             pids: profile.pids,
+            cpu_source: Some(want.cpu_source),
             slots: Default::default(),
             kind: Kind::Owned {
                 engine: Box::new(engine),
@@ -199,7 +201,7 @@ impl SharedEngine {
             && engine.registry == claim.registry
             && claim.release.as_deref() == Some(self.release.as_str())
         {
-            return adopted(engine).map(Ok);
+            return adopted(engine, claim.cpu_source).map(Ok);
         }
         let stalled = running.is_none()
             && now().saturating_sub(claim.created) > CLAIM_PREPARE_LIMIT.as_secs();
@@ -440,7 +442,10 @@ impl SharedEngine {
 }
 
 /// Another daemon's engine, as a run here uses it.
-fn adopted(engine: &Foreign) -> Result<Held, String> {
+fn adopted(
+    engine: &Foreign,
+    cpu_source: Option<super::super::reply::CiCpuSource>,
+) -> Result<Held, String> {
     Ok(Held {
         kind: Kind::Adopted,
         id: engine.id.clone(),
@@ -452,6 +457,7 @@ fn adopted(engine: &Foreign) -> Result<Held, String> {
         memory_bytes: engine.memory_bytes,
         nano_cpus: engine.nano_cpus,
         pids: engine.pids,
+        cpu_source,
         slots: Default::default(),
     })
 }

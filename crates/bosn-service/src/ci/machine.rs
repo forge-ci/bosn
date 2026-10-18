@@ -153,6 +153,8 @@ pub struct EngineClaim {
     pub registry: String,
     /// The Bosn release that made the claim. Older claims have no label.
     pub release: Option<String>,
+    /// CPU cap source frozen when this engine was planned (older claims omit it).
+    pub cpu_source: Option<super::reply::CiCpuSource>,
     pub daemon: Daemon,
     /// Unix seconds.
     pub created: u64,
@@ -173,6 +175,9 @@ impl EngineClaim {
         }
         if let Some(release) = &self.release {
             labels.insert(format!("{CLAIM_PREFIX}release"), release.clone());
+        }
+        if let Some(source) = self.cpu_source {
+            labels.insert(format!("{CLAIM_PREFIX}cpu-source"), source.label().into());
         }
         labels
     }
@@ -196,6 +201,13 @@ impl EngineClaim {
             engine: engine.into(),
             registry: get("registry")?.into(),
             release: labels.get(&format!("{CLAIM_PREFIX}release")).cloned(),
+            cpu_source: labels
+                .get(&format!("{CLAIM_PREFIX}cpu-source"))
+                .map(|source| {
+                    super::reply::CiCpuSource::from_label(source)
+                        .ok_or_else(|| "invalid engine claim CPU source".to_string())
+                })
+                .transpose()?,
             daemon: Daemon::parse(get("boot")?, get("pid")?, get("start")?)?,
             created: get("created")?.parse().map_err(|_| "bad claim time")?,
         })

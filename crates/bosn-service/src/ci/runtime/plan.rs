@@ -139,6 +139,11 @@ impl CiRuntime {
             intent: spec.intent(ActEngineBinding::spare(&id, &workspace), true)?,
             act: spec.act,
             cache: spec.cache.clone(),
+            cpu_source: if config.cpus.is_some() {
+                super::super::reply::CiCpuSource::Config
+            } else {
+                super::super::reply::CiCpuSource::DefaultCeiling
+            },
         };
         let scope = run_scope(&record.id, &intent)?;
         Ok(EnginePlan {

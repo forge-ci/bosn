@@ -34,6 +34,8 @@ pub struct SparePlan {
     pub intent: ActEngineIntent,
     pub act: ActArtifact,
     pub cache: CacheVolume,
+    /// How its immutable CPU cap was chosen.
+    pub cpu_source: super::reply::CiCpuSource,
 }
 
 /// Create, claim and prepare the engine. Any failure removes what was
