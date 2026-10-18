@@ -312,6 +312,10 @@ pub struct RunRecord {
     pub event: String,
     pub payload_sha256: String,
     pub state: RunState,
+    /// Accepted cancel request; teardown still owns the scheduler slot until
+    /// the run reaches `done`. Optional for older peers and saved records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_requested_at: Option<f64>,
     pub conclusion: Option<Conclusion>,
     pub reason: Option<String>,
     pub created_at: f64,
@@ -364,6 +368,7 @@ impl RunRecord {
             event: event.into(),
             payload_sha256: sha256_hex(payload),
             state: RunState::Queued,
+            cancel_requested_at: None,
             conclusion: None,
             reason: None,
             created_at: super::lifecycle::now_seconds(),
@@ -391,6 +396,7 @@ impl RunRecord {
             id,
             job: job.or_else(|| self.job.clone()),
             state: RunState::Queued,
+            cancel_requested_at: None,
             conclusion: None,
             reason: None,
             created_at: super::lifecycle::now_seconds(),
@@ -428,6 +434,16 @@ impl RunRecord {
         self.reason = reason;
         self.finished_at = Some(super::lifecycle::now_seconds());
         self.tree.cancel_unfinished();
+    }
+
+    /// The visible state distinguishes teardown after a cancel request while
+    /// retaining the `running` wire state older clients understand.
+    pub fn display_state(&self) -> &'static str {
+        if self.state == RunState::Running && self.cancel_requested_at.is_some() {
+            "cancelling"
+        } else {
+            self.state.as_str()
+        }
     }
 
     pub(crate) fn key(&self) -> RunKey {

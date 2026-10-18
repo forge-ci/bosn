@@ -20,6 +20,12 @@ bosn ci cancel RUN | retry RUN [--job K] [--detach] | wait RUN --deadline-ms N
 bosn ci runners [list|drain|resume|set-limit N|prune-cache|cache|clear-cache]
 ```
 
+A running run shows **cancelling** as soon as the daemon accepts a cancel
+request. It remains active and holds its runner slot while the engine stops and
+cleans up. The final status becomes **done / cancelled** after teardown. The
+wire record keeps `state: running` during that interval and adds the optional
+`cancel_requested_at` timestamp for clients to display.
+
 `--timeout-secs N` (default 2 hours) bounds the whole run from the moment it
 starts: resolving and pulling images, preparing the engine and running act. A
 run that exceeds it ends `timed_out`, and its engine is still removed.

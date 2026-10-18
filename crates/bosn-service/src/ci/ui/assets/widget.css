@@ -10,7 +10,7 @@ body.bubble { background: transparent; display: grid; place-items: center; heigh
 #ring { width: 52px; height: 52px; border-radius: 50%; border: 4px solid var(--muted);
         background: var(--bg); color: var(--fg); cursor: pointer; display: grid; place-items: center; padding: 0; }
 #ring.running { border-color: var(--run); } #ring.failed { border-color: var(--fail); }
-#ring.queued { border-color: var(--warn); } #ring.ok { border-color: var(--ok); }
+#ring.queued, #ring.cancelling { border-color: var(--warn); } #ring.ok { border-color: var(--ok); }
 #ring:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 #count { font-weight: 700; font-size: 15px; line-height: 1; }
 .label { font-size: 8px; color: var(--muted); line-height: 1; }
@@ -27,4 +27,4 @@ ul { list-style: none; padding: 0; margin: 0; }
 button.confirming { border-color: var(--fail); color: var(--fail); }
 .meta { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .success { color: var(--ok); } .failure, .error, .timed_out { color: var(--fail); }
-.running { color: var(--run); } .queued, .cancelled, .incomplete, .refused { color: var(--warn); }
+.running { color: var(--run); } .queued, .cancelling, .cancelled, .incomplete, .refused { color: var(--warn); }

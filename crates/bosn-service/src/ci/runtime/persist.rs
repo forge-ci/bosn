@@ -187,11 +187,12 @@ mod tests {
         let writer = RecordWriter::new(store.clone());
         let mut record = sample_record("run-c");
         std::fs::create_dir_all(store.run_dir(&record.id)).unwrap();
-        for version in 1..=4 {
+        for version in 1..=5 {
             match version {
                 2 => record.state = crate::ci::RunState::Running,
                 3 => record.log_records = 25,
-                4 => record.state = crate::ci::RunState::Done,
+                4 => record.cancel_requested_at = Some(123.0),
+                5 => record.state = crate::ci::RunState::Done,
                 _ => {}
             }
             writer.write(&Save {
@@ -202,11 +203,11 @@ mod tests {
         let all = status::read_since(&store, &record.id, 0, 10).unwrap();
         assert_eq!(
             all.iter().map(|event| event.seq).collect::<Vec<_>>(),
-            vec![1, 2, 3]
+            vec![1, 2, 3, 4]
         );
         assert_eq!(all.last().unwrap().log_records, 25);
         assert_eq!(
-            status::read_since(&store, &record.id, 2, 10).unwrap()[0].state,
+            status::read_since(&store, &record.id, 3, 10).unwrap()[0].state,
             crate::ci::RunState::Done
         );
     }

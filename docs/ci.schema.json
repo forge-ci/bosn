@@ -1419,6 +1419,13 @@
             "actor": {
               "type": "string"
             },
+            "cancel_requested_at": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
             "conclusion": {
               "anyOf": [
                 {
@@ -1681,6 +1688,14 @@
         "branch": {
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "cancel_requested_at": {
+          "description": "Accepted cancel request; teardown still owns the scheduler slot until\nthe run reaches `done`. Optional for older peers and saved records.",
+          "format": "double",
+          "type": [
+            "number",
             "null"
           ]
         },
@@ -2216,6 +2231,13 @@
     },
     "StatusSnapshot": {
       "properties": {
+        "cancel_requested_at": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "conclusion": {
           "anyOf": [
             {

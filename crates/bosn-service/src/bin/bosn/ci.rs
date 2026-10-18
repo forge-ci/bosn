@@ -524,7 +524,7 @@ fn list(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
             println!(
                 "{}  {:<8} {:<10} {}{}  {}  {}",
                 run.id,
-                run.state.as_str(),
+                run.display_state(),
                 run.conclusion.map_or("-", Conclusion::as_str),
                 &run.sha[..12.min(run.sha.len())],
                 if run.dirty.is_some() { "+dirty" } else { "" },
@@ -763,12 +763,13 @@ fn cancel(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
     let (runtime, client) = connect(&flags)?;
     let reply = call(&runtime, client.ci_cancel(flags.run()?))?;
     print(&reply, flags.json(), |r| {
-        let what = if r.cancelled {
-            "cancelled"
-        } else {
-            "not cancelled"
+        let what = match (r.cancelled, r.state) {
+            (true, RunState::Running) => "cancel requested (cancelling)",
+            (true, RunState::Done) => "cancelled (done)",
+            (true, _) => "cancelled",
+            (false, _) => "not cancelled",
         };
-        println!("run {} {what} ({})", r.run, r.state.as_str());
+        println!("run {} {what}", r.run);
     });
     Ok(if reply.cancelled { 0 } else { EXIT_ERROR })
 }
@@ -890,7 +891,7 @@ fn print_tree(view: &RunView) {
     println!(
         "run {} {} {}  sha {}{}  {}",
         run.id,
-        run.state.as_str(),
+        run.display_state(),
         run.conclusion.map_or("-", Conclusion::as_str),
         run.sha,
         if run.dirty.is_some() { " +dirty" } else { "" },
