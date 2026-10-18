@@ -322,6 +322,23 @@ daemon serve`. Keep the log useful for matching an IPC loss to the daemon's
 last activity and restart; do not add plain `eprintln!` in daemon execution
 paths.
 
+## One daemon supervisor (decided 2026-10-17, #669)
+
+An installed user systemd or launchd entry for a state directory owns that
+daemon's startup. The CLI installs the authoritative
+`<state>/daemon/bosn-daemon`, asks the service manager to start the enabled
+entry, and waits asynchronously for the socket; it never forks a competing
+child after selecting the entry. An old generated entry is repaired to the
+fixed executable before starting. A unit for another state directory is not
+selected. Generated entries encode executable and state paths as single
+arguments and are replaced atomically before the manager reloads them. With
+no entry, the CLI starts the fixed executable on demand in a
+new Unix session. `WriterAlreadyHeld` means another daemon already owns the
+registry; `daemon serve` exits successfully so `Restart=on-failure` never
+burns the unit's start limit. Idle exit and an explicit stop are also clean
+exits. Service-manager commands are one-time process setup at the CLI
+boundary; readiness and handoff remain async waits.
+
 ## Work dies with its client unless detached (decided 2026-10-16)
 
 - **A following client owns its work.** `bosn run` (ensure and task jobs),
