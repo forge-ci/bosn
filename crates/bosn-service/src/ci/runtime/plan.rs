@@ -58,8 +58,50 @@ impl CiRuntime {
             .map_err(|e| format!("registry: {e}"))?
             .registry_id;
         self.backend.ensure_engine_image().await?;
-        let limits =
-            super::super::limits::size_engine(self.backend.host_resources().await?, config)?;
+        let host = self.backend.host_resources().await?;
+        let mut reserved = 0_u64;
+        if let Some(machine) = self.backend.machine() {
+            let claim = machine.claim().await?;
+            if let Some(claim) = &claim
+                && claim.release.as_deref() != Some(self.release.as_ref())
+            {
+                daemon_log!(
+                    "warning: bosn ci: the machine's engine claim belongs to Bosn release {} \
+                     (this daemon is {}); waiting for the older engine to drain",
+                    claim.release.as_deref().unwrap_or("unknown"),
+                    self.release,
+                );
+            }
+            let claimed = claim.map(|claim| claim.engine);
+            let engines = machine.engines().await?;
+            reserved = super::super::limits::reserved_engine_memory(
+                &engines,
+                claimed.as_deref(),
+                host.total_memory,
+            );
+            for engine in engines {
+                let version = engine
+                    .identity
+                    .as_ref()
+                    .map(|identity| identity.act_version())
+                    .unwrap_or("unknown");
+                if engine.running
+                    && (claimed.as_deref() != Some(engine.name.as_str())
+                        || engine.registry != registry_id
+                        || version != ACT_VERSION)
+                {
+                    daemon_log!(
+                        "warning: bosn ci: engine {} (registry {}, Bosn release unknown, act {}) \
+                         has a {} GiB memory limit; legacy or cross-release engines reduce new-engine sizing",
+                        engine.name,
+                        engine.registry,
+                        version,
+                        engine.memory_bytes / (1 << 30),
+                    );
+                }
+            }
+        }
+        let limits = super::super::limits::size_engine_with_reserved(host, config, reserved)?;
         let cache = CacheVolume::machine(&registry_id, lifecycle::now_seconds())?;
         let profile = crate::act_engine::creation_profile_with_cache(limits, Some(cache.mount()))
             .map_err(|e| e.to_string())?;

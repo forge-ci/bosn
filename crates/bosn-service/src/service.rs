@@ -365,13 +365,14 @@ impl Service {
         // local Docker daemon is recorded as a bounded recovery outcome when
         // possible and never prevents the authenticated control plane from
         // coming up.
-        let ci = ci::CiRuntime::start(
+        let ci = ci::CiRuntime::start_with_release(
             &self.state_dir,
             actor.clone(),
             Arc::clone(&self.act_backend),
             ci::scheduler::default_limit(
                 std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get),
             ),
+            &self.identity.release,
         );
         // The opt-in dashboard listener lives as long as the daemon.
         let config = ci::config::load(&self.state_dir);

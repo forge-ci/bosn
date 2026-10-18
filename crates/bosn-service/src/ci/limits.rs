@@ -37,6 +37,7 @@
 
 use serde::Deserialize;
 
+use super::machine::Foreign;
 use crate::act_engine::{ActEngineLimits, EngineStorage};
 
 const GIB: u64 = 1 << 30;
@@ -262,6 +263,55 @@ pub fn size_engine(host: HostResources, config: EngineConfig) -> Result<ActEngin
     Ok(limits)
 }
 
+/// Size a new engine after reserving the limits of other running Bosn
+/// engines on the same Docker host. Their current RSS can be small even
+/// though they may use their full limits while this engine runs.
+pub fn size_engine_with_reserved(
+    host: HostResources,
+    config: EngineConfig,
+    reserved: u64,
+) -> Result<ActEngineLimits, String> {
+    let remaining = host.total_memory.saturating_sub(reserved);
+    let effective = HostResources {
+        available_memory: host.available_memory.min(remaining),
+        ..host
+    };
+    let limits = size_engine(effective, config)?;
+    if !room_for_engine(host.total_memory, reserved, limits.memory_bytes) {
+        return Err(format!(
+            "a new {} GiB Bosn engine and {} GiB host reserve do not fit in the \
+             {} GiB left after other Bosn engines reserve {} GiB of this Docker host",
+            limits.memory_bytes / GIB,
+            MEMORY_HEADROOM / GIB,
+            remaining / GIB,
+            reserved / GIB,
+        ));
+    }
+    Ok(limits)
+}
+
+/// Other running engines' memory limits. A zero Docker memory limit means
+/// unlimited, so reserve the entire host rather than treating it as free.
+pub fn reserved_engine_memory(engines: &[Foreign], excluded: Option<&str>, host_total: u64) -> u64 {
+    engines
+        .iter()
+        .filter(|engine| engine.running && excluded != Some(engine.name.as_str()))
+        .map(|engine| {
+            if engine.memory_bytes == 0 {
+                host_total
+            } else {
+                engine.memory_bytes
+            }
+        })
+        .fold(0_u64, u64::saturating_add)
+}
+
+/// The frozen candidate can be made beside those engines while reserving
+/// memory for the host. The creation path calls this on a fresh inventory.
+pub fn room_for_engine(host_total: u64, reserved: u64, wanted: u64) -> bool {
+    wanted <= host_total.saturating_sub(reserved.saturating_add(MEMORY_HEADROOM))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,6 +348,57 @@ mod tests {
         assert_eq!(limits.storage_bytes, DISK_STORAGE_CEILING);
         assert_eq!(limits.nano_cpus, 8_000_000_000);
         assert_eq!(limits.pids, DEFAULT_PIDS);
+    }
+
+    #[test]
+    fn other_engines_reduce_the_new_engine_memory_budget() {
+        let machine = host(128, 120, 32);
+        let limits = size_engine_with_reserved(machine, EngineConfig::default(), 96 * GIB)
+            .expect("32 GiB remains for this engine and the host");
+        assert!(limits.memory_bytes <= 24 * GIB);
+        assert_eq!(limits.memory_bytes, 24 * GIB);
+
+        let unsafe_pin = EngineConfig {
+            memory_gib: Some(32),
+            ..EngineConfig::default()
+        };
+        assert!(size_engine_with_reserved(machine, unsafe_pin, 96 * GIB).is_err());
+        assert!(size_engine_with_reserved(machine, EngineConfig::default(), 124 * GIB).is_err());
+        let full_host_pin = EngineConfig {
+            memory_gib: Some(128),
+            ..EngineConfig::default()
+        };
+        assert!(size_engine_with_reserved(machine, full_host_pin, 0).is_err());
+    }
+
+    #[test]
+    fn creation_rechecks_running_engine_limits_and_excludes_the_claimed_engine() {
+        let engine = |name: &str, memory_bytes, running| Foreign {
+            id: name.into(),
+            name: name.into(),
+            running,
+            identity: None,
+            registry: "other".into(),
+            storage_volume: None,
+            memory_bytes,
+            nano_cpus: 0,
+            pids: 0,
+            created: 0,
+        };
+        let engines = [
+            engine("claimed", 48 * GIB, true),
+            engine("legacy", 96 * GIB, true),
+            engine("stopped", 48 * GIB, false),
+        ];
+        let reserved = reserved_engine_memory(&engines, Some("claimed"), 128 * GIB);
+        assert_eq!(reserved, 96 * GIB);
+        assert!(room_for_engine(128 * GIB, reserved, 24 * GIB));
+        assert!(!room_for_engine(128 * GIB, reserved, 32 * GIB));
+        assert!(!room_for_engine(128 * GIB, 0, 128 * GIB));
+        assert_eq!(
+            reserved_engine_memory(&[engine("unlimited", 0, true)], None, 128 * GIB),
+            128 * GIB
+        );
     }
 
     #[test]

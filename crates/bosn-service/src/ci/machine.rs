@@ -111,6 +111,10 @@ pub struct EngineIdentity {
 }
 
 impl EngineIdentity {
+    pub fn act_version(&self) -> &str {
+        &self.act_version
+    }
+
     pub fn of(intent: &ActEngineIntent) -> Option<Self> {
         Some(Self {
             act_version: intent.act_version.clone(),
@@ -147,6 +151,8 @@ pub struct EngineClaim {
     pub engine: String,
     /// The registry of the daemon that holds it.
     pub registry: String,
+    /// The Bosn release that made the claim. Older claims have no label.
+    pub release: Option<String>,
     pub daemon: Daemon,
     /// Unix seconds.
     pub created: u64,
@@ -164,6 +170,9 @@ impl EngineClaim {
             ("created", self.created.to_string()),
         ] {
             labels.insert(format!("{CLAIM_PREFIX}{key}"), value);
+        }
+        if let Some(release) = &self.release {
+            labels.insert(format!("{CLAIM_PREFIX}release"), release.clone());
         }
         labels
     }
@@ -186,6 +195,7 @@ impl EngineClaim {
             id: id.into(),
             engine: engine.into(),
             registry: get("registry")?.into(),
+            release: labels.get(&format!("{CLAIM_PREFIX}release")).cloned(),
             daemon: Daemon::parse(get("boot")?, get("pid")?, get("start")?)?,
             created: get("created")?.parse().map_err(|_| "bad claim time")?,
         })
