@@ -524,6 +524,8 @@ mod tests {
                     act_version: "0.2.88".into(),
                     execution_pins: None,
                     widget: crate::ci::widget::WidgetPresence::Absent,
+                    daemon_release: None,
+                    widget_release: None,
                     hold: None,
                     dispatcher: DispatcherHealth::Live,
                     dispatcher_recoveries: 0,

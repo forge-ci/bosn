@@ -10,7 +10,7 @@ use super::*;
 use crate::ci::widget::{self as policy, WidgetCommand};
 
 impl CiRuntime {
-    fn widget_state(&self) -> MutexGuard<'_, WidgetState> {
+    pub(super) fn widget_state(&self) -> MutexGuard<'_, WidgetState> {
         self.widget.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -37,11 +37,64 @@ impl CiRuntime {
         }
     }
 
-    pub(super) fn widget_hello(&self, pid: u32, session: &str, explicit: bool) -> WidgetReply {
-        let allowed = self
-            .widget_state()
-            .hello(Instant::now(), pid, session, explicit);
+    pub(super) fn widget_hello(
+        &self,
+        pid: u32,
+        session: &str,
+        explicit: bool,
+        release: Option<&str>,
+    ) -> WidgetReply {
+        let allowed = self.widget_state().hello_release(
+            Instant::now(),
+            pid,
+            session,
+            explicit,
+            release,
+            &self.release,
+        );
+        if allowed && policy::release_is_older(release, &self.release) {
+            self.repair_widget(pid);
+        }
         self.reply(allowed, Vec::new())
+    }
+
+    /// An older widget stays connected while the matching artifact is
+    /// installed and the user unit is rewritten. The child process performs
+    /// the downloads; the daemon awaits it without blocking its executor.
+    fn repair_widget(&self, pid: u32) {
+        if !cfg!(target_os = "linux") || self.widget_repairing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let runtime = self.clone();
+        async_engine::launch(async move {
+            let result = repair_widget_unit(&runtime.state_dir).await;
+            match result {
+                Ok(()) => {
+                    if !runtime.widget_state().replacement_pending(pid) {
+                        runtime.widget_repairing.store(false, Ordering::Release);
+                        return;
+                    }
+                    match restart_widget_unit().await {
+                        Ok(()) => {
+                            // The service manager has accepted the new launch.
+                            // A still-connected old widget also gets a Quit
+                            // on its next poll, without a user dismissal.
+                            runtime.widget_state().ready_to_replace(pid);
+                        }
+                        Err(error) => {
+                            runtime.widget_state().cancel_replacement(pid);
+                            daemon_log!("bosn ci: widget restart failed: {error}");
+                        }
+                    }
+                }
+                Err(error) => {
+                    runtime.widget_state().cancel_replacement(pid);
+                    daemon_log!("bosn ci: widget replacement deferred: {error}");
+                }
+            }
+            runtime.widget_repairing.store(false, Ordering::Release);
+        })
+        .detach();
     }
 
     pub(super) fn widget_poll(&self, pid: u32) -> WidgetReply {
@@ -49,8 +102,8 @@ impl CiRuntime {
         self.reply(true, commands)
     }
 
-    pub(super) fn widget_dismiss(&self, session: &str) -> WidgetReply {
-        self.widget_state().dismiss(session);
+    pub(super) fn widget_dismiss(&self, session: &str, pid: Option<u32>) -> WidgetReply {
+        self.widget_state().dismiss(session, pid);
         self.reply(false, Vec::new())
     }
 
@@ -126,5 +179,113 @@ impl CiRuntime {
             }
         })
         .detach();
+    }
+}
+
+async fn repair_widget_unit(state_dir: &std::path::Path) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let output = kernal_api::run_bounded_command_async(
+        kernal_api::SpawnSpec::new(executable)
+            .arg("widget")
+            .arg("install")
+            .arg("--state-dir")
+            .arg(state_dir),
+        Duration::from_secs(6 * 60),
+        4096,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    (output.exit.raw_code() == 0)
+        .then_some(())
+        .ok_or_else(|| format!("widget installer exited {}", output.exit.raw_code()))
+}
+
+async fn restart_widget_unit() -> Result<(), String> {
+    let output = kernal_api::run_bounded_command_async(
+        kernal_api::SpawnSpec::new("systemctl")
+            .arg("--user")
+            .arg("restart")
+            .arg("bosn-widget.service"),
+        Duration::from_secs(15),
+        4096,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    (output.exit.raw_code() == 0)
+        .then_some(())
+        .ok_or_else(|| format!("systemctl restart exited {}", output.exit.raw_code()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, atomic::Ordering};
+
+    use super::*;
+    use crate::ci::{
+        CiRequest,
+        lifecycle::tests::{FakeBackend, with_registry},
+    };
+
+    #[test]
+    fn older_widget_hello_receives_replacement_quit_after_repair() {
+        with_registry(|registry, dir| async move {
+            let runtime = CiRuntime::start_with_release(
+                &dir,
+                registry,
+                Arc::new(FakeBackend::default()),
+                1,
+                "0.1.23",
+            );
+            // Keep the real installer idle; completion below represents a
+            // successful artifact install and user-unit handoff.
+            runtime.widget_repairing.store(true, Ordering::Release);
+            let hello: WidgetReply = serde_json::from_value(
+                runtime
+                    .handle(CiRequest::WidgetHello {
+                        pid: 42,
+                        session: "desktop".into(),
+                        explicit: false,
+                        release: Some("0.1.0".into()),
+                    })
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(hello.allowed);
+            assert_eq!(
+                runtime.listing().runners.widget_release.as_deref(),
+                Some("0.1.0")
+            );
+            runtime
+                .handle(CiRequest::WidgetHello {
+                    pid: 43,
+                    session: "desktop".into(),
+                    explicit: false,
+                    release: Some("0.1.23".into()),
+                })
+                .await
+                .unwrap();
+            assert!(runtime.widget_state().ready_to_replace(42));
+            let poll: WidgetReply = serde_json::from_value(
+                runtime
+                    .handle(CiRequest::WidgetPoll { pid: 42 })
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(poll.commands, [WidgetCommand::Quit]);
+            runtime
+                .handle(CiRequest::WidgetDismiss {
+                    session: "desktop".into(),
+                    pid: Some(42),
+                })
+                .await
+                .unwrap();
+            assert_eq!(runtime.widget_presence(), WidgetPresence::Connected);
+            assert_eq!(
+                runtime.listing().runners.widget_release.as_deref(),
+                Some("0.1.23")
+            );
+        });
     }
 }

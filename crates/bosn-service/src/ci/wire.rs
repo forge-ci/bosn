@@ -235,6 +235,9 @@ pub enum CiRequest {
         pid: u32,
         session: String,
         explicit: bool,
+        /// None from a widget built before the release handshake.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        release: Option<String>,
     },
     /// The widget's heartbeat; the reply carries its pending commands.
     WidgetPoll {
@@ -243,6 +246,9 @@ pub enum CiRequest {
     /// A deliberate quit from the widget's menu.
     WidgetDismiss {
         session: String,
+        /// Missing from widgets predating the release handoff.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
     },
     /// Queue a command for the widget (from the dashboard or `bosn ui`).
     WidgetCommand {

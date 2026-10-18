@@ -387,6 +387,25 @@ collector itself follows Docker's `.dockerignore` policy. A separate
 one-million-entry raw walk budget bounds traversal of a partially ignored
 tree; it never changes the 100,000 selected-entry cap.
 
+## Widget release handoff (#652, #678)
+
+The widget hello reports its release. A missing release is a protocol-1 widget;
+the daemon accepts it, keeps it alive while a matching artifact is installed,
+then explicitly restarts the user unit. If the old process is still connected
+after systemd accepts the restart, its next poll gets Quit. A replacement quit
+is addressed to the old PID even if the new widget registers first. Dismiss
+messages carry a PID, so the old widget cannot clear the new one's presence;
+protocol-1 dismissals without a PID are handled as legacy handoffs. A
+replacement quit does not persist the user's dismissal choice. Installation failure keeps the
+old widget; a restart failure is logged and leaves the unit available for a
+later start. The user unit launches the
+authoritative `<state>/daemon/bosn-daemon widget --autostart` path; that command
+selects the artifact for the daemon executable's release, so the unit no
+longer pins a widget version. The daemon's repair runs in an async child
+process and does not hold the daemon executor during download or systemd
+operations. Protocol 2 carries the hello release; the daemon still serves
+protocol 1 for the previous decoder.
+
 ## Low CPU priority (#643, #645)
 
 Every container Bosn creates runs at `bosn_engine::LOW_CPU_PRIORITY_ARG`
