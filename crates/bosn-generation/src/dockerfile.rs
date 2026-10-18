@@ -306,7 +306,7 @@ fn any_source_matches(sources: &[String], p: &str) -> Result<bool, DockerfileErr
     }
     Ok(false)
 }
-fn source_matches(source: &str, p: &str) -> Result<bool, DockerfileError> {
+pub(crate) fn source_matches(source: &str, p: &str) -> Result<bool, DockerfileError> {
     let normalized = source.replace('\\', "/");
     let mut parts = Vec::new();
     for x in normalized.trim_start_matches('/').split('/') {

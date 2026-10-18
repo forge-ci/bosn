@@ -17,6 +17,7 @@ use crate::{ContextEntry, ContextObservation, dockerfile};
 #[derive(Clone, Debug)]
 pub struct CollectorLimits {
     pub max_entries: usize,
+    pub max_walked_entries: usize,
     pub max_depth: usize,
     pub max_path_bytes: usize,
     pub max_file_bytes: usize,
@@ -26,6 +27,7 @@ impl Default for CollectorLimits {
     fn default() -> Self {
         Self {
             max_entries: 100_000,
+            max_walked_entries: 1_000_000,
             max_depth: 64,
             max_path_bytes: 4_096,
             max_file_bytes: 16 * 1024 * 1024,
@@ -39,6 +41,16 @@ pub enum CollectorError {
     Io(std::io::Error),
     InvalidPath(String),
     Limit(&'static str),
+    EntryCount {
+        limit: usize,
+        walked: usize,
+        selected: usize,
+    },
+    WalkCount {
+        limit: usize,
+        walked: usize,
+        selected: usize,
+    },
     SpecialFile(String),
     Mutation,
     Dockerfile(dockerfile::DockerfileError),
@@ -50,6 +62,22 @@ impl std::fmt::Display for CollectorError {
             Self::Io(e) => write!(f, "context I/O: {e}"),
             Self::InvalidPath(x) => write!(f, "invalid context path {x:?}"),
             Self::Limit(x) => write!(f, "context collector limit exceeded: {x}"),
+            Self::EntryCount {
+                limit,
+                walked,
+                selected,
+            } => write!(
+                f,
+                "context has more than {limit} selected entries (walked {walked} raw entries; {selected} selected before stopping)"
+            ),
+            Self::WalkCount {
+                limit,
+                walked,
+                selected,
+            } => write!(
+                f,
+                "context walk exceeded {limit} raw entries (walked {walked}; {selected} selected); narrow the context or ignore a whole directory"
+            ),
             Self::SpecialFile(x) => write!(
                 f,
                 "selected context path is not a regular file, directory, or link: {x:?}"
@@ -156,10 +184,21 @@ fn collect_context_inner(
     // First pass is names and non-following kinds only.  It is bounded before
     // retention and does not open ordinary file contents.
     let mut nodes = BTreeMap::new();
+    let mut seen_sources = vec![false; pruner.source_count()];
+    let mut selected_count = 0_usize;
+    let mut walked_count = 0_usize;
     let mut pending = vec![(root.clone(), 0_usize)];
     while let Some((dir, depth)) = pending.pop() {
         let mut cursor = DirectoryCursor::open(&dir)?;
         while let Some(entry) = cursor.next_entry()? {
+            walked_count = walked_count.saturating_add(1);
+            if walked_count > limits.max_walked_entries {
+                return Err(CollectorError::WalkCount {
+                    limit: limits.max_walked_entries,
+                    walked: walked_count,
+                    selected: selected_count,
+                });
+            }
             let path = entry.path().to_path_buf();
             let rel = label(
                 path.strip_prefix(&root)
@@ -171,12 +210,21 @@ fn collect_context_inner(
             if rel.len() > limits.max_path_bytes {
                 return Err(CollectorError::Limit("path length"));
             }
-            if nodes.len() >= limits.max_entries {
-                return Err(CollectorError::Limit("entry count"));
+            let (selected, retain) = pruner.classify(&rel, &mut seen_sources)?;
+            if selected {
+                if selected_count >= limits.max_entries {
+                    return Err(CollectorError::EntryCount {
+                        limit: limits.max_entries,
+                        walked: walked_count,
+                        selected: selected_count + 1,
+                    });
+                }
+                selected_count += 1;
             }
-            if nodes
-                .insert(rel.clone(), (path.clone(), entry.kind()))
-                .is_some()
+            if retain
+                && nodes
+                    .insert(rel.clone(), (path.clone(), entry.kind()))
+                    .is_some()
             {
                 return Err(CollectorError::Duplicate(rel));
             }
@@ -438,6 +486,63 @@ mod tests {
         );
     }
     #[test]
+    fn ignored_files_in_a_walked_directory_do_not_count() {
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "Dockerfile", b"FROM x\nCOPY . /x\n");
+        write(root.path(), ".dockerignore", b"target/\n!target/keep\n");
+        write(root.path(), "target/keep", b"k");
+        filler(root.path(), "target/debug", 40);
+        let limits = CollectorLimits {
+            max_entries: 8,
+            ..CollectorLimits::default()
+        };
+        let got = collect_context(root.path(), Some("Dockerfile"), &limits).unwrap();
+        assert!(paths(&got).contains(&"target/keep".into()));
+        assert!(!paths(&got).iter().any(|p| p.starts_with("target/debug/")));
+    }
+    #[test]
+    fn selected_entry_cap_reports_raw_and_selected_counts() {
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "Dockerfile", b"FROM x\nCOPY . /x\n");
+        filler(root.path(), "src", 10);
+        let limits = CollectorLimits {
+            max_entries: 4,
+            ..CollectorLimits::default()
+        };
+        let error = collect_context(root.path(), Some("Dockerfile"), &limits).unwrap_err();
+        assert!(matches!(
+            error,
+            CollectorError::EntryCount {
+                limit: 4,
+                selected: 5,
+                ..
+            }
+        ));
+        assert!(error.to_string().contains("walked 5 raw entries"));
+    }
+    #[test]
+    fn walked_entry_budget_bounds_partially_ignored_trees() {
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "Dockerfile", b"FROM x\nCOPY . /x\n");
+        write(root.path(), ".dockerignore", b"target/\n!target/keep\n");
+        write(root.path(), "target/keep", b"k");
+        filler(root.path(), "target", 40);
+        let limits = CollectorLimits {
+            max_entries: 100,
+            max_walked_entries: 8,
+            ..CollectorLimits::default()
+        };
+        let error = collect_context(root.path(), Some("Dockerfile"), &limits).unwrap_err();
+        assert!(matches!(
+            error,
+            CollectorError::WalkCount {
+                limit: 8,
+                walked: 9,
+                ..
+            }
+        ));
+    }
+    #[test]
     fn walk_pruning_keeps_negations_and_copy_sources_reachable() {
         let root = tempfile::tempdir().unwrap();
         write(
@@ -510,7 +615,7 @@ mod tests {
         };
         assert!(matches!(
             collect_context(root.path(), Some("Dockerfile"), &entries),
-            Err(CollectorError::Limit("entry count"))
+            Err(CollectorError::EntryCount { limit: 1, .. })
         ));
         let depth = CollectorLimits {
             max_depth: 1,

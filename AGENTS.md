@@ -374,6 +374,19 @@ claim freezes the CPU source; older claims without that label report the
 source as unknown. Before an engine exists, report the limits a new engine
 would use.
 
+## Docker context entry limit (#636, #641)
+
+Count only entries selected by the Dockerfile and its effective `.dockerignore`
+against the context collector's `max_entries` limit. Prune fully ignored
+directories during the walk; where a negation requires walking an ignored
+directory, retain selected entries plus one witness for each Dockerfile source
+so missing-source checks stay accurate. A refusal reports both the raw number
+walked before stopping and the selected count at the limit. Git ignores apply
+when a source snapshot materializer uses `.gitignore`; the Docker context
+collector itself follows Docker's `.dockerignore` policy. A separate
+one-million-entry raw walk budget bounds traversal of a partially ignored
+tree; it never changes the 100,000 selected-entry cap.
+
 ## Low CPU priority (#643, #645)
 
 Every container Bosn creates runs at `bosn_engine::LOW_CPU_PRIORITY_ARG`
