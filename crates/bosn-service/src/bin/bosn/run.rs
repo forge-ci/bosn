@@ -424,7 +424,8 @@ fn daemon_log(state_dir: &Path) -> std::process::Stdio {
         .map_or_else(|_| std::process::Stdio::null(), std::process::Stdio::from)
 }
 
-/// Start `bosn daemon serve` for this state directory when none answers.
+/// Start the daemon through its enabled user unit, or on demand when no unit
+/// owns this state directory.
 pub(crate) fn ensure_daemon(
     runtime: &Runtime,
     client: &Client,
@@ -441,6 +442,43 @@ pub(crate) fn ensure_daemon(
     {
         return matching_daemon(state_dir, &identity);
     }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let mut child = start_daemon(
+        &executable,
+        state_dir,
+        bosn_service::autostart::Platform::current(),
+        home.as_deref(),
+        &bosn_service::autostart::SystemRunner,
+        spawn_on_demand,
+    )?;
+    if let Some(identity) = runtime.run(wait_for_started_daemon(client, child.as_mut())) {
+        matching_daemon(state_dir, &identity)?;
+        eprintln!("bosn: started the bosn daemon for {}", state_dir.display());
+        return Ok(());
+    }
+    Err(daemon_start_failure(state_dir))
+}
+
+fn start_daemon<F>(
+    executable: &Path,
+    state_dir: &Path,
+    platform: Option<bosn_service::autostart::Platform>,
+    home: Option<&Path>,
+    manager: &dyn bosn_service::autostart::CommandRunner,
+    spawn: F,
+) -> Result<Option<std::process::Child>, String>
+where
+    F: FnOnce(&Path, &Path) -> Result<std::process::Child, String>,
+{
+    if let (Some(platform), Some(home)) = (platform, home)
+        && bosn_service::autostart::start_if_enabled(manager, platform, home, state_dir)?
+    {
+        return Ok(None);
+    }
+    spawn(executable, state_dir).map(Some)
+}
+
+fn spawn_on_demand(executable: &Path, state_dir: &Path) -> Result<std::process::Child, String> {
     let mut command = std::process::Command::new(executable);
     command
         .arg("daemon")
@@ -451,20 +489,14 @@ pub(crate) fn ensure_daemon(
         .stdout(std::process::Stdio::null())
         .stderr(daemon_log(state_dir));
     detach(&mut command);
-    let mut child = command
+    command
         .spawn()
-        .map_err(|error| format!("cannot start the bosn daemon: {error}"))?;
-    if let Some(identity) = runtime.run(wait_for_started_daemon(client, &mut child)) {
-        matching_daemon(state_dir, &identity)?;
-        eprintln!("bosn: started the bosn daemon for {}", state_dir.display());
-        return Ok(());
-    }
-    Err(daemon_start_failure(state_dir))
+        .map_err(|error| format!("cannot start the bosn daemon: {error}"))
 }
 
 async fn wait_for_started_daemon(
     client: &Client,
-    child: &mut std::process::Child,
+    mut child: Option<&mut std::process::Child>,
 ) -> Option<bosn_service::DaemonIdentity> {
     let started = Instant::now();
     loop {
@@ -477,7 +509,9 @@ async fn wait_for_started_daemon(
         // A competing client may have won the registry writer lock while its
         // daemon is still opening the socket. Our child exiting is not proof
         // that the winner failed; keep probing until the shared deadline.
-        let _ = child.try_wait();
+        if let Some(child) = child.as_mut() {
+            let _ = child.try_wait();
+        }
         async_engine::sleep(POLL_INTERVAL).await;
     }
 }
@@ -543,12 +577,26 @@ pub fn daemon_start_failure(state_dir: &Path) -> String {
     message
 }
 
-/// Keep the daemon out of this terminal's process group so Ctrl-C on `bosn
-/// run` cancels the job without killing the daemon.
+/// Keep the daemon outside the caller's terminal session. A new process group
+/// alone leaves it in the caller's session and can tie its lifetime to a
+/// terminal scope.
 #[cfg(unix)]
 fn detach(command: &mut std::process::Command) {
     use std::os::unix::process::CommandExt;
-    command.process_group(0);
+    unsafe extern "C" {
+        fn setsid() -> std::ffi::c_int;
+    }
+    // SAFETY: pre_exec calls only the async-signal-safe setsid syscall in the
+    // child, before it executes the already selected daemon binary.
+    unsafe {
+        command.pre_exec(|| {
+            if setsid() == -1 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
 }
 
 #[cfg(windows)]
@@ -715,7 +763,7 @@ mod tests {
                 bosn_service::Service::new(delayed_state).serve().await
             });
             let client = Client::for_state(&state).unwrap();
-            let identity = wait_for_started_daemon(&client, &mut loser).await;
+            let identity = wait_for_started_daemon(&client, Some(&mut loser)).await;
             assert!(
                 identity.is_some(),
                 "the losing starter gave up before the winner was ready"
@@ -723,6 +771,51 @@ mod tests {
             client.shutdown().await.unwrap();
             winner.await.unwrap().unwrap();
         });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_enabled_unit_starts_the_daemon_without_forking_a_client_child() {
+        use bosn_service::autostart::{
+            CommandRunner, Platform, SERVICE_NAME, unit_contents, unit_path,
+        };
+        use std::sync::Mutex;
+
+        #[derive(Default)]
+        struct FakeManager(Mutex<Vec<Vec<OsString>>>);
+        impl CommandRunner for FakeManager {
+            fn run(&self, argv: &[OsString]) -> Result<(), String> {
+                self.0.lock().unwrap().push(argv.to_vec());
+                Ok(())
+            }
+        }
+
+        let home = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+        let state = home.path().join("state");
+        let unit = unit_path(Platform::LinuxSystemd, home.path());
+        std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+        std::fs::write(&unit, unit_contents(Platform::LinuxSystemd, &state)).unwrap();
+        let manager = FakeManager::default();
+        let child = start_daemon(
+            &state.join("daemon/bosn-daemon"),
+            &state,
+            Some(Platform::LinuxSystemd),
+            Some(home.path()),
+            &manager,
+            |_, _| panic!("a unit-managed daemon must not be forked by the CLI"),
+        )
+        .unwrap();
+        assert!(child.is_none());
+        let calls = manager.0.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            calls[0],
+            ["systemctl", "--user", "is-enabled", "--quiet", SERVICE_NAME]
+        );
+        assert_eq!(
+            calls[1],
+            ["systemctl", "--user", "start", "--no-block", SERVICE_NAME]
+        );
     }
 
     fn args(values: &[&str]) -> Result<RunArguments, String> {

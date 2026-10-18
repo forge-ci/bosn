@@ -42,11 +42,10 @@ pub(crate) fn run_daemon_autostart(mut arguments: impl Iterator<Item = std::ffi:
     let state_dir = state_dir.unwrap_or_else(bosn_service::mcp::default_state_dir);
     let action = verb.to_string_lossy().into_owned();
     let result = match action.as_str() {
-        "enable" => std::env::current_exe()
-            .map_err(|error| error.to_string())
-            .and_then(|binary| {
-                bosn_service::autostart::enable(&runner, platform, &home, &binary, &state_dir)
-            }),
+        "enable" => {
+            crate::daemon_exe::install_daemon_executable(&state_dir, env!("CARGO_PKG_VERSION"))
+                .and_then(|_| bosn_service::autostart::enable(&runner, platform, &home, &state_dir))
+        }
         "disable" => bosn_service::autostart::disable(&runner, platform, &home),
         "status" => Ok(bosn_service::autostart::status(platform, &home)),
         _ => usage(),
@@ -135,6 +134,15 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
                 service = service.with_runner_capacity(capacity);
             }
             if let Err(error) = runtime.run(service.serve()) {
+                if matches!(
+                    error,
+                    bosn_service::Error::Registry(bosn_registry::Error::WriterAlreadyHeld(_))
+                ) {
+                    bosn_service::daemon_log!(
+                        "bosn daemon serve: another daemon holds the registry writer; leaving it in charge"
+                    );
+                    return;
+                }
                 bosn_service::daemon_log!("bosn daemon serve: {error}");
                 std::process::exit(1);
             }

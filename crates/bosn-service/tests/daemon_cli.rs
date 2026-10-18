@@ -219,8 +219,17 @@ fn daemon_cli_serves_status_stops_and_preserves_singleton() {
 
     let mut second = DaemonChild::start(&state);
     assert!(
-        !second.wait_for_exit().success(),
-        "a second daemon unexpectedly acquired the singleton writer"
+        second.wait_for_exit().success(),
+        "a daemon that lost the singleton writer race must exit cleanly for the service manager"
+    );
+    assert!(
+        RuntimeBuilder::current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .run(client.ping())
+            .is_ok(),
+        "the original writer must keep serving"
     );
 
     let stopped = run(&[

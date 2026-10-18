@@ -13,6 +13,7 @@
 //! platform in CI.
 
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Unit name shared by both platforms' generated entries.
@@ -39,6 +40,7 @@ impl CommandRunner for SystemRunner {
         };
         let status = std::process::Command::new(program)
             .args(rest)
+            .stdout(std::process::Stdio::null())
             .status()
             .map_err(|error| format!("{}: {error}", program.to_string_lossy()))?;
         if status.success() {
@@ -119,14 +121,176 @@ pub fn reload_argv(platform: Platform) -> Option<Vec<OsString>> {
     }
 }
 
+fn enabled_argv(platform: Platform, uid: u32) -> Vec<OsString> {
+    match platform {
+        Platform::LinuxSystemd => {
+            argv(&["systemctl", "--user", "is-enabled", "--quiet", SERVICE_NAME])
+        }
+        Platform::MacosLaunchd => {
+            argv(&["launchctl", "print", &format!("gui/{uid}/{SERVICE_NAME}")])
+        }
+    }
+}
+
+fn start_argv(platform: Platform, uid: u32) -> Vec<OsString> {
+    match platform {
+        Platform::LinuxSystemd => {
+            argv(&["systemctl", "--user", "start", "--no-block", SERVICE_NAME])
+        }
+        Platform::MacosLaunchd => argv(&[
+            "launchctl",
+            "kickstart",
+            &format!("gui/{uid}/{SERVICE_NAME}"),
+        ]),
+    }
+}
+
+fn reset_failed_argv() -> Vec<OsString> {
+    argv(&["systemctl", "--user", "reset-failed", SERVICE_NAME])
+}
+
+#[cfg(unix)]
+fn user_id() -> u32 {
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+    // SAFETY: geteuid reads the process's effective user id and has no inputs.
+    unsafe { geteuid() }
+}
+
+#[cfg(not(unix))]
+fn user_id() -> u32 {
+    0
+}
+
+fn targets_state(platform: Platform, contents: &str, state_dir: &Path) -> bool {
+    let state = state_dir.to_string_lossy();
+    match platform {
+        Platform::LinuxSystemd => contents.lines().any(|line| {
+            line.starts_with("ExecStart=")
+                && (line.ends_with(&format!(" --state-dir {}", systemd_arg(&state)))
+                    || line.ends_with(&format!(" --state-dir {state}")))
+        }),
+        Platform::MacosLaunchd => {
+            contents.contains(&format!("<string>{}</string>", xml_text(&state)))
+                || contents.contains(&format!("<string>{state}</string>"))
+        }
+    }
+}
+
+fn systemd_arg(value: &str) -> String {
+    let mut result = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            '$' => result.push_str("$$"),
+            '%' => result.push_str("%%"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            _ => result.push(character),
+        }
+    }
+    result.push('"');
+    result
+}
+
+fn xml_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn write_unit(path: &Path, contents: &str) -> Result<(), String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let temporary = path.with_file_name(format!(".{name}.{}.{nonce}.tmp", std::process::id()));
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result.map_err(|error| format!("cannot write {}: {error}", path.display()))
+}
+
+/// Start an enabled Bosn user unit for this state directory. A unit for a
+/// different state directory leaves on-demand startup in charge. An installed
+/// unit whose enabled state cannot be verified refuses a competing fork. An
+/// enabled unit is repaired to use the authoritative executable
+/// before it starts; once selected, a start failure is reported instead of
+/// racing it with an on-demand daemon.
+pub fn start_if_enabled(
+    runner: &dyn CommandRunner,
+    platform: Platform,
+    home: &Path,
+    state_dir: &Path,
+) -> Result<bool, String> {
+    let path = unit_path(platform, home);
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+    };
+    if !targets_state(platform, &contents, state_dir) {
+        return Ok(false);
+    }
+    let uid = user_id();
+    runner.run(&enabled_argv(platform, uid)).map_err(|error| {
+        format!(
+            "the Bosn user unit exists for {}; cannot prove it is enabled: {error}",
+            state_dir.display()
+        )
+    })?;
+    let expected = unit_contents(platform, state_dir);
+    if contents != expected {
+        write_unit(&path, &expected)?;
+        if let Some(reload) = reload_argv(platform) {
+            runner.run(&reload)?;
+            // A pre-fix unit may already be failed with start-limit-hit.
+            runner.run(&reset_failed_argv())?;
+        } else {
+            runner.run(&registration_argv(platform, false, &path))?;
+            runner.run(&registration_argv(platform, true, &path))?;
+        }
+    }
+    let start = start_argv(platform, uid);
+    if let Err(error) = runner.run(&start) {
+        if platform != Platform::LinuxSystemd {
+            return Err(error);
+        }
+        // Recover an old unit that already reached systemd's start limit.
+        runner.run(&reset_failed_argv())?;
+        runner.run(&start)?;
+    }
+    Ok(true)
+}
+
 /// The generated unit file for a platform.
 #[must_use]
-pub fn unit_contents(platform: Platform, binary: &Path, state_dir: &Path) -> String {
+pub fn unit_contents(platform: Platform, state_dir: &Path) -> String {
+    let binary = state_dir.join("daemon/bosn-daemon");
     let binary = binary.to_string_lossy();
     let state_dir = state_dir.to_string_lossy();
     match platform {
-        Platform::LinuxSystemd => format!(
-            "[Unit]\n\
+        Platform::LinuxSystemd => {
+            let binary = systemd_arg(&binary);
+            let state_dir = systemd_arg(&state_dir);
+            format!(
+                "[Unit]\n\
              Description=Bosn Docker lifecycle daemon\n\
              After=network.target\n\
              \n\
@@ -137,9 +301,13 @@ pub fn unit_contents(platform: Platform, binary: &Path, state_dir: &Path) -> Str
              \n\
              [Install]\n\
              WantedBy=default.target\n"
-        ),
-        Platform::MacosLaunchd => format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+            )
+        }
+        Platform::MacosLaunchd => {
+            let binary = xml_text(&binary);
+            let state_dir = xml_text(&state_dir);
+            format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
              <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
              \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
              <plist version=\"1.0\">\n\
@@ -156,7 +324,8 @@ pub fn unit_contents(platform: Platform, binary: &Path, state_dir: &Path) -> Str
              \x20 <key>RunAtLoad</key><true/>\n\
              </dict>\n\
              </plist>\n"
-        ),
+            )
+        }
     }
 }
 
@@ -182,18 +351,19 @@ pub fn enable(
     runner: &dyn CommandRunner,
     platform: Platform,
     home: &Path,
-    binary: &Path,
     state_dir: &Path,
 ) -> Result<AutostartStatus, String> {
     let path = unit_path(platform, home);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    std::fs::write(&path, unit_contents(platform, binary, state_dir))
-        .map_err(|error| error.to_string())?;
+    write_unit(&path, &unit_contents(platform, state_dir))?;
     // Reload first so the manager can see the file, then register it.
     if let Some(reload) = reload_argv(platform) {
         runner.run(&reload)?;
+        // Re-enabling an old failed unit must clear its start limit before
+        // `enable --now` asks it to start.
+        runner.run(&reset_failed_argv())?;
     }
     runner.run(&registration_argv(platform, true, &path))?;
     Ok(AutostartStatus {
@@ -296,21 +466,29 @@ mod tests {
             &runner,
             Platform::LinuxSystemd,
             home.path(),
-            Path::new("/usr/bin/bosn"),
             Path::new("/home/u/.local/state/bosn"),
         )
         .expect("enable");
         assert!(status.written && status.registered);
         assert!(status.path.exists());
+        assert_eq!(
+            std::fs::read_dir(status.path.parent().unwrap())
+                .unwrap()
+                .count(),
+            1
+        );
         let contents = std::fs::read_to_string(&status.path).expect("read unit");
-        assert!(contents.contains("ExecStart=/usr/bin/bosn daemon serve --state-dir"));
+        assert!(contents.contains(
+            "ExecStart=\"/home/u/.local/state/bosn/daemon/bosn-daemon\" daemon serve --state-dir"
+        ));
         assert!(contents.contains("WantedBy=default.target"));
         // The defect this replaces: writing the file without ever invoking the manager.
         let calls = runner.calls.lock().expect("lock").clone();
-        assert_eq!(calls.len(), 2, "a reload and an enable are both required");
+        assert_eq!(calls.len(), 3, "reload, reset and enable are required");
         assert_eq!(calls[0], argv(&["systemctl", "--user", "daemon-reload"]));
+        assert_eq!(calls[1], reset_failed_argv());
         assert_eq!(
-            calls[1],
+            calls[2],
             argv(&["systemctl", "--user", "enable", "--now", SERVICE_NAME])
         );
     }
@@ -323,7 +501,6 @@ mod tests {
             &runner,
             Platform::LinuxSystemd,
             home.path(),
-            Path::new("/usr/bin/bosn"),
             Path::new("/state"),
         )
         .expect("enable");
@@ -332,11 +509,11 @@ mod tests {
         assert!(!status.path.exists());
         let calls = runner.calls.lock().expect("lock").clone();
         assert_eq!(
-            calls[2],
+            calls[3],
             argv(&["systemctl", "--user", "disable", "--now", SERVICE_NAME]),
             "unregister before removing the file"
         );
-        assert_eq!(calls[3], argv(&["systemctl", "--user", "daemon-reload"]));
+        assert_eq!(calls[4], argv(&["systemctl", "--user", "daemon-reload"]));
     }
 
     #[test]
@@ -347,7 +524,6 @@ mod tests {
             &runner,
             Platform::MacosLaunchd,
             home.path(),
-            Path::new("/usr/local/bin/bosn"),
             Path::new("/Users/u/.local/state/bosn"),
         )
         .expect("enable");
@@ -358,6 +534,9 @@ mod tests {
         );
         let contents = std::fs::read_to_string(&status.path).expect("read plist");
         assert!(contents.contains("<key>RunAtLoad</key>"));
+        assert!(
+            contents.contains("<string>/Users/u/.local/state/bosn/daemon/bosn-daemon</string>")
+        );
         let calls = runner.calls.lock().expect("lock").clone();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0][0], "launchctl");
@@ -374,13 +553,12 @@ mod tests {
         let home = home();
         let runner = FakeRunner {
             calls: Mutex::new(Vec::new()),
-            fail_on: Some(1),
+            fail_on: Some(2),
         };
         let error = enable(
             &runner,
             Platform::LinuxSystemd,
             home.path(),
-            Path::new("/usr/bin/bosn"),
             Path::new("/state"),
         )
         .expect_err("enable must fail");
@@ -407,5 +585,98 @@ mod tests {
             unit_path(Platform::MacosLaunchd, home),
             Path::new("/home/u/Library/LaunchAgents/com.zackees.bosn.plist")
         );
+    }
+
+    #[test]
+    fn generated_entries_escape_path_arguments() {
+        let state = Path::new("/home/a b/$cache%/a\\\"&<state>");
+        let linux = unit_contents(Platform::LinuxSystemd, state);
+        assert!(linux.contains(
+            "ExecStart=\"/home/a b/$$cache%%/a\\\\\\\"&<state>/daemon/bosn-daemon\" daemon serve --state-dir \"/home/a b/$$cache%%/a\\\\\\\"&<state>\""
+        ));
+        assert!(targets_state(Platform::LinuxSystemd, &linux, state));
+
+        let macos = unit_contents(Platform::MacosLaunchd, state);
+        assert!(macos.contains("<string>/home/a b/$cache%/a\\&quot;&amp;&lt;state&gt;</string>"));
+        assert!(targets_state(Platform::MacosLaunchd, &macos, state));
+    }
+
+    #[test]
+    fn an_enabled_unit_is_started_and_an_old_binary_path_is_repaired() {
+        let home = home();
+        let state = Path::new("/home/u/.local/state/bosn");
+        let path = unit_path(Platform::LinuxSystemd, home.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let old = unit_contents(Platform::LinuxSystemd, state).replace(
+            "/home/u/.local/state/bosn/daemon/bosn-daemon",
+            "/usr/bin/bosn",
+        );
+        std::fs::write(&path, old).unwrap();
+        let runner = FakeRunner::default();
+        assert!(start_if_enabled(&runner, Platform::LinuxSystemd, home.path(), state).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            unit_contents(Platform::LinuxSystemd, state)
+        );
+        let calls = runner.calls.lock().unwrap();
+        assert_eq!(calls[0], enabled_argv(Platform::LinuxSystemd, 0));
+        assert_eq!(calls[1], reload_argv(Platform::LinuxSystemd).unwrap());
+        assert_eq!(calls[2], reset_failed_argv());
+        assert_eq!(calls[3], start_argv(Platform::LinuxSystemd, 0));
+    }
+
+    #[test]
+    fn another_state_directory_does_not_take_over_an_enabled_unit() {
+        let home = home();
+        let path = unit_path(Platform::LinuxSystemd, home.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            unit_contents(Platform::LinuxSystemd, Path::new("/state/a")),
+        )
+        .unwrap();
+        let runner = FakeRunner::default();
+        assert!(
+            !start_if_enabled(
+                &runner,
+                Platform::LinuxSystemd,
+                home.path(),
+                Path::new("/state/b")
+            )
+            .unwrap()
+        );
+        assert!(runner.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_unavailable_manager_does_not_fall_back_to_a_second_supervisor() {
+        let home = home();
+        let state = Path::new("/state/a");
+        let path = unit_path(Platform::LinuxSystemd, home.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, unit_contents(Platform::LinuxSystemd, state)).unwrap();
+        let runner = FakeRunner {
+            fail_on: Some(0),
+            ..FakeRunner::default()
+        };
+        let error = start_if_enabled(&runner, Platform::LinuxSystemd, home.path(), state)
+            .expect_err("manager status must be proven");
+        assert!(error.contains("cannot prove it is enabled"), "{error}");
+        assert_eq!(runner.calls.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_loaded_launch_agent_is_kickstarted() {
+        let home = home();
+        let state = Path::new("/Users/u/.local/state/bosn");
+        let path = unit_path(Platform::MacosLaunchd, home.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, unit_contents(Platform::MacosLaunchd, state)).unwrap();
+        let runner = FakeRunner::default();
+        assert!(start_if_enabled(&runner, Platform::MacosLaunchd, home.path(), state).unwrap());
+        let calls = runner.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0], enabled_argv(Platform::MacosLaunchd, user_id()));
+        assert_eq!(calls[1], start_argv(Platform::MacosLaunchd, user_id()));
     }
 }
