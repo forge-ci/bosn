@@ -36,6 +36,12 @@ impl CiRuntime {
                 engine_capacity,
                 admission_limit,
                 task_capacity: self.task_capacity.get().cloned(),
+                daemon_release: Some(self.release.to_string()),
+                widget_release: self
+                    .widget_state()
+                    .release(std::time::Instant::now())
+                    .map(str::to_owned),
+                widget_presence: Some(self.widget_presence()),
             });
         };
         let report = self
@@ -49,6 +55,12 @@ impl CiRuntime {
             engine_capacity,
             admission_limit,
             task_capacity: self.task_capacity.get().cloned(),
+            daemon_release: Some(self.release.to_string()),
+            widget_release: self
+                .widget_state()
+                .release(std::time::Instant::now())
+                .map(str::to_owned),
+            widget_presence: Some(self.widget_presence()),
         })
     }
 

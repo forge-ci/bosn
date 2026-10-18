@@ -178,7 +178,9 @@ fn targets_state(platform: Platform, contents: &str, state_dir: &Path) -> bool {
     }
 }
 
-fn systemd_arg(value: &str) -> String {
+/// Quote one systemd ExecStart argument, including specifier and environment
+/// expansion escapes. Shared by daemon and widget user units.
+pub fn systemd_arg(value: &str) -> String {
     let mut result = String::from("\"");
     for character in value.chars() {
         match character {

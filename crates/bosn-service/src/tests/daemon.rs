@@ -924,9 +924,12 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // #672 added optional engine/task capacity fields to runners and doctor
 // replies. Older clients ignore them; newer clients default them to absent
 // when talking to an older daemon, so the protocol remains 1.
+// #678 adds widget release and dismiss PID fields. The old daemon rejects
+// unknown request fields, so this is protocol 2. A protocol-1 widget omits
+// both fields; the new daemon accepts it as an older widget and serves 1.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "3b386ba0cc7d97f45dacfb6e77847008dd2f548d05d3ffeeae95b4cbce8a40b6",
+    "448f6a46b5d0d3eeed792400ff8f14a0681cbf5e6ef9bf079f4fae4e08ca9891",
 );
 
 #[test]

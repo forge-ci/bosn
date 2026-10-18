@@ -513,6 +513,13 @@
               "minimum": 0,
               "type": "integer"
             },
+            "release": {
+              "description": "None from a widget built before the release handshake.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "session": {
               "type": "string"
             }
@@ -552,6 +559,15 @@
             "op": {
               "const": "widget_dismiss",
               "type": "string"
+            },
+            "pid": {
+              "description": "Missing from widgets predating the release handoff.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "session": {
               "type": "string"
@@ -646,6 +662,12 @@
             "null"
           ]
         },
+        "daemon_release": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "engine": {
           "description": "The shared engine it ran in; `None` when this daemon holds none (the\nnext run makes it), and then there is no report.",
           "type": [
@@ -681,6 +703,22 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "widget_presence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WidgetPresence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "widget_release": {
+          "type": [
+            "string",
+            "null"
           ]
         }
       },
@@ -1971,6 +2009,13 @@
         "act_version": {
           "type": "string"
         },
+        "daemon_release": {
+          "description": "Daemon's release and the connected widget's reported release.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "dispatcher": {
           "$ref": "#/$defs/DispatcherHealth",
           "default": "live",
@@ -2017,6 +2062,12 @@
         "widget": {
           "$ref": "#/$defs/WidgetPresence",
           "description": "Whether the desktop widget is running."
+        },
+        "widget_release": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

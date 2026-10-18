@@ -80,6 +80,7 @@ async fn quit(client: &Client, views: &ExternalWebviewClient, session: &str) {
         client,
         CiRequest::WidgetDismiss {
             session: session.into(),
+            pid: Some(std::process::id()),
         },
     )
     .await;
@@ -298,6 +299,7 @@ async fn connect_daemon(
             pid,
             session: session.into(),
             explicit,
+            release: Some(env!("BOSN_WIDGET_VERSION").into()),
         };
         match widget(&client, request).await {
             Ok(reply) => break reply,
@@ -365,6 +367,7 @@ pub async fn run(views: ExternalWebviewClient, state_dir: std::path::PathBuf, ex
                     pid,
                     session: session.clone(),
                     explicit: true,
+                    release: Some(env!("BOSN_WIDGET_VERSION").into()),
                 };
                 let _ = widget(&client, request).await;
             }

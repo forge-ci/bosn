@@ -13,15 +13,16 @@ mod artifact;
 #[path = "widget/desktop.rs"]
 mod desktop;
 
-pub const USAGE: &str = "usage: bosn widget [--detach] [--state-dir STATE_DIR]
-   or: bosn widget install [--state-dir STATE_DIR]   (systemd user unit; Linux)";
+pub const USAGE: &str = "usage: bosn widget [--detach | --autostart] [--state-dir STATE_DIR]
+   or: bosn widget install [--state-dir STATE_DIR]   (systemd user unit; Linux)
+   or: bosn widget status [--state-dir STATE_DIR]";
 
 fn fail(message: &str) -> ! {
     eprintln!("bosn widget: {message}");
     std::process::exit(3)
 }
 
-/// `bosn-widget` beside this binary, else on `PATH`.
+/// The widget of this release, never an older binary found on `PATH`.
 pub fn widget_binary() -> Option<PathBuf> {
     if let Some(installed) = artifact::installed_path().filter(|path| path.is_file()) {
         return Some(installed);
@@ -35,11 +36,7 @@ pub fn widget_binary() -> Option<PathBuf> {
     if beside.is_file() {
         return Some(beside);
     }
-    std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-        .map(|dir| dir.join(name))
-        .find(|candidate| candidate.is_file())
+    None
 }
 
 /// Is there a desktop to show a widget on?
@@ -112,6 +109,8 @@ pub fn ui_target(context: &UiContext) -> UiTarget {
 /// WAYLAND_DISPLAY/DISPLAY/DBUS_SESSION_BUS_ADDRESS from systemd's user
 /// environment), restarted after a crash with backoff, never after a quit.
 pub fn systemd_unit(binary: &Path, state_dir: &Path) -> String {
+    let binary = bosn_service::autostart::systemd_arg(&binary.to_string_lossy());
+    let state = bosn_service::autostart::systemd_arg(&state_dir.to_string_lossy());
     format!(
         "[Unit]
 Description=bosn desktop widget
@@ -121,26 +120,30 @@ StartLimitIntervalSec=60
 StartLimitBurst=5
 
 [Service]
-ExecStart={binary} --autostart --state-dir {state}
+ExecStart={binary} widget --autostart --state-dir {state}
 Restart=on-failure
 RestartSec=2
 
 [Install]
 WantedBy=graphical-session.target
 ",
-        binary = binary.display(),
-        state = state_dir.display(),
+        binary = binary,
+        state = state,
     )
 }
 
 pub fn run(mut arguments: impl Iterator<Item = OsString>) {
     let mut state_dir = None;
     let mut detach = false;
+    let mut autostart = false;
     let mut install = false;
+    let mut show_status = false;
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
             Some("install") if !install => install = true,
+            Some("status") if !show_status => show_status = true,
             Some("--detach") if !detach => detach = true,
+            Some("--autostart") if !autostart => autostart = true,
             Some("--state-dir") => {
                 state_dir = Some(PathBuf::from(
                     arguments
@@ -152,13 +155,27 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
         }
     }
     let state_dir = state_dir.unwrap_or_else(bosn_service::mcp::default_state_dir);
-    if install {
-        let binary = artifact::install().unwrap_or_else(|error| fail(&error.to_string()));
-        return install_unit(&binary, &state_dir);
+    if detach && autostart {
+        fail(USAGE);
     }
-    let binary = widget_binary().unwrap_or_else(|| {
-        fail("bosn-widget is not installed (it ships with desktop builds; see docs/ci.md)")
-    });
+    if show_status {
+        if install || detach || autostart {
+            fail(USAGE);
+        }
+        return status(&state_dir);
+    }
+    if install {
+        if autostart || detach {
+            fail(USAGE);
+        }
+        artifact::install().unwrap_or_else(|error| fail(&error.to_string()));
+        return install_unit(&state_dir);
+    }
+    let binary = match widget_binary() {
+        Some(binary) => binary,
+        None if autostart => artifact::install().unwrap_or_else(|error| fail(&error.to_string())),
+        None => fail("matching bosn-widget is not installed; run `bosn widget install`"),
+    };
     if detach {
         spawn_detached(&binary, &state_dir, false).unwrap_or_else(|e| fail(&e.to_string()));
         return;
@@ -166,18 +183,47 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
     let status = Command::new(&binary)
         .arg("--state-dir")
         .arg(&state_dir)
+        .args(autostart.then_some("--autostart"))
         .status()
         .unwrap_or_else(|e| fail(&e.to_string()));
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn install_unit(binary: &Path, state_dir: &Path) {
+fn status(state_dir: &Path) {
+    let client = crate::daemon_client(state_dir)
+        .unwrap_or_else(|error| fail(&format!("daemon is not running: {error}")));
+    let runtime = kernal_api::async_engine::RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|error| fail(&error.to_string()));
+    let reply = runtime
+        .run(client.ci_runners(bosn_service::ci::RunnerAction::List))
+        .unwrap_or_else(|error| fail(&error.to_string()));
+    let widget_release = reply.runners.widget_release.as_deref().unwrap_or(
+        if reply.runners.widget == bosn_service::ci::widget::WidgetPresence::Connected {
+            "unknown"
+        } else {
+            "absent"
+        },
+    );
+    println!(
+        "widget: {} ({})\ndaemon: {}",
+        widget_release,
+        reply.runners.widget.as_str(),
+        reply.runners.daemon_release.as_deref().unwrap_or("unknown"),
+    );
+}
+
+fn install_unit(state_dir: &Path) {
     bosn_service::ci::config::enable_desktop_ui(state_dir).unwrap_or_else(|error| fail(&error));
+    let binary = crate::daemon_exe::install_daemon_executable(state_dir, env!("CARGO_PKG_VERSION"))
+        .unwrap_or_else(|error| fail(&error));
     let home = std::env::var_os("HOME").unwrap_or_else(|| fail("HOME is not set"));
     let dir = Path::new(&home).join(".config/systemd/user");
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| fail(&e.to_string()));
     let unit = dir.join("bosn-widget.service");
-    std::fs::write(&unit, systemd_unit(binary, state_dir)).unwrap_or_else(|e| fail(&e.to_string()));
+    std::fs::write(&unit, systemd_unit(&binary, state_dir))
+        .unwrap_or_else(|e| fail(&e.to_string()));
     for args in [
         &["--user", "daemon-reload"][..],
         &["--user", "enable", "bosn-widget.service"],
@@ -222,15 +268,24 @@ mod tests {
 
     #[test]
     fn the_unit_follows_the_graphical_session_and_backs_off_on_crashes() {
-        let unit = systemd_unit(Path::new("/opt/bosn-widget"), Path::new("/state"));
+        let unit = systemd_unit(Path::new("/state/daemon/bosn-daemon"), Path::new("/state"));
         assert!(unit.contains("PartOf=graphical-session.target"));
         assert!(unit.contains("WantedBy=graphical-session.target"));
-        assert!(unit.contains("ExecStart=/opt/bosn-widget --autostart --state-dir /state"));
+        assert!(unit.contains(
+            "ExecStart=\"/state/daemon/bosn-daemon\" widget --autostart --state-dir \"/state\""
+        ));
         assert!(
             unit.contains("Restart=on-failure"),
             "a quit (exit 0) is not restarted"
         );
         assert!(unit.contains("StartLimitBurst=5"));
+        let escaped = systemd_unit(
+            Path::new("/home/a b/$cache%/bosn-daemon"),
+            Path::new("/home/a b/$cache%"),
+        );
+        assert!(escaped.contains(
+            "ExecStart=\"/home/a b/$$cache%%/bosn-daemon\" widget --autostart --state-dir \"/home/a b/$$cache%%\""
+        ));
     }
 
     #[test]

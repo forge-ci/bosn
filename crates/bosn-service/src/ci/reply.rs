@@ -116,6 +116,11 @@ pub struct RunnerStatus {
     pub execution_pins: Option<bosn_core::act::ActPins>,
     /// Whether the desktop widget is running.
     pub widget: super::widget::WidgetPresence,
+    /// Daemon's release and the connected widget's reported release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_release: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget_release: Option<String>,
     /// Why eligible queued runs are not starting right now; absent when
     /// admission is live. One of `cache clearing`, `drained`,
     /// `concurrency limit` or `dispatcher stalled` (#453).
@@ -210,6 +215,12 @@ pub struct DoctorReply {
     pub admission_limit: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_capacity: Option<TaskLaneCapacity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_release: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget_release: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget_presence: Option<super::widget::WidgetPresence>,
 }
 
 /// Task lane's independent slot and CPU quota policy.

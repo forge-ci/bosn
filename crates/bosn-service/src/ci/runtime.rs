@@ -133,6 +133,7 @@ pub struct CiRuntime {
     task_capacity: Arc<OnceLock<super::reply::TaskLaneCapacity>>,
     widget_config: Arc<Mutex<WidgetConfig>>,
     launch_failure_logged: Arc<std::sync::atomic::AtomicBool>,
+    widget_repairing: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl CiRuntime {
@@ -225,6 +226,7 @@ impl CiRuntime {
             task_capacity: Arc::new(OnceLock::new()),
             widget_config: Arc::new(Mutex::new(WidgetConfig::default())),
             launch_failure_logged: Arc::default(),
+            widget_repairing: Arc::default(),
         };
         runtime.spawn_dispatcher(kicked);
         runtime.start_shared_reaper();
@@ -295,9 +297,17 @@ impl CiRuntime {
                 pid,
                 session,
                 explicit,
-            } => wire(Ok(self.widget_hello(pid, &session, explicit))),
+                release,
+            } => wire(Ok(self.widget_hello(
+                pid,
+                &session,
+                explicit,
+                release.as_deref(),
+            ))),
             CiRequest::WidgetPoll { pid } => wire(Ok(self.widget_poll(pid))),
-            CiRequest::WidgetDismiss { session } => wire(Ok(self.widget_dismiss(&session))),
+            CiRequest::WidgetDismiss { session, pid } => {
+                wire(Ok(self.widget_dismiss(&session, pid)))
+            }
             CiRequest::WidgetCommand { command } => wire(self.widget_command(command)),
         }
     }
@@ -910,6 +920,11 @@ impl CiRuntime {
             act_version: ACT_VERSION.into(),
             execution_pins: super::pins::execution_pins(),
             widget: self.widget_presence(),
+            daemon_release: Some(self.release.to_string()),
+            widget_release: self
+                .widget_state()
+                .release(Instant::now())
+                .map(str::to_owned),
             hold,
             dispatcher: if live {
                 DispatcherHealth::Live

@@ -176,6 +176,7 @@ in `[widget] external_hosts`.
 bosn widget              # run it (a second start reveals details, or the fallback bubble)
 bosn widget --detach
 bosn widget install      # systemd user unit, started with the graphical session
+bosn widget status       # connected widget and daemon releases
 ```
 
 Installation enables `[ui] enabled = true` in the selected state's configuration,
@@ -189,6 +190,14 @@ GitHub release by `bosn widget install`. The installer verifies the release asse
 SHA256 digest, source commit, version, target and executable checksum before
 atomically replacing its managed copy under `~/.local/share/bosn/widget/`. It
 fails if the matching artifact is absent; it does not select another version.
+The user unit runs the fixed authoritative daemon executable path with
+`widget --autostart`. It installs the matching widget on launch if necessary,
+so an upgraded daemon selects its own release. An older connected widget keeps
+running while the daemon repairs an older unit and downloads its matching
+artifact asynchronously; after a successful install, the daemon restarts the
+unit and the old widget exits. A failed download keeps the old widget running;
+a failed restart is logged. `bosn widget status` and `bosn ci doctor` show both
+releases, with unknown for a widget from before the release handshake.
 The desktop runtime needs GTK 3, WebKitGTK 4.1 and libsoup 3. The headless CLI
 and its four platform wheels remain separate from the desktop archive.
 
@@ -216,6 +225,7 @@ daemon queues for the running widget like any other panel command.
 Quitting suppresses auto-launch until the next login (a new graphical session) or an explicit
 `bosn widget`. A crash is not a quit: systemd restarts it, backing off after
 five failures in a minute.
+An upgrade quit does not record a user dismissal.
 
 **Notifications.** The widget sends a desktop notification for every failed
 run, and for the completion of runs a human started. Agent successes stay

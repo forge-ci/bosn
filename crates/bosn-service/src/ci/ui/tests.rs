@@ -527,6 +527,7 @@ fn the_dashboard_drives_the_widget_only_through_queued_allowlisted_commands() {
                 pid: 42,
                 session: "s1".into(),
                 explicit: false,
+                release: Some(env!("CARGO_PKG_VERSION").into()),
             })
             .await
             .unwrap(),
@@ -619,6 +620,7 @@ fn the_panel_quits_the_widget_only_with_a_same_origin_write() {
             pid: 42,
             session: "s1".into(),
             explicit: false,
+            release: Some(env!("CARGO_PKG_VERSION").into()),
         })
         .await
         .unwrap();
