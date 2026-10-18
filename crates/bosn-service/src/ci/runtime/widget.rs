@@ -71,7 +71,7 @@ impl CiRuntime {
                     .external_hosts
                     .clone();
                 if !policy::external_allowed(url, &hosts) {
-                    eprintln!("bosn ci: refused to open a non-allowlisted external link");
+                    daemon_log!("bosn ci: refused to open a non-allowlisted external link");
                     return Err(CiError::refused(
                         "only https links to github.com, gitlab.com or a configured host open",
                     ));
@@ -119,7 +119,7 @@ impl CiRuntime {
                 kernal_api::run_bounded_command_async(spec, Duration::from_secs(10), 4096).await;
             let ok = started.as_ref().is_ok_and(|out| out.exit.raw_code() == 0);
             if !ok && runtime.note_launch_failure() {
-                eprintln!(
+                daemon_log!(
                     "bosn ci: widget: not launched ({program} failed; no graphical session or the \
                      bosn-widget service is not installed)"
                 );

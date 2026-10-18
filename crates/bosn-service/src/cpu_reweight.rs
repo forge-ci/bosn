@@ -51,14 +51,14 @@ pub(crate) fn reweight_running(registry_id: &str) {
                     .map(str::to_owned),
             ),
             Ok(result) => {
-                eprintln!(
+                daemon_log!(
                     "bosn priority: listing owned containers exited {}",
                     result.exit_code
                 );
                 return;
             }
             Err(error) => {
-                eprintln!("bosn priority: listing owned containers failed: {error}");
+                daemon_log!("bosn priority: listing owned containers failed: {error}");
                 return;
             }
         }
@@ -69,13 +69,13 @@ pub(crate) fn reweight_running(registry_id: &str) {
         return;
     };
     match docker.with_args(args).capture(options()) {
-        Ok(result) if result.ok() => eprintln!(
+        Ok(result) if result.ok() => daemon_log!(
             "bosn priority: {} running container(s) at {LOW_CPU_PRIORITY_ARG}; placement {}",
             ids.len(),
             bosn_engine::placement().as_str()
         ),
-        Ok(result) => eprintln!("bosn priority: docker update exited {}", result.exit_code),
-        Err(error) => eprintln!("bosn priority: docker update failed: {error}"),
+        Ok(result) => daemon_log!("bosn priority: docker update exited {}", result.exit_code),
+        Err(error) => daemon_log!("bosn priority: docker update failed: {error}"),
     }
 }
 

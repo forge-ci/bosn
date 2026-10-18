@@ -17,7 +17,7 @@ use bosn_service::{
     Client, JobStatus, MANIFEST_MAX_DEADLINE, MANIFEST_MAX_OUTPUT, ManifestAppTaskJobRequest,
     ManifestEnsureJobRequest,
 };
-use kernal_api::async_engine::{Runtime, RuntimeBuilder};
+use kernal_api::async_engine::{self, Runtime, RuntimeBuilder};
 
 use crate::stop_signal::{StopRequest, StopSignals};
 
@@ -454,20 +454,32 @@ pub(crate) fn ensure_daemon(
     let mut child = command
         .spawn()
         .map_err(|error| format!("cannot start the bosn daemon: {error}"))?;
-    let started = Instant::now();
-    while started.elapsed() < DAEMON_START_WAIT {
-        if let Ok(identity) = runtime.run(client.daemon_identity()) {
-            // Another session may have won the start race with its own binary.
-            matching_daemon(state_dir, &identity)?;
-            eprintln!("bosn: started the bosn daemon for {}", state_dir.display());
-            return Ok(());
-        }
-        if let Ok(Some(_)) = child.try_wait() {
-            break;
-        }
-        std::thread::sleep(POLL_INTERVAL);
+    if let Some(identity) = runtime.run(wait_for_started_daemon(client, &mut child)) {
+        matching_daemon(state_dir, &identity)?;
+        eprintln!("bosn: started the bosn daemon for {}", state_dir.display());
+        return Ok(());
     }
     Err(daemon_start_failure(state_dir))
+}
+
+async fn wait_for_started_daemon(
+    client: &Client,
+    child: &mut std::process::Child,
+) -> Option<bosn_service::DaemonIdentity> {
+    let started = Instant::now();
+    loop {
+        if let Ok(identity) = client.daemon_identity().await {
+            return Some(identity);
+        }
+        if started.elapsed() >= DAEMON_START_WAIT {
+            return client.daemon_identity().await.ok();
+        }
+        // A competing client may have won the registry writer lock while its
+        // daemon is still opening the socket. Our child exiting is not proof
+        // that the winner failed; keep probing until the shared deadline.
+        let _ = child.try_wait();
+        async_engine::sleep(POLL_INTERVAL).await;
+    }
 }
 
 /// Restart an older daemon onto the authoritative executable, but only when
@@ -476,12 +488,18 @@ pub(crate) fn ensure_daemon(
 fn hand_off_idle_daemon(runtime: &Runtime, client: &Client, state_dir: &Path) -> bool {
     match runtime.run(client.stop_if_idle()) {
         Ok(bosn_service::IdleHandoff::Stopping) => {
-            let started = Instant::now();
-            while runtime.run(client.ping()).is_ok() {
-                if started.elapsed() >= DAEMON_START_WAIT {
-                    return false;
+            let stopped = runtime.run(async {
+                let started = Instant::now();
+                while client.ping().await.is_ok() {
+                    if started.elapsed() >= DAEMON_START_WAIT {
+                        return false;
+                    }
+                    async_engine::sleep(POLL_INTERVAL).await;
                 }
-                std::thread::sleep(POLL_INTERVAL);
+                true
+            });
+            if !stopped {
+                return false;
             }
             eprintln!(
                 "bosn: restarted the idle older bosn daemon for {} onto this release",
@@ -677,6 +695,35 @@ pub fn classify(line: &str, task_output: bool) -> (bool, &str, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_losing_starter_waits_for_the_winners_socket() {
+        let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+        let state = temporary.path().join("state");
+        let runtime = RuntimeBuilder::multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.run(async {
+            let mut loser = std::process::Command::new("true").spawn().unwrap();
+            assert!(loser.wait().unwrap().success());
+            let delayed_state = state.clone();
+            let winner = async_engine::launch(async move {
+                async_engine::sleep(POLL_INTERVAL * 2).await;
+                bosn_service::Service::new(delayed_state).serve().await
+            });
+            let client = Client::for_state(&state).unwrap();
+            let identity = wait_for_started_daemon(&client, &mut loser).await;
+            assert!(
+                identity.is_some(),
+                "the losing starter gave up before the winner was ready"
+            );
+            client.shutdown().await.unwrap();
+            winner.await.unwrap().unwrap();
+        });
+    }
 
     fn args(values: &[&str]) -> Result<RunArguments, String> {
         parse_arguments(values.iter().map(OsString::from))

@@ -57,7 +57,7 @@ impl CiRuntime {
         let message = owner::orphaned_message(pids);
         let reply = self.cancel_because(run, &message)?;
         if reply.cancelled {
-            eprintln!("bosn ci: run {run} {message}");
+            daemon_log!("bosn ci: run {run} {message}");
         }
         Ok(reply)
     }

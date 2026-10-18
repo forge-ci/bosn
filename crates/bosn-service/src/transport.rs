@@ -16,7 +16,7 @@ pub(crate) fn retire_stale_socket(ep: &Endpoint) -> Result<(), Error> {
             .is_ok_and(|metadata| metadata.file_type().is_socket());
         if is_socket && ep.is_stale() {
             ep.retire()?;
-            eprintln!(
+            daemon_log!(
                 "bosn daemon serve: removed stale socket {} (no daemon was listening)",
                 ep.display()
             );

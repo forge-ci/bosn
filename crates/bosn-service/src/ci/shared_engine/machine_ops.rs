@@ -47,7 +47,7 @@ impl Drop for ClaimGuard {
             if let Some(machine) = backend.machine()
                 && let Err(error) = machine.remove_claim(&id).await
             {
-                eprintln!("bosn ci: engine claim not removed: {error}");
+                daemon_log!("bosn ci: engine claim not removed: {error}");
             }
         })
         .detach();
@@ -105,7 +105,7 @@ impl SharedEngine {
                     busy.join(", ")
                 ))));
             }
-            eprintln!(
+            daemon_log!(
                 "bosn ci: legacy engines still busy after {}s; making the shared engine \
                  beside them (each is retired once idle): {}",
                 LEGACY_DRAIN_WAIT.as_secs(),
@@ -222,9 +222,10 @@ impl SharedEngine {
             machine.remove_engine(engine).await?;
         }
         machine.remove_claim(&claim.id).await?;
-        eprintln!(
+        daemon_log!(
             "bosn ci: took over the engine claim of stopped daemon pid {} ({})",
-            claim.daemon.pid, claim.engine
+            claim.daemon.pid,
+            claim.engine
         );
         Ok(())
     }
@@ -286,7 +287,7 @@ impl SharedEngine {
             if self.backend.close_scope(engine, &scope).await.is_ok()
                 && machine.release_slot(engine, *slot).await.is_ok()
             {
-                eprintln!(
+                daemon_log!(
                     "bosn ci: reclaimed slot {slot} of run {} (its daemon stopped)",
                     holder.run
                 );
@@ -301,7 +302,7 @@ impl SharedEngine {
             return;
         };
         if let Err(error) = spare::retire(&self.registry, self.backend.as_ref(), &engine).await {
-            eprintln!(
+            daemon_log!(
                 "bosn ci: shared engine {} not removed: {error}",
                 current.name
             );
@@ -310,7 +311,7 @@ impl SharedEngine {
         if let Ok(machine) = self.machine()
             && let Err(error) = machine.remove_claim(&claim).await
         {
-            eprintln!("bosn ci: engine claim not removed: {error}");
+            daemon_log!("bosn ci: engine claim not removed: {error}");
         }
     }
 
@@ -323,7 +324,7 @@ impl SharedEngine {
         let claim = match machine.claim().await {
             Ok(claim) => claim,
             Err(error) => {
-                eprintln!("bosn ci: engine claim: {error}");
+                daemon_log!("bosn ci: engine claim: {error}");
                 return;
             }
         };
@@ -331,11 +332,11 @@ impl SharedEngine {
             && !claim.daemon.alive()
             && let Err(error) = self.retire_abandoned(machine, claim, ttl).await
         {
-            eprintln!("bosn ci: abandoned shared engine {}: {error}", claim.engine);
+            daemon_log!("bosn ci: abandoned shared engine {}: {error}", claim.engine);
         }
         let keep = claim.as_ref().map(|claim| claim.engine.as_str());
         if let Err(error) = self.drain_legacy(machine, keep).await {
-            eprintln!("bosn ci: legacy engines: {error}");
+            daemon_log!("bosn ci: legacy engines: {error}");
         }
     }
 
@@ -395,12 +396,13 @@ impl SharedEngine {
                 continue;
             }
             match machine.remove_engine(&engine).await {
-                Ok(()) => eprintln!(
+                Ok(()) => daemon_log!(
                     "bosn ci: retired idle legacy engine {} (registry {})",
-                    engine.name, engine.registry
+                    engine.name,
+                    engine.registry
                 ),
                 Err(error) => {
-                    eprintln!(
+                    daemon_log!(
                         "bosn ci: legacy engine {} not retired: {error}",
                         engine.name
                     );

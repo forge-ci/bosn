@@ -285,9 +285,10 @@ impl SharedEngine {
             && let Err(error) = machine.release_slot(&lease.engine_id, lease.slot).await
         {
             // An engine that is gone took its slot table with it.
-            eprintln!(
+            daemon_log!(
                 "bosn ci: slot {} in {} not released: {error}",
-                lease.slot, lease.engine_name
+                lease.slot,
+                lease.engine_name
             );
         }
         let mut held = self.held.lock().await;
@@ -328,7 +329,7 @@ impl SharedEngine {
                 }
                 let ttl = ttl();
                 if keeper.retire_idle(ttl).await {
-                    eprintln!("bosn ci: idle shared engine retired");
+                    daemon_log!("bosn ci: idle shared engine retired");
                 }
                 if keeper.state().wanted {
                     keeper.tend_machine(ttl).await;

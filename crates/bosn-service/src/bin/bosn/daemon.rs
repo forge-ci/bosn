@@ -29,11 +29,13 @@ pub(crate) fn run_daemon_autostart(mut arguments: impl Iterator<Item = std::ffi:
         .unwrap_or_else(|_| usage());
     }
     let Some(platform) = bosn_service::autostart::Platform::current() else {
-        eprintln!("bosn daemon autostart: this platform has no supported service manager");
+        bosn_service::daemon_log!(
+            "bosn daemon autostart: this platform has no supported service manager"
+        );
         std::process::exit(2);
     };
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        eprintln!("bosn daemon autostart: HOME is not set");
+        bosn_service::daemon_log!("bosn daemon autostart: HOME is not set");
         std::process::exit(2);
     };
     let runner = bosn_service::autostart::SystemRunner;
@@ -69,7 +71,7 @@ pub(crate) fn run_daemon_autostart(mut arguments: impl Iterator<Item = std::ffi:
             }
         }
         Err(detail) => {
-            eprintln!("bosn daemon autostart {action}: {detail}");
+            bosn_service::daemon_log!("bosn daemon autostart {action}: {detail}");
             std::process::exit(1);
         }
     }
@@ -120,20 +122,20 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
                 let mut capacity = match bosn_service::capacity::RunnerCapacity::load(&state_dir) {
                     Ok(capacity) => capacity,
                     Err(error) => {
-                        eprintln!("bosn daemon serve: {error}");
+                        bosn_service::daemon_log!("bosn daemon serve: {error}");
                         std::process::exit(2);
                     }
                 };
                 for (key, value) in &runners {
                     if let Err(error) = capacity.set(key, value) {
-                        eprintln!("bosn daemon serve: {error}");
+                        bosn_service::daemon_log!("bosn daemon serve: {error}");
                         std::process::exit(2);
                     }
                 }
                 service = service.with_runner_capacity(capacity);
             }
             if let Err(error) = runtime.run(service.serve()) {
-                eprintln!("bosn daemon serve: {error}");
+                bosn_service::daemon_log!("bosn daemon serve: {error}");
                 std::process::exit(1);
             }
             println!("daemon stopped");
@@ -183,7 +185,7 @@ fn run_daemon_status(runtime: &kernal_api::async_engine::Runtime, state_dir: &Pa
                 )
             }) && !json
             {
-                eprintln!("bosn daemon status: {mismatch}");
+                bosn_service::daemon_log!("bosn daemon status: {mismatch}");
             }
             daemon_failure("status", json)
         }
@@ -249,7 +251,9 @@ fn idle_exit_from_env() -> Option<std::time::Duration> {
         Ok(0) => None,
         Ok(secs) => Some(std::time::Duration::from_secs(secs)),
         Err(_) => {
-            eprintln!("bosn daemon serve: BOSN_DAEMON_IDLE_EXIT_SECS must be whole seconds");
+            bosn_service::daemon_log!(
+                "bosn daemon serve: BOSN_DAEMON_IDLE_EXIT_SECS must be whole seconds"
+            );
             std::process::exit(2);
         }
     }
@@ -318,7 +322,7 @@ pub(crate) fn daemon_failure(action: &str, json: bool) -> ! {
             json!({"action": format!("daemon_{action}"), "error": "request failed"})
         );
     } else {
-        eprintln!("bosn daemon {action}: request failed");
+        bosn_service::daemon_log!("bosn daemon {action}: request failed");
     }
     std::process::exit(1)
 }
@@ -406,7 +410,7 @@ pub(crate) fn print_daemon_status(
             status.reconciliation_required
         );
         if let Some(mismatch) = mismatch {
-            eprintln!("bosn daemon status: {mismatch}");
+            bosn_service::daemon_log!("bosn daemon status: {mismatch}");
         }
     }
 }
@@ -421,7 +425,7 @@ pub(crate) fn run_mcp(mut arguments: impl Iterator<Item = std::ffi::OsString>) {
         _ => usage(),
     };
     if let Err(error) = bosn_service::mcp::serve_stdio(state_dir) {
-        eprintln!("bosn mcp: {error}");
+        bosn_service::daemon_log!("bosn mcp: {error}");
         std::process::exit(1);
     }
 }

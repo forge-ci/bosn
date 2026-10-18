@@ -335,7 +335,7 @@ impl Runners {
             .map(|run| run.record.clone())
             .collect();
         if let Err(error) = write_ledger(&self.ledger, &records) {
-            eprintln!("bosn runners: ledger write failed: {error}");
+            daemon_log!("bosn runners: ledger write failed: {error}");
         }
     }
 
@@ -689,7 +689,7 @@ pub fn ensure_proxy_dir(dir: &Path) -> io::Result<()> {
 /// locked for that window (#406). Unlocking releases it for every copy.
 fn release_lock(file: &std::fs::File) {
     if let Err(error) = file.unlock() {
-        eprintln!("bosn runners: cache lock release failed: {error}");
+        daemon_log!("bosn runners: cache lock release failed: {error}");
     }
 }
 

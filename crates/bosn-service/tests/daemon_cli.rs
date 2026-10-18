@@ -1,4 +1,5 @@
 use std::{
+    io::Read,
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
     time::{Duration, Instant},
@@ -79,6 +80,92 @@ fn wait_for_client(daemon: &mut DaemonChild, state: &Path) -> Client {
         );
         assert!(Instant::now() < deadline, "daemon did not become ready");
         std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn concurrent_clients_connect_to_the_startup_winner() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let mut clients = Vec::new();
+    for _ in 0..12 {
+        clients.push(
+            Command::new(env!("CARGO_BIN_EXE_bosn"))
+                .env("DOCKER_HOST", "tcp://127.0.0.1:1")
+                .args(["ci", "list", "--state-dir"])
+                .arg(&state)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+    }
+    let results: Vec<_> = clients
+        .into_iter()
+        .map(|child| child.wait_with_output().unwrap())
+        .collect();
+    let stop = run(&[
+        "daemon".as_ref(),
+        "stop".as_ref(),
+        "--state-dir".as_ref(),
+        state.as_os_str(),
+    ]);
+    assert!(
+        stop.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+    for result in results {
+        assert!(
+            result.status.success(),
+            "a simultaneous client failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}
+
+#[test]
+fn daemon_stderr_lines_have_unix_millisecond_timestamps() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let mut daemon = DaemonChild {
+        child: Command::new(env!("CARGO_BIN_EXE_bosn"))
+            .env("DOCKER_HOST", "tcp://127.0.0.1:1")
+            .args(["daemon", "serve", "--state-dir"])
+            .arg(&state)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    };
+    let client = wait_for_client(&mut daemon, &state);
+    RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(client.shutdown_and_wait(Duration::from_secs(5)))
+        .unwrap();
+    assert!(daemon.wait_for_exit().success());
+    let mut output = String::new();
+    daemon
+        .child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut output)
+        .unwrap();
+    assert!(output.contains("bosn run output listening"), "{output}");
+    for line in output.lines() {
+        let Some((stamp, _)) = line.split_once(' ') else {
+            panic!("untimestamped daemon log line: {line}");
+        };
+        assert!(
+            stamp
+                .parse::<u128>()
+                .is_ok_and(|value| value > 1_000_000_000_000),
+            "untimestamped daemon log line: {line}"
+        );
     }
 }
 
