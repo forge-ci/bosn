@@ -4214,3 +4214,33 @@ checksum `5ebd6231663bc3b2c54d9777cd26d9333575325ebc28a3bd8f9f0ef7ada13ed7`;
 the executable hashes to
 `a64a5e95cd570d165cecb83097c7b57f963e9f00b2e4a61c2bbc3574606cdc41` and reports
 `act version 0.2.89-act2.18`. Bosn pins those bytes.
+
+### Expired source recovery retirement (#508, 2026-10-21)
+
+Reconciliation against main `4bf62b37` found an expiry mismatch in the native
+recovery foundation from #510. `remove_storage_volume` permits ordinary cleanup
+after the finite reference lifetime, but `stop_source_writers` ran first and
+attempted to record a source-stop receipt that the registry rejects after
+expiry. An unacknowledged reservation also refused indefinitely, and a retry
+after successful deletion with a lost Docker reply tried to inspect the already
+absent source. The pure lifetime test did not exercise these paths.
+
+The regression now calls the actual `retire_engine` path with a real SQLite
+registry/actor and a synthetic Docker transport. On unchanged implementation it
+failed with `tool recovery source stop proof`; with the fix all seven focused
+source-stop tests pass, including expired acknowledged/unacknowledged references,
+an already absent source, and retry after a lost removal reply. Negative cases
+retain a live reference and refuse foreign labels, failed inspection, failed
+engine absence and failed volume listing. Terminal receipts are checked after
+reopening the registry.
+
+An expired intent now skips only the native source-stop receipt. It provides no
+recovery/publication authority. The caller still proves engine absence, and
+ordinary storage cleanup checks the exact named local volume's ownership,
+performs non-forced removal and proves absence before finalizing. A live
+reference still requires acknowledgement and retained-source inspection and
+prevents storage removal. This correction makes the foundation's existing
+bounded abandonment contract reachable; normal runtime enrollment is still
+legacy, and production publication, recovery and shared-class expiry remain
+open. Focused synthetic transport tests do not establish a live Docker or full
+workflow recovery result.
