@@ -99,6 +99,7 @@ mod startup_recovery {
             tool_recovery_reserved_at: None,
             tool_recovery_source_stopped_at: None,
             tool_recovery_completion: None,
+            tool_recovery_source_disposal_at: None,
             create_requested: Some(true),
         };
         assert!(startup::confirm_absence(&record).is_err());

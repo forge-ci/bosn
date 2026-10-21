@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 mod recovery;
 pub use recovery::{ActToolRecoveryIntent, ActToolSourceStopProof};
 mod recovery_completion;
+mod recovery_disposal;
 pub use recovery_completion::{ActToolRecoveryCompletion, ActToolRecoveryPublicationProof};
 mod spare;
 pub use spare::ActEngineBinding;
@@ -258,6 +259,9 @@ pub struct ActEngineRecord {
     pub tool_recovery_source_stopped_at: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_recovery_completion: Option<ActToolRecoveryCompletion>,
+    /// Durable exclusion of all later source helper admission, including stale requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_recovery_source_disposal_at: Option<f64>,
     /// Whether `docker create` may have been sent for this engine: `Some(false)` from the intent
     /// until the request is about to go out, then `Some(true)`. Until then an empty name lookup
     /// proves the engine never existed (#554). `None` in historical records, which are treated as
@@ -479,7 +483,7 @@ fn kind(run: &str) -> Result<String, Error> {
     Ok(format!("{PREFIX}{run}"))
 }
 impl Immediate<'_> {
-    fn act_record(&mut self, run: &str) -> Result<Option<ActEngineRecord>, Error> {
+    pub(super) fn act_record(&mut self, run: &str) -> Result<Option<ActEngineRecord>, Error> {
         let rows = self.transaction.query(
             "SELECT detail FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
             &[Value::Text(kind(run)?)],
@@ -547,6 +551,7 @@ impl Immediate<'_> {
             tool_recovery_reserved_at: None,
             tool_recovery_source_stopped_at: None,
             tool_recovery_completion: None,
+            tool_recovery_source_disposal_at: None,
             create_requested: Some(false),
         })
     }
@@ -865,6 +870,11 @@ impl Immediate<'_> {
             || record.retains_tool_recovery_source(at)
         {
             return Err(Error::BadRow("act removal proof"));
+        }
+        if let Some(source) = record.intent.storage_volume_name()
+            && self.recovery_helper_for_source(&source)?.is_some()
+        {
+            return Err(Error::BadRow("recovery helper retains source storage"));
         }
         if record.engine_id.is_some() {
             let id = format!("act-engine:{run}");

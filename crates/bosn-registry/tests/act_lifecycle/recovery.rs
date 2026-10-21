@@ -220,3 +220,114 @@ fn stopped_recovery_fixture() -> (
 
 #[path = "recovery_completion.rs"]
 mod completion;
+
+#[test]
+fn recovery_helper_is_bound_to_the_stopped_source_and_survives_restart() {
+    use bosn_registry::cache_helper::{CacheHelperIntent, CacheHelperState};
+    let (dir, mut registry, engine, frozen) = stopped_recovery_fixture();
+    let make = |nonce: &str, frozen: &ActToolRecoveryIntent| -> CacheHelperIntent {
+        serde_json::from_value(serde_json::json!({
+            "registry_id": OWNER, "nonce": nonce, "volume": frozen.cache_volume,
+            "image": format!("docker.io/library/docker@sha256:{}", "e".repeat(64)),
+            "created_at": 8.0,
+            "role": {"tool_recovery_v1": {"run_id": RUN, "intent": frozen}}
+        }))
+        .expect("native recovery helpers need a typed durable role")
+    };
+    let nonce = "11111111-2222-4333-8444-555555555508";
+    let helper = make(nonce, &frozen);
+    assert!(helper.name().starts_with("bosn-cache-recover-"));
+    let mut changed = frozen.clone();
+    changed.source_volume.push_str("-foreign");
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&make(nonce, &changed))
+            .is_err()
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.begin_cache_helper(&helper).unwrap();
+    tx.commit().unwrap();
+    drop(registry);
+    let mut registry = Registry::open_writer(dir.path().join("registry.sqlite3")).unwrap();
+    let saved = registry.cache_helper(nonce).unwrap().unwrap();
+    assert_eq!(saved.intent, helper);
+    assert_eq!(saved.state, CacheHelperState::Pending);
+    let removal = ActEngineRemovalProof {
+        name: engine.engine_name(),
+        engine_id: Some(frozen.engine_id.clone()),
+        storage_volume: engine.storage_volume_name(),
+    };
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .finalize_act_cleanup(RUN, &removal, 3604.0)
+            .is_err(),
+        "expiry cannot finalize a source with an uncertain helper create"
+    );
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .claim_act_tool_source_disposal(RUN, 3604.0)
+            .is_err(),
+        "helper admission wins before disposal"
+    );
+    let second = make("11111111-2222-4333-8444-555555555509", &frozen);
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&second)
+            .is_err(),
+        "an uncertain create must exclude a second helper for the same source"
+    );
+    let id = "f".repeat(64);
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.register_cache_helper(nonce, &id, 9.0).unwrap();
+    tx.finish_cache_helper(nonce, &id, 10.0).unwrap();
+    tx.begin_cache_helper(&second).unwrap();
+    tx.commit().unwrap();
+}
+
+#[test]
+fn disposal_excludes_a_delayed_preexpiry_helper_admission() {
+    use bosn_registry::cache_helper::CacheHelperIntent;
+    let (dir, mut registry, _engine, frozen) = stopped_recovery_fixture();
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .claim_act_tool_source_disposal(RUN, 8.0)
+            .is_err(),
+        "a live unreleased source cannot be fenced for disposal"
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.claim_act_tool_source_disposal(RUN, 3604.0).unwrap();
+    tx.commit().unwrap();
+    drop(registry);
+    let mut registry = Registry::open_writer(dir.path().join("registry.sqlite3")).unwrap();
+    assert_eq!(
+        registry
+            .act_engine(RUN)
+            .unwrap()
+            .unwrap()
+            .tool_recovery_source_disposal_at,
+        Some(3604.0)
+    );
+    let helper: CacheHelperIntent = serde_json::from_value(serde_json::json!({
+        "registry_id": OWNER, "nonce": "11111111-2222-4333-8444-555555555510",
+        "volume": frozen.cache_volume, "image": format!("docker.io/library/docker@sha256:{}", "e".repeat(64)),
+        "created_at": 8.0, "role": {"tool_recovery_v1": {"run_id": RUN, "intent": frozen}}
+    })).unwrap();
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&helper)
+            .is_err(),
+        "a delayed helper must not be admitted after disposal has begun"
+    );
+}

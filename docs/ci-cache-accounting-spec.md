@@ -4346,3 +4346,64 @@ scheduling, shared-class accounting/expiry and full workflow/7.7GiB acceptance
 remain unfinished. Copy/publication currently holds the native catalog writer;
 production-scale performance has not been established. Do not enable the native
 route or close #508 based on these helper tests.
+
+
+### Stopped-overlay helper and durable source exclusion (#508, 2026-10-21)
+
+Act2 [#73](https://github.com/zackees/act2/pull/73) is merged. Its overlay
+consumer [#74](https://github.com/zackees/act2/pull/74) is also merged, at
+`11382a48807393c20dc33e4c9093311eb41057f1`. All six PR checks passed on
+`3e344e5b8868c5dedc6135c42898485bb4e2ed53`. Full default-branch CI
+[39683097915](https://github.com/zackees/act2/actions/runs/39683097915)
+is running on the exact merge SHA. No new act2 release or Bosn pin update is
+established by this section.
+
+The helper opens a read-only metacopy overlay only after acquiring its original
+verified lower reader. Exact bounded mountinfo checks prove the producer's
+lower, upper, work directory and mount flags. The producer recipe remains
+byte-identical. The sole primary reviewer found a failed-unmount lifetime gap:
+the reader originally closed despite a surviving view. Both successful-open
+and failed-open regressions reproduced retirement after withdrawn protection
+and forced GC. The corrected process-owned slot strongly retains the reader
+and cleanup handle until cleanup succeeds, and admits at most one view.
+Retries must finish pending cleanup before acknowledging a receipt; concurrent
+calls refuse immediately. Focused race tests and review pass.
+
+The recompiled privileged Linux fixture actually passed (2.83 s): a random
+16 MiB metadata-only install recovered content and mode, preserved a newer
+Node install, excluded an incomplete install and left its lower unchanged.
+It also proved source-free completion retry and separate reference release.
+Its exact container and volume were removed and absence verified. This fixture
+supplies ownership/quiescence manually; it does not prove Bosn orchestration.
+Full artifact-cache race and serve suites, focused CLI tests and pinned
+act2 lint passed. Local evidence is under `/tmp/bosn-693/`, including
+`overlay-helper-live-final.json` and `overlay-artifactcache-race-final.log`.
+
+The next Bosn candidate adds a durable `ToolRecoveryV1` helper role binding
+its run and complete frozen intent. Admission requires the exact stopped,
+reserved, still-live source and pinned engine image; another unresolved create
+for that source refuses. Pending creates and acknowledged helpers survive
+registry reopen. Their lifetime excludes both private volume removal and
+terminal engine finalization even after the lower reference expires. The
+existing late-create absence contract remains necessary before an uncertain
+create can be forgotten. Generic one-volume helper identity refuses this role
+until dedicated two-volume supervision is implemented.
+
+Tests first failed because the role was absent, then caught an incorrect JSON
+query prefix that failed duplicate exclusion. A runtime regression with the
+new removal guard temporarily absent deleted the expired source despite a
+pending helper; restoring the guard preserves it without attempting deletion.
+Focused registry recovery and both runtime retirement tests pass. Initial
+Clippy rejected an expanded test helper over 100 lines; its setup was split
+by responsibility. The primary reviewer then found a check/removal race: a delayed pre-expiry
+helper could be admitted after an absence lookup. Its deterministic regression
+failed before a durable disposal claim replaced that loose read. The claim
+checks helper absence atomically, persists a per-source fence, and excludes
+later admissions regardless of their timestamp. The opposite ordering refuses
+disposal while a helper is pending. Final all-target Clippy and primary re-review passed. Both cleanup paths
+carry the committed disposal timestamp forward into finalization. The full
+exact-source Bosn local gate remains required before push.
+These are candidate lifecycle changes, not active native routing. Dedicated
+Docker helper supervision, source-volume identity, receipt transport,
+production enrollment, dependency rollout and the original broad acceptance
+remain unfinished.

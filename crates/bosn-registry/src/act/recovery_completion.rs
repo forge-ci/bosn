@@ -74,6 +74,18 @@ impl ActEngineRecord {
         {
             return Err(Error::BadRow("tool recovery completion snapshot"));
         }
+        if self.tool_recovery_source_disposal_at.is_some_and(|at| {
+            !at.is_finite()
+                || at > self.updated_at
+                || self.tool_recovery.is_none()
+                || self.retains_tool_recovery_source(at)
+                || !matches!(
+                    self.state,
+                    ActEngineState::CleanupRequired | ActEngineState::Terminal
+                )
+        }) {
+            return Err(Error::BadRow("tool recovery source disposal snapshot"));
+        }
         if self.state == ActEngineState::Terminal
             && self.retains_tool_recovery_source(self.updated_at)
         {

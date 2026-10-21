@@ -157,6 +157,8 @@ fn incomplete_or_invalid_completion_snapshots_refuse_to_reopen() {
         "early-release",
         "late-release",
         "expired-publication",
+        "live-disposal",
+        "future-disposal",
     ] {
         let (_dir, mut registry, _intent, frozen) = stopped_recovery_fixture();
         let proof = ActToolRecoveryPublicationProof {
@@ -180,6 +182,8 @@ fn incomplete_or_invalid_completion_snapshots_refuse_to_reopen() {
             "late-release" => {
                 snapshot["tool_recovery_completion"]["reference_released_at"] = 10.into()
             }
+            "live-disposal" => snapshot["tool_recovery_source_disposal_at"] = 8.into(),
+            "future-disposal" => snapshot["tool_recovery_source_disposal_at"] = 9.into(),
             _ => snapshot["tool_recovery_completion"]["completed_at"] = 3604.into(),
         }
         let mut tx = registry.begin_immediate().unwrap();

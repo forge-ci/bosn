@@ -46,6 +46,12 @@ impl Identity {
         intent: &bosn_registry::cache_helper::CacheHelperIntent,
     ) -> Result<Self, String> {
         intent.validate().map_err(|error| error.to_string())?;
+        if matches!(
+            &intent.role,
+            Some(bosn_registry::cache_helper::CacheHelperRole::ToolRecoveryV1 { .. })
+        ) {
+            return Err("recovery helper requires its dedicated source-volume identity".into());
+        }
         let labels = bosn_core::ResourceLabels::new(
             &intent.registry_id,
             bosn_core::ResourceKind::Container,
