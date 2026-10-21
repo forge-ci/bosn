@@ -131,10 +131,10 @@ pub(crate) async fn ensure_storage_volume(
 /// Remove a retiring engine's private storage, unless native tool recovery
 /// still needs it.
 ///
-/// A record carrying an unreleased recovery intent keeps its source volume:
-/// the recovering reader still holds the overlay it contains. Publication and
-/// reference release must be integrated before this guard is relaxed, so that
-/// path never falls back to deleting private disk.
+/// A record carrying a live unreleased recovery intent keeps its source volume.
+/// Verified publication and reference release must both be committed before
+/// early deletion; expiry permits bounded abandonment. Exact ownership and
+/// Docker absence are required on either path.
 pub(crate) async fn remove_storage_volume(
     engine: &DockerEngine,
     record: &ActEngineRecord,

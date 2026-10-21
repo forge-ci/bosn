@@ -27,7 +27,7 @@ elif args[:2] == ['volume', 'inspect']:
 elif args[:2] == ['volume', 'rm']:
     assert args == ['volume', 'rm', name]
     state.rename(state.with_name('removed'))
-    if mode == 'lost-remove-reply': sys.exit(1)
+    if mode.endswith('lost-remove-reply'): sys.exit(1)
     print(name)
 else: sys.exit(2)
 "#;
@@ -94,7 +94,14 @@ fn fixture(path: &std::path::Path, live: bool, acknowledged: bool) -> (Registry,
 
 #[test]
 fn expired_recovery_retires_through_the_actual_cleanup_path() {
-    for mode in ["expired", "unacknowledged", "absent", "lost-remove-reply"] {
+    for mode in [
+        "expired",
+        "unacknowledged",
+        "absent",
+        "lost-remove-reply",
+        "released",
+        "released-lost-remove-reply",
+    ] {
         check_retirement(mode);
     }
 }
@@ -108,6 +115,7 @@ fn expiry_never_bypasses_ownership_liveness_or_failed_observation() {
         "inspect-failed",
         "engine-list-failed",
         "volume-list-failed",
+        "published",
     ] {
         check_retirement(mode);
     }
@@ -161,9 +169,13 @@ fn check_retirement(mode: &str) {
     use crate::act_engine::tests::OWNER;
     let dir = TemporaryDirectory::new().unwrap();
     let database = dir.path().join("registry.sqlite3");
-    let live = mode.starts_with("live");
+    let live = mode.starts_with("live") || mode.starts_with("released") || mode == "published";
     let acknowledged = !mode.ends_with("unacknowledged");
-    let (registry, record) = fixture(&database, live, acknowledged);
+    let (mut registry, mut record) = fixture(&database, live, acknowledged);
+    if mode.starts_with("released") || mode == "published" {
+        record_publication(&mut registry, &record, mode.starts_with("released"));
+        record = registry.act_engine(&record.intent.run_id).unwrap().unwrap();
+    }
     let DockerFixture { engine, state, log } = docker_fixture(dir.path(), mode, &record);
     RuntimeBuilder::multi_thread()
         .worker_threads(2)
@@ -189,9 +201,10 @@ fn check_retirement(mode: &str) {
                 )
             };
             let result = retire().await;
-            let should_retire = matches!(mode, "expired" | "unacknowledged" | "absent");
+            let should_retire =
+                matches!(mode, "expired" | "unacknowledged" | "absent" | "released");
             assert_eq!(result.is_ok(), should_retire, "{mode}: {result:?}");
-            if mode == "lost-remove-reply" {
+            if mode.ends_with("lost-remove-reply") {
                 assert!(!state.exists(), "Docker removed it before losing the reply");
                 retire().await.unwrap();
             }
@@ -206,7 +219,7 @@ fn check_retirement(mode: &str) {
             };
             assert_eq!(
                 current.state == ActEngineState::Terminal,
-                should_retire || mode == "lost-remove-reply",
+                should_retire || mode.ends_with("lost-remove-reply"),
                 "{mode}"
             );
             if current.state != ActEngineState::Terminal {
@@ -229,8 +242,42 @@ fn check_retirement(mode: &str) {
             == ActEngineState::Terminal,
         matches!(
             mode,
-            "expired" | "unacknowledged" | "absent" | "lost-remove-reply"
+            "expired"
+                | "unacknowledged"
+                | "absent"
+                | "lost-remove-reply"
+                | "released"
+                | "released-lost-remove-reply"
         ),
         "{mode}: cleanup receipt must survive a restart"
     );
+}
+
+fn record_publication(registry: &mut Registry, record: &ActEngineRecord, release: bool) {
+    let intent = record.tool_recovery.as_ref().unwrap();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.record_act_tool_source_stopped(
+        &record.intent.run_id,
+        &ActToolSourceStopProof {
+            engine_name: record.intent.engine_name(),
+            engine_id: intent.engine_id.clone(),
+            source_volume: intent.source_volume.clone(),
+        },
+        record.updated_at + 0.1,
+    )
+    .unwrap();
+    tx.complete_act_tool_recovery(
+        &record.intent.run_id,
+        &bosn_registry::act::ActToolRecoveryPublicationProof {
+            intent: intent.clone(),
+            generation: "c".repeat(64),
+        },
+        record.updated_at + 0.2,
+    )
+    .unwrap();
+    if release {
+        tx.release_act_tool_recovery(&record.intent.run_id, intent, record.updated_at + 0.3)
+            .unwrap();
+    }
+    tx.commit().unwrap();
 }

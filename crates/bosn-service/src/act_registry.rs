@@ -46,6 +46,16 @@ pub enum ActRegistryCommand {
         proof: bosn_registry::act::ActToolSourceStopProof,
         at: f64,
     },
+    ToolRecoveryPublished {
+        run: String,
+        proof: bosn_registry::act::ActToolRecoveryPublicationProof,
+        at: f64,
+    },
+    ToolRecoveryReleased {
+        run: String,
+        intent: bosn_registry::act::ActToolRecoveryIntent,
+        at: f64,
+    },
     Register {
         run: String,
         observed: ActEngineObservation,
@@ -180,6 +190,8 @@ pub(crate) fn apply(
     if matches!(
         &command,
         ActRegistryCommand::Begin(_)
+            | ActRegistryCommand::ToolRecoveryPublished { .. }
+            | ActRegistryCommand::ToolRecoveryReleased { .. }
             | ActRegistryCommand::ToolRecoveryBegin { .. }
             | ActRegistryCommand::ToolRecoveryReserved { .. }
             | ActRegistryCommand::HelperBegin(_)
@@ -290,6 +302,14 @@ pub(crate) fn apply(
         }
         ActRegistryCommand::ToolRecoverySourceStopped { run, proof, at } => {
             transaction.record_act_tool_source_stopped(&run, &proof, at)?;
+            ActRegistryReply::Committed
+        }
+        ActRegistryCommand::ToolRecoveryPublished { run, proof, at } => {
+            transaction.complete_act_tool_recovery(&run, &proof, at)?;
+            ActRegistryReply::Committed
+        }
+        ActRegistryCommand::ToolRecoveryReleased { run, intent, at } => {
+            transaction.release_act_tool_recovery(&run, &intent, at)?;
             ActRegistryReply::Committed
         }
         ActRegistryCommand::Register { run, observed, at } => {

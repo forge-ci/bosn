@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 mod recovery;
 pub use recovery::{ActToolRecoveryIntent, ActToolSourceStopProof};
+mod recovery_completion;
+pub use recovery_completion::{ActToolRecoveryCompletion, ActToolRecoveryPublicationProof};
 mod spare;
 pub use spare::ActEngineBinding;
 mod socket;
@@ -254,6 +256,8 @@ pub struct ActEngineRecord {
     pub tool_recovery_reserved_at: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_recovery_source_stopped_at: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_recovery_completion: Option<ActToolRecoveryCompletion>,
     /// Whether `docker create` may have been sent for this engine: `Some(false)` from the intent
     /// until the request is about to go out, then `Some(true)`. Until then an empty name lookup
     /// proves the engine never existed (#554). `None` in historical records, which are treated as
@@ -410,31 +414,7 @@ impl ActEngineIntent {
 impl ActEngineRecord {
     fn validate(&self) -> Result<(), Error> {
         self.intent.validate()?;
-        if self.tool_recovery_reserved_at.is_some_and(|at| {
-            !at.is_finite()
-                || at > self.updated_at
-                || self.tool_recovery.as_ref().is_none_or(|intent| {
-                    at < intent.created_at_seconds as f64 || at >= intent.expires_at_seconds as f64
-                })
-        }) {
-            return Err(Error::BadRow("tool recovery reservation acknowledgement"));
-        }
-        if self.tool_recovery_source_stopped_at.is_some_and(|at| {
-            !at.is_finite()
-                || at > self.updated_at
-                || self
-                    .tool_recovery_reserved_at
-                    .is_none_or(|reserved| at < reserved)
-                || !matches!(
-                    self.state,
-                    ActEngineState::CleanupRequired | ActEngineState::Terminal
-                )
-        }) {
-            return Err(Error::BadRow("tool recovery source stop snapshot"));
-        }
-        if let Some(recovery) = &self.tool_recovery {
-            recovery.validate_record(self)?;
-        }
+        self.validate_tool_recovery()?;
         if (self.state == ActEngineState::Terminal) != self.removal.is_some()
             || self.removal.as_ref().is_some_and(|p| {
                 p.name != self.intent.engine_name()
@@ -566,6 +546,7 @@ impl Immediate<'_> {
             tool_recovery: None,
             tool_recovery_reserved_at: None,
             tool_recovery_source_stopped_at: None,
+            tool_recovery_completion: None,
             create_requested: Some(false),
         })
     }
@@ -881,6 +862,7 @@ impl Immediate<'_> {
             || proof.name != record.intent.engine_name()
             || proof.engine_id != record.engine_id
             || proof.storage_volume != record.intent.storage_volume_name()
+            || record.retains_tool_recovery_source(at)
         {
             return Err(Error::BadRow("act removal proof"));
         }

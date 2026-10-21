@@ -4244,3 +4244,35 @@ bounded abandonment contract reachable; normal runtime enrollment is still
 legacy, and production publication, recovery and shared-class expiry remain
 open. Focused synthetic transport tests do not establish a live Docker or full
 workflow recovery result.
+
+### Durable publication and reference release (#508, 2026-10-21)
+
+The registry now has separate trusted transitions for completed generation
+publication and exact lower-reference release. A publication proof binds the
+entire frozen recovery intent and the resulting canonical generation ID; it
+requires acknowledged protection and a recorded source stop while the reference
+is live. Publication is committed before release can be recorded. Both
+transitions preserve the first receipt on identical retries and refuse changed
+identities, generations and invalid or regressing timestamps. A completed
+publication can be reconciled after expiry without republishing it.
+
+The runtime must stop publication retries once that completion is committed.
+An exact, non-partial act2 release receipt must precede the trusted release
+transition. Durable release then permits ordinary guarded source removal before
+expiry; publication alone does not. The registry also refuses finalization
+while the source is retained, making this a persistence invariant shared with
+the runtime guard. Unknown clock values retain a live source. Optional fields
+preserve reads of historical records, and snapshot validation rejects malformed
+completion/release ordering. These are internal persistence commands, with no
+new client RPC authority.
+
+The focused registry regression first demonstrated that main allowed terminal
+cleanup while a live recovery reference remained. The new registry lifecycle
+tests cover transaction rollback, reopening SQLite, receipt ordering, changed
+identities, idempotent retries and invalid snapshots. The runtime retirement
+fixture also distinguishes published-but-unreleased storage from released
+storage, including retry after a lost early-removal reply. These fixtures
+supply trusted publication/release receipts; they do not perform act2
+publication or prove live Docker recovery. Normal enrollment, helper transport,
+publication and release orchestration remain unactivated until those complete
+paths are implemented and verified.

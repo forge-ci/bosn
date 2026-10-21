@@ -157,3 +157,66 @@ fn tool_recovery_source_stop_requires_cleanup_and_exact_identity() {
         Some(6.0)
     );
 }
+
+#[test]
+fn live_recovery_reference_prevents_terminal_cleanup() {
+    let (_dir, mut registry, i, frozen) = stopped_recovery_fixture();
+    let removal = ActEngineRemovalProof {
+        name: i.engine_name(),
+        engine_id: Some(frozen.engine_id),
+        storage_volume: i.storage_volume_name(),
+    };
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .finalize_act_cleanup(RUN, &removal, 8.0)
+            .is_err(),
+        "a live unreleased recovery must not be finalized by another cleanup caller"
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.finalize_act_cleanup(RUN, &removal, 3604.0).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(
+        registry.act_engine(RUN).unwrap().unwrap().state,
+        ActEngineState::Terminal
+    );
+}
+
+fn stopped_recovery_fixture() -> (
+    TemporaryDirectory,
+    Registry,
+    ActEngineIntent,
+    ActToolRecoveryIntent,
+) {
+    let (dir, mut registry, i) = recovery_fixture();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.begin_act_tool_recovery(RUN, CLAIM, 4, 3604).unwrap();
+    tx.commit().unwrap();
+    let frozen = registry
+        .act_engine(RUN)
+        .unwrap()
+        .unwrap()
+        .tool_recovery
+        .unwrap();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.acknowledge_act_tool_recovery(RUN, CLAIM, &frozen, 5.0)
+        .unwrap();
+    tx.request_act_execution_cleanup(RUN, CLAIM, ActRunOutcome::Interrupted, 6.0)
+        .unwrap();
+    tx.record_act_tool_source_stopped(
+        RUN,
+        &ActToolSourceStopProof {
+            engine_name: i.engine_name(),
+            engine_id: frozen.engine_id.clone(),
+            source_volume: frozen.source_volume.clone(),
+        },
+        7.0,
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    (dir, registry, i, frozen)
+}
+
+#[path = "recovery_completion.rs"]
+mod completion;
