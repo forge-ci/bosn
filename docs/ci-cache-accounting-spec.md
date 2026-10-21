@@ -4407,3 +4407,51 @@ These are candidate lifecycle changes, not active native routing. Dedicated
 Docker helper supervision, source-volume identity, receipt transport,
 production enrollment, dependency rollout and the original broad acceptance
 remain unfinished.
+
+
+The first full local gate on `c8f6d116bbd285734ca5053e9ba938c21d5be206`
+failed after 504 s: the tests lane passed, but Rust stopped at the existing
+slow-removal actor fixture before its deletion step. The fixture estimated
+transition time as its pre-create time plus one second; concurrent setup
+advanced the committed creation time beyond that estimate. Seeding a stale
+caller time reproduced the same `act transition time` refusal without adding
+sleeps. The fixture now reads the committed post-create record and uses its
+time as a floor. Production monotonic checks, the slow deletion duration and
+terminal-state assertions remain unchanged. Primary review found no correctness
+issue in this correction; focused validation and the replacement full gate
+remain required. Failure evidence is retained under `/tmp/bosn-693/` in
+`recovery-helper-full-gate-failed.log`, `recovery-helper-gate-rust-full.log`
+and `recovery-helper-stale-fixture-red.log`.
+
+Act2's exact-merge full CI completed successfully on
+`11382a48807393c20dc33e4c9093311eb41057f1`. The clean default-branch checkout
+and absence of the next tag/release were verified before creating
+`v0.2.89-act2.20` at that SHA. Existing tag-triggered release run
+[39684898381](https://github.com/zackees/act2/actions/runs/39684898381)
+is building its assets. Tag publication is not artifact verification: all
+11 archives still need independent digest, size, checksum, executable-header
+and version checks before Bosn's pin can change.
+
+
+Release [act2.20](https://github.com/zackees/act2/releases/tag/v0.2.89-act2.20)
+completed successfully. All 11 archives matched independent GitHub asset
+SHA256/size metadata and the release checksum file; each extracted executable
+passed architecture/header and embedded-version checks. Linux x86_64 executed
+`--version` and `--ci-capabilities` in isolated containers with no network,
+read-only root and all capabilities dropped, reporting the exact release and
+both recovery capability contracts. The initial smoke fixture failed because
+the staged binary was owner-only; mode 0755 fixed container execution without
+changing its bytes or adding capabilities. Failed and successful evidence is
+retained. Each smoke container was proven absent afterward.
+
+Verified Linux archive SHA256:
+`659db39ad669f3a27773272ea0f19fff1ba54fcc1f582f75528c0e21e3fef69b`;
+executable SHA256:
+`6ca926480c332210b6c59159b3f9384df0c67efc2e4fd990af31760e2b6f30fe`.
+The candidate Bosn pin now names these values and act2.20; its full exact-source
+gate and PR rollout remain required. Verification records are
+`/tmp/bosn-693/act2-20-{pretag,metadata,verification,runtime-smoke}.json`.
+Cross-platform executable runtime smoke was not performed locally; their
+release binaries received static verification and full act2 CI passed on the
+exact source commit. This release/pin does not activate native Bosn recovery
+or satisfy the original full-workflow and storage acceptance.

@@ -110,9 +110,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // cache and cache budget (act2#67).
             // act2.19 allows 5 min (not 1) for job container cleanup, so a
             // large job's slow delete no longer fails green steps (#653).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.19/act_Linux_x86_64.tar.gz",
-            sha256: "52485b9b4a3adfb45a1173b9a37f2c2384c47ca611cab9b6a8e27153cd77d712",
-            binary_sha256: "deb9b45f54a876e7e452f8479f6131ec89edaac91c856ddae9404a7e9d8e88d7",
+            // act2.20 freezes native readiness and adds durable stopped-source
+            // delta publication and read-only overlay recovery (#508).
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.20/act_Linux_x86_64.tar.gz",
+            sha256: "659db39ad669f3a27773272ea0f19fff1ba54fcc1f582f75528c0e21e3fef69b",
+            binary_sha256: "6ca926480c332210b6c59159b3f9384df0c67efc2e4fd990af31760e2b6f30fe",
         }),
         _ => None,
     }
