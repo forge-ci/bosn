@@ -16,6 +16,12 @@ pub struct ActToolRecoveryIntent {
 }
 
 impl ActToolRecoveryIntent {
+    /// Unknown clock values must never release a recovery's source storage.
+    #[must_use]
+    pub fn is_live(&self, now: f64) -> bool {
+        !now.is_finite() || now < self.expires_at_seconds as f64
+    }
+
     fn from_record(record: &ActEngineRecord, created: i64, expires: i64) -> Result<Self, Error> {
         if created < 0 || expires <= created || expires - created > 86400 || expires > (1_i64 << 53)
         {

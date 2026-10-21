@@ -17,23 +17,11 @@ use bosn_registry::act::{
     ActEngineIntent, ActEngineRecord, ActToolRecoveryIntent, ActToolSourceStopProof,
 };
 
-/// A recovery reference protects the source volume only while it is live.
-///
-/// The lifetime is finite by construction (act2 caps it at 24 hours), so an
-/// expired reference is an **abandoned** recovery: the helper can no longer
-/// publish through it, and holding the private disk forever would wedge cleanup
-/// and leak the volume. Retention therefore ends at expiry rather than
-/// requiring a release transition that does not exist yet.
-fn reference_is_live(frozen: &ActToolRecoveryIntent, now: f64) -> bool {
-    (frozen.expires_at_seconds as f64) > now
-}
-
-/// A record still holding a live recovery reference keeps its source volume.
+/// Retain a live reference's source until publication and exact reference
+/// release are durable. Its finite lifetime (at most 24 hours) also bounds
+/// abandoned recovery, whose authority ends at expiry.
 pub(crate) fn source_retained_by_recovery(record: &ActEngineRecord) -> bool {
-    record
-        .tool_recovery
-        .as_ref()
-        .is_some_and(|frozen| reference_is_live(frozen, crate::act_runtime::now()))
+    record.retains_tool_recovery_source(crate::act_runtime::now())
 }
 
 /// Prove the frozen source volume is still present and still ours.
@@ -96,7 +84,8 @@ fn proof(
 /// returns without rewriting the timestamp. An expired intent cannot authorize
 /// recovery and needs no source-stop receipt: the caller has already proved
 /// engine absence, and ordinary storage removal still verifies exact ownership
-/// and Docker absence. This also permits retry after a lost removal reply.
+/// and Docker absence. A durably published and released recovery also skips
+/// this receipt, permitting retry after a lost storage-removal reply.
 pub(crate) async fn stop_source_writers(
     registry: &RegistryActor,
     engine: &DockerEngine,
@@ -106,7 +95,7 @@ pub(crate) async fn stop_source_writers(
     let Some(frozen) = record.tool_recovery.as_ref() else {
         return Ok(());
     };
-    if !reference_is_live(frozen, crate::act_runtime::now()) {
+    if !source_retained_by_recovery(record) {
         return Ok(());
     }
     if record.tool_recovery_reserved_at.is_none() {
@@ -229,11 +218,11 @@ mod tests {
         let intent = disk_intent();
         let frozen = frozen(&intent);
         // Live while the finite lifetime has not elapsed...
-        assert!(reference_is_live(&frozen, 19.0));
+        assert!(frozen.is_live(19.0));
         // ...and an abandoned reference releases the private source disk rather
         // than wedging cleanup forever.
-        assert!(!reference_is_live(&frozen, 20.0));
-        assert!(!reference_is_live(&frozen, 100_000.0));
+        assert!(!frozen.is_live(20.0));
+        assert!(!frozen.is_live(100_000.0));
     }
 
     #[test]
