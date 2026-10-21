@@ -91,9 +91,12 @@ fn proof(
 /// Observe retained source ownership and durably record the stop.
 ///
 /// Ordinary engines have no recovery intent and skip this phase entirely. A
-/// frozen intent that has not been acknowledged is a refusal, never a
+/// live intent that has not been acknowledged is a refusal, never a
 /// best-effort pass. An already-recorded stop re-verifies ownership and
-/// returns without rewriting the timestamp.
+/// returns without rewriting the timestamp. An expired intent cannot authorize
+/// recovery and needs no source-stop receipt: the caller has already proved
+/// engine absence, and ordinary storage removal still verifies exact ownership
+/// and Docker absence. This also permits retry after a lost removal reply.
 pub(crate) async fn stop_source_writers(
     registry: &RegistryActor,
     engine: &DockerEngine,
@@ -103,6 +106,9 @@ pub(crate) async fn stop_source_writers(
     let Some(frozen) = record.tool_recovery.as_ref() else {
         return Ok(());
     };
+    if !reference_is_live(frozen, crate::act_runtime::now()) {
+        return Ok(());
+    }
     if record.tool_recovery_reserved_at.is_none() {
         return Err(ActEngineError(
             "source stop requires an acknowledged recovery reservation".into(),
@@ -245,3 +251,7 @@ mod tests {
         assert!(proof(&intent, &frozen, Some(&"b".repeat(64))).is_err());
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "source_stop_tests.rs"]
+mod retirement_tests;
