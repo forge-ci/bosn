@@ -6,7 +6,7 @@ impl Immediate<'_> {
         &mut self,
         helper: &CacheHelperIntent,
     ) -> Result<(), Error> {
-        let Some(CacheHelperRole::ToolRecoveryV1 { run_id, intent }) = &helper.role else {
+        let Some(CacheHelperRole::ToolRecoveryV1 { run_id, intent, .. }) = &helper.role else {
             return Ok(());
         };
         let record = self

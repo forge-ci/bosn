@@ -20,6 +20,9 @@ pub enum CacheHelperRole {
     ToolRecoveryV1 {
         run_id: String,
         intent: act::ActToolRecoveryIntent,
+        /// Absent only in pre-transport recovery intents; never adopt their process.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command_sha256: Option<String>,
     },
 }
 
@@ -55,8 +58,14 @@ impl CacheHelperIntent {
         {
             return Err(Error::BadRow("cache helper intent"));
         }
-        if let Some(CacheHelperRole::ToolRecoveryV1 { run_id, intent }) = &self.role {
-            if !is_uuid(run_id)
+        if let Some(CacheHelperRole::ToolRecoveryV1 {
+            run_id,
+            intent,
+            command_sha256,
+        }) = &self.role
+        {
+            if command_sha256.as_ref().is_some_and(|hash| !hex_id(hash))
+                || !is_uuid(run_id)
                 || intent.schema_version != 1
                 || !hex_id(&intent.owner)
                 || !hex_id(&intent.generation)

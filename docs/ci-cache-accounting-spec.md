@@ -4455,3 +4455,64 @@ Cross-platform executable runtime smoke was not performed locally; their
 release binaries received static verification and full act2 CI passed on the
 exact source commit. This release/pin does not activate native Bosn recovery
 or satisfy the original full-workflow and storage acceptance.
+
+### Recovery helper inspection and restart cleanup (candidate, #508, 2026-10-21)
+
+Bosn #697 merged at `bc6871d0ab0bbef73312fec184c098bb5525d25d`, after its
+replacement full gate passed in 213 s (Rust 210 s). Exact stamped head
+`a7dea745c465051961225faa913ba846879cda5b` was verified before push. Remote
+checks finished with nine successes and five configured skips; local Rust
+coverage was carried by its verified attestation. The original checkout was
+rebased to main and its task branch and watcher file removed.
+
+The actual released act2.20 CLI also passed a six-phase controlled fixture:
+prepare, recover, data/mode verification, source-free identical receipt retry,
+reference release and old-generation retirement. A random 16 MiB metadata-only
+payload, its recovered mode/settings, a newer Node update, incomplete-install
+exclusion and the unchanged original lower were checked. Both labelled volumes
+and all fixture containers were removed and absence verified. Evidence is
+`/tmp/bosn-693/released-overlay-proof.{py,json,log}`. This supplies source
+ownership/quiescence manually and does not prove ordinary Bosn orchestration.
+
+The next candidate replaces the helper supervisor's maintenance boolean with
+explicit measurement, maintenance and recovery profiles. A recovery intent
+may carry `command_sha256`, the SHA256 of the canonical JSON tuple of its
+entrypoint and argument vectors. An omitted historical binding remains
+readable, but never authorizes adopting a process. Aged pending-name absence
+and acknowledged immutable-ID absence are proved before requiring an adoptable
+command, so those historical intents can be retired safely without stopping
+an unknown process. Recent uncertain creates remain pending.
+
+Recovery inspection requires its own nonce/ownership scope and exactly two
+local named writable volume mounts: its frozen shared cache at `/bosn/cache`
+and source disk at `/var/lib/docker`. The merged overlay view remains read-only;
+the source mount permits the kernel's overlay work-directory operations. The
+profile also requires a read-only root, no network, private PID namespace,
+explicitly disabled init, automatic removal, no restart policy, 512 MiB memory,
+two CPUs, 128 pids, the shared low CPU weight and executable 64 MiB `/tmp`.
+The inspected entrypoint/arguments must match their durable digest. Inspection
+input is bounded to 64 KiB, including for the existing helper roles.
+
+The new identity regression first failed because the command binding was not
+supported. Mutation cases now refuse foreign/missing/extra/swapped mounts,
+changed commands, nonce, resource and isolation settings. Eleven restart cases
+exercise pending and acknowledged helpers, lost removal replies, wrong source
+or command, unreadable Docker state, recent/aged uncertain creates, known
+absent IDs and active in-process exclusion. The first restart-fixture attempt
+correctly refused its mismatched cache-volume identity; the fixture was fixed
+to use the frozen source record rather than weakening validation.
+
+A real Docker create/inspect probe matched the typed profile, including
+`--init=false` and Docker's actual resource/mount representation. It was never
+started; its exact container and both labelled volumes were removed without
+forcing volume deletion and their absence was verified. The opt-in Rust test
+was actually executed against the captured inspection and passed. Ordinary CI
+leaves that hardware-fixture test explicitly ignored. Probe evidence is under
+`/tmp/bosn-693/recovery-profile-*`.
+
+Dedicated helper program creation, source ownership/liveness probes around
+startup, receipt transport and durable publication/reference-release ordering
+are still to be wired. Native routing remains Legacy. Focused service/registry suites, all-target
+Clippy and the sole primary review passed. The full exact-source gate remains
+required before pushing this candidate. None of
+these primitive/helper proofs closes the original broad #508 acceptance.
