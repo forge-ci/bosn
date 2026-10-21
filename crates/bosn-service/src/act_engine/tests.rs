@@ -593,7 +593,8 @@ else: sys.exit(9)
             let (sender, receiver) = async_engine::channel(16);
             let actor = RegistryActor { sender };
             let task = async_engine::launch(crate::registry_actor(writer, receiver, None));
-            let at = crate::act_runtime::now();
+            // Setup can advance the registry past a caller's initial timestamp.
+            let at = crate::act_runtime::now() - 2.0;
             let created = create_owned_engine(
                 &actor,
                 &engine,
@@ -608,13 +609,23 @@ else: sys.exit(9)
                 assert!(created.is_err());
             } else {
                 let observed = created.unwrap();
+                let ActRegistryReply::Record(Some(committed)) = actor
+                    .act_registry(ActRegistryCommand::Get {
+                        run: intent().run_id,
+                    })
+                    .await
+                    .unwrap()
+                else {
+                    panic!("created engine record missing");
+                };
+                let at = committed.updated_at.max(crate::act_runtime::now());
                 let token = "12345678-1234-4234-8234-123456789abc";
                 actor
                     .act_registry(ActRegistryCommand::Claim {
                         intent: intent(),
                         observed: observed.clone(),
                         token: token.into(),
-                        at: at + 1.0,
+                        at,
                     })
                     .await
                     .unwrap();
@@ -623,7 +634,7 @@ else: sys.exit(9)
                         run: intent().run_id,
                         token: token.into(),
                         outcome: ActRunOutcome::Passed,
-                        at: at + 1.0,
+                        at,
                     })
                     .await
                     .unwrap();
@@ -632,12 +643,12 @@ else: sys.exit(9)
                         run: intent().run_id,
                         token: token.into(),
                         outcome: ActRunOutcome::Passed,
-                        at: at + 1.0,
+                        at,
                     })
                     .await
                     .unwrap();
                 assert_eq!(
-                    remove_owned_engine(&actor, &engine, &intent().run_id, observed, at + 1.0)
+                    remove_owned_engine(&actor, &engine, &intent().run_id, observed, at)
                         .await
                         .is_ok(),
                     matches!(mode, "success" | "slow-remove")

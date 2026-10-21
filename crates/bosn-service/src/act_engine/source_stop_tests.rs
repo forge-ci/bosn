@@ -116,6 +116,8 @@ fn expiry_never_bypasses_ownership_liveness_or_failed_observation() {
         "engine-list-failed",
         "volume-list-failed",
         "published",
+        "pending-helper",
+        "created-helper",
     ] {
         check_retirement(mode);
     }
@@ -174,6 +176,10 @@ fn check_retirement(mode: &str) {
     let (mut registry, mut record) = fixture(&database, live, acknowledged);
     if mode.starts_with("released") || mode == "published" {
         record_publication(&mut registry, &record, mode.starts_with("released"));
+        record = registry.act_engine(&record.intent.run_id).unwrap().unwrap();
+    }
+    if mode.ends_with("-helper") {
+        record_recovery_helper(&mut registry, &record, mode == "created-helper");
         record = registry.act_engine(&record.intent.run_id).unwrap().unwrap();
     }
     let DockerFixture { engine, state, log } = docker_fixture(dir.path(), mode, &record);
@@ -277,6 +283,43 @@ fn record_publication(registry: &mut Registry, record: &ActEngineRecord, release
     .unwrap();
     if release {
         tx.release_act_tool_recovery(&record.intent.run_id, intent, record.updated_at + 0.3)
+            .unwrap();
+    }
+    tx.commit().unwrap();
+}
+
+fn record_recovery_helper(registry: &mut Registry, record: &ActEngineRecord, created: bool) {
+    use crate::act_engine::tests::OWNER;
+    use bosn_registry::cache_helper::{CacheHelperIntent, CacheHelperRole};
+    let frozen = record.tool_recovery.clone().unwrap();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.record_act_tool_source_stopped(
+        &record.intent.run_id,
+        &ActToolSourceStopProof {
+            engine_name: record.intent.engine_name(),
+            engine_id: frozen.engine_id.clone(),
+            source_volume: frozen.source_volume.clone(),
+        },
+        4.3,
+    )
+    .unwrap();
+    let helper = CacheHelperIntent {
+        registry_id: OWNER.into(),
+        nonce: "11111111-2222-4333-8444-555555555508".into(),
+        volume: frozen.cache_volume.clone(),
+        image: format!(
+            "docker.io/library/docker@{}",
+            record.intent.engine_image_digest
+        ),
+        created_at: 4.4,
+        role: Some(CacheHelperRole::ToolRecoveryV1 {
+            run_id: record.intent.run_id.clone(),
+            intent: frozen,
+        }),
+    };
+    tx.begin_cache_helper(&helper).unwrap();
+    if created {
+        tx.register_cache_helper(&helper.nonce, &"e".repeat(64), 4.5)
             .unwrap();
     }
     tx.commit().unwrap();

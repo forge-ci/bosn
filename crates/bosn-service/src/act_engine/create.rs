@@ -587,7 +587,7 @@ pub async fn remove_owned_engine(
         }
     }
     crate::act_engine::stop_source_writers(registry, engine, &record, &record.registry_id).await?;
-    remove_storage_volume(engine, &record, &record.registry_id).await?;
+    let disposal_at = remove_storage_volume(registry, engine, &record, &record.registry_id).await?;
     remove_socket_dir(&record.intent);
     registry
         .act_registry(ActRegistryCommand::Finalize {
@@ -597,7 +597,7 @@ pub async fn remove_owned_engine(
                 name: observed.name,
                 engine_id: Some(observed.engine_id),
             },
-            at,
+            at: at.max(disposal_at),
         })
         .await
         .map_err(|e| ActEngineError(e.to_string()))?;

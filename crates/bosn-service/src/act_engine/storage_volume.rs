@@ -136,16 +136,37 @@ pub(crate) async fn ensure_storage_volume(
 /// early deletion; expiry permits bounded abandonment. Exact ownership and
 /// Docker absence are required on either path.
 pub(crate) async fn remove_storage_volume(
+    registry: &RegistryActor,
     engine: &DockerEngine,
     record: &ActEngineRecord,
     owner: &str,
-) -> Result<(), ActEngineError> {
+) -> Result<f64, ActEngineError> {
     if super::source_retained_by_recovery(record) {
         return Err(ActEngineError(
             "native tool recovery retains the private source volume".into(),
         ));
     }
-    remove_private_storage(engine, &record.intent, owner).await
+    let mut disposal_at = record.updated_at;
+    if record.tool_recovery.is_some() {
+        disposal_at = crate::act_runtime::now().max(record.updated_at);
+        match registry
+            .act_registry(ActRegistryCommand::ToolRecoverySourceDisposal {
+                run: record.intent.run_id.clone(),
+                at: disposal_at,
+            })
+            .await
+            .map_err(|e| ActEngineError(format!("recovery source disposal: {e}")))?
+        {
+            ActRegistryReply::Committed => (),
+            _ => {
+                return Err(ActEngineError(
+                    "recovery source disposal reply differs".into(),
+                ));
+            }
+        }
+    }
+    remove_private_storage(engine, &record.intent, owner).await?;
+    Ok(disposal_at)
 }
 
 /// Exact named storage only. Attached volumes are refused by Docker; removal

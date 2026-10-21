@@ -124,6 +124,10 @@ pub enum ActRegistryCommand {
     MaintenanceRecord(bosn_registry::cache_maintenance::MaintenanceSnapshot),
     MaintenanceLatest,
     HelperBegin(bosn_registry::cache_helper::CacheHelperIntent),
+    ToolRecoverySourceDisposal {
+        run: String,
+        at: f64,
+    },
     HelperRegister {
         nonce: String,
         id: String,
@@ -383,6 +387,10 @@ pub(crate) fn apply(
         )),
         ActRegistryCommand::Finalize { run, proof, at } => {
             transaction.finalize_act_cleanup(&run, &proof, at)?;
+            ActRegistryReply::Committed
+        }
+        ActRegistryCommand::ToolRecoverySourceDisposal { run, at } => {
+            transaction.claim_act_tool_source_disposal(&run, at)?;
             ActRegistryReply::Committed
         }
         ActRegistryCommand::HelperBegin(intent) => {

@@ -254,7 +254,7 @@ pub(crate) async fn retire_engine(
         crate::act_engine::stop_source_writers(registry, engine, record, owner)
             .await
             .map_err(|e| error(format!("source stop: {e}")))?;
-        crate::act_engine::remove_storage_volume(engine, record, owner)
+        let disposal_at = crate::act_engine::remove_storage_volume(registry, engine, record, owner)
             .await
             .map_err(|e| error(format!("storage removal: {e}")))?;
         crate::act_engine::remove_socket_dir(intent);
@@ -266,7 +266,7 @@ pub(crate) async fn retire_engine(
                     name,
                     engine_id: record.engine_id.clone(),
                 },
-                at: now().max(record.updated_at),
+                at: now().max(record.updated_at).max(disposal_at),
             })
             .await
             .map_err(|e| error(format!("finalize: {e}")))?;

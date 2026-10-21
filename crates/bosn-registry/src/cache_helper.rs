@@ -5,16 +5,22 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+mod recovery;
+
 const PREFIX: &str = "ci.cache-helper.v1:";
 const RECORD_BYTES: usize = 4096;
 pub const MAX_HELPER_PAGE: usize = 64;
 /// Docker control deadline (30 s) plus ten minutes for a late create to settle.
 pub const LATE_CREATE_WINDOW_SECS: f64 = 630.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CacheHelperRole {
     MaintenanceV1,
+    ToolRecoveryV1 {
+        run_id: String,
+        intent: act::ActToolRecoveryIntent,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -31,10 +37,10 @@ pub struct CacheHelperIntent {
 
 impl CacheHelperIntent {
     pub fn name(&self) -> String {
-        let role = if self.role.is_some() {
-            "maintain"
-        } else {
-            "measure"
+        let role = match &self.role {
+            None => "measure",
+            Some(CacheHelperRole::MaintenanceV1) => "maintain",
+            Some(CacheHelperRole::ToolRecoveryV1 { .. }) => "recover",
         };
         format!("bosn-cache-{role}-{}", self.nonce)
     }
@@ -48,6 +54,27 @@ impl CacheHelperIntent {
             || digest.is_none_or(|digest| !hex_id(digest))
         {
             return Err(Error::BadRow("cache helper intent"));
+        }
+        if let Some(CacheHelperRole::ToolRecoveryV1 { run_id, intent }) = &self.role {
+            if !is_uuid(run_id)
+                || intent.schema_version != 1
+                || !hex_id(&intent.owner)
+                || !hex_id(&intent.generation)
+                || !hex_id(&intent.engine_id)
+                || intent.cache_volume != self.volume
+                || intent.source_volume == self.volume
+                || intent.created_at_seconds < 0
+                || intent.expires_at_seconds <= intent.created_at_seconds
+                || intent.expires_at_seconds - intent.created_at_seconds > 86400
+                || intent.expires_at_seconds > (1_i64 << 53)
+            {
+                return Err(Error::BadRow("recovery helper frozen source"));
+            }
+            act::ActEngineCacheVolume {
+                name: intent.source_volume.clone(),
+                target: "/source".into(),
+            }
+            .validate()?;
         }
         act::ActEngineCacheVolume {
             name: self.volume.clone(),
@@ -168,6 +195,7 @@ impl Immediate<'_> {
         if self.helper_record(&intent.nonce)?.is_some() {
             return Err(Error::BadRow("cache helper nonce already used"));
         }
+        self.validate_recovery_helper_admission(intent)?;
         self.store_helper(&CacheHelperRecord {
             schema_version: 1,
             intent: intent.clone(),
