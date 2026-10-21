@@ -55,6 +55,57 @@ fn inspect(document: &serde_json::Value) -> String {
 }
 
 #[test]
+fn release_identity_is_source_free_and_drops_every_capability() {
+    use bosn_registry::cache_helper::CacheHelperRole;
+    let (mut intent, mut document) = fixture();
+    let Some(CacheHelperRole::ToolRecoveryV1 {
+        run_id,
+        intent: frozen,
+        command_sha256,
+    }) = intent.role.take()
+    else {
+        panic!("recovery role missing");
+    };
+    intent.role = Some(CacheHelperRole::ToolRecoveryReleaseV1 {
+        run_id,
+        intent: frozen,
+        command_sha256: command_sha256.unwrap(),
+    });
+    let identity = Identity::from_intent(&intent).unwrap();
+    let mut labels = identity.ownership.clone();
+    labels.insert(identity.label_key().into(), identity.nonce.clone());
+    document["Name"] = format!("/{}", intent.name()).into();
+    document["Config"]["Labels"] = serde_json::to_value(labels).unwrap();
+    let source = document["Mounts"][1].clone();
+    document["Mounts"].as_array_mut().unwrap().truncate(1);
+    document["HostConfig"]["Privileged"] = false.into();
+    document["HostConfig"]["CapDrop"] = serde_json::json!(["ALL"]);
+    document["HostConfig"]["Tmpfs"]["/var/lib/docker"] = "ro,noexec,size=1m".into();
+    assert!(identity.verify(&inspect(&document), &intent.volume).is_ok());
+    for (field, value) in [
+        ("Privileged", serde_json::json!(true)),
+        ("CapDrop", serde_json::json!([])),
+        ("CapDrop", serde_json::Value::Null),
+        ("Init", serde_json::json!(true)),
+        ("Tmpfs", serde_json::json!({"/tmp":"exec,size=64m"})),
+    ] {
+        let mut changed = document.clone();
+        changed["HostConfig"][field] = value;
+        assert!(
+            identity.verify(&inspect(&changed), &intent.volume).is_err(),
+            "{field}"
+        );
+    }
+    document["Mounts"].as_array_mut().unwrap().push(source);
+    assert!(
+        identity
+            .verify(&inspect(&document), &intent.volume)
+            .is_err(),
+        "source mount must be refused"
+    );
+}
+
+#[test]
 fn exact_recovery_identity_requires_both_volumes_and_frozen_pid1() {
     let (intent, document) = fixture();
     let identity = Identity::from_intent(&intent).unwrap();

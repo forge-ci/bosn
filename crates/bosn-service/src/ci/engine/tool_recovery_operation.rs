@@ -1,0 +1,120 @@
+//! Phase-specific program and receipt authority for one journaled helper.
+use super::{RecoveryPin, require_publication, require_release};
+use crate::{
+    RegistryActor,
+    act_registry::{ActRegistryCommand, ActRegistryReply},
+    ci::engine::ENGINE_CACHE,
+};
+use bosn_registry::{
+    act::{ActEngineRecord, ActToolRecoveryPublicationProof},
+    cache_helper::{CacheHelperRole, RecoveryHelperPhase},
+};
+
+pub(super) use bosn_registry::cache_helper::RecoveryHelperPhase as Operation;
+
+#[derive(Debug)]
+pub(super) enum Receipt {
+    Published { generation: String, at: f64 },
+    Released,
+}
+
+impl Receipt {
+    pub(super) async fn commit(
+        self,
+        registry: &RegistryActor,
+        record: &ActEngineRecord,
+    ) -> Result<(), String> {
+        let intent = record
+            .tool_recovery
+            .clone()
+            .ok_or("tool recovery intent missing")?;
+        let run = record.intent.run_id.clone();
+        let command = match self {
+            Self::Published { generation, at } => ActRegistryCommand::ToolRecoveryPublished {
+                run,
+                proof: ActToolRecoveryPublicationProof { intent, generation },
+                at,
+            },
+            Self::Released => ActRegistryCommand::ToolRecoveryReleased {
+                run,
+                intent,
+                at: crate::ci::lifecycle::now_seconds().max(record.updated_at),
+            },
+        };
+        match registry
+            .act_registry(command)
+            .await
+            .map_err(|e| format!("tool recovery acknowledgement needs reconciliation: {e}"))?
+        {
+            ActRegistryReply::Committed => Ok(()),
+            _ => Err("tool recovery acknowledgement reply mismatch".into()),
+        }
+    }
+}
+
+pub(super) fn already_completed(
+    operation: Operation,
+    record: &ActEngineRecord,
+) -> Result<bool, String> {
+    match operation {
+        Operation::Publish => Ok(record.tool_recovery_completion.is_some()),
+        Operation::Release => record
+            .tool_recovery_completion
+            .as_ref()
+            .map(|done| done.reference_released_at.is_some())
+            .ok_or_else(|| "reference release requires durable publication".into()),
+    }
+}
+
+pub(super) fn role(
+    operation: Operation,
+    record: &ActEngineRecord,
+    command: String,
+) -> Result<CacheHelperRole, String> {
+    let run_id = record.intent.run_id.clone();
+    let intent = record
+        .tool_recovery
+        .clone()
+        .ok_or("tool recovery intent missing")?;
+    Ok(match operation {
+        Operation::Publish => CacheHelperRole::ToolRecoveryV1 {
+            run_id,
+            intent,
+            command_sha256: Some(command),
+        },
+        Operation::Release => CacheHelperRole::ToolRecoveryReleaseV1 {
+            run_id,
+            intent,
+            command_sha256: command,
+        },
+    })
+}
+
+pub(super) fn receipt(
+    operation: Operation,
+    text: &str,
+    record: &ActEngineRecord,
+) -> Result<Receipt, String> {
+    let frozen = record
+        .tool_recovery
+        .as_ref()
+        .ok_or("tool recovery intent missing")?;
+    let pin = RecoveryPin::from_intent(frozen)?;
+    let root = format!("{ENGINE_CACHE}/toolstore-v1");
+    match operation {
+        RecoveryHelperPhase::Publish => {
+            let (generation, at) = require_publication(
+                text,
+                &pin,
+                &root,
+                record.updated_at,
+                crate::ci::lifecycle::now_seconds(),
+            )?;
+            Ok(Receipt::Published { generation, at })
+        }
+        RecoveryHelperPhase::Release => {
+            require_release(text, &pin, &root)?;
+            Ok(Receipt::Released)
+        }
+    }
+}

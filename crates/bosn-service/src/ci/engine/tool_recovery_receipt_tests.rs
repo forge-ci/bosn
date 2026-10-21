@@ -2,6 +2,44 @@
 use super::*;
 
 #[test]
+fn reference_release_requires_exact_durable_absence_even_on_retry() {
+    let pin = RecoveryPin {
+        schema_version: 1,
+        owner: "a".repeat(64),
+        generation: "b".repeat(64),
+        created_at: "2026-10-21T00:00:00Z".into(),
+        expires_at: "2026-10-21T01:00:00Z".into(),
+    };
+    let report = serde_json::json!({"schema_version":1,"root":"/bosn/cache/toolstore-v1",
+        "pin":pin,"removed":true,"absent":true,"partial":false});
+    let check = |row: &serde_json::Value| {
+        require_release(&row.to_string(), &pin, "/bosn/cache/toolstore-v1")
+    };
+    assert!(check(&report).is_ok());
+    let mut retry = report.clone();
+    retry["removed"] = false.into();
+    assert!(
+        check(&retry).is_ok(),
+        "durable absence on an identical retry is sufficient"
+    );
+    for (field, value) in [
+        ("absent", serde_json::json!(false)),
+        ("partial", serde_json::json!(true)),
+        ("schema_version", serde_json::json!(2)),
+        ("root", serde_json::json!("/foreign")),
+        ("pin", serde_json::json!({})),
+        ("error", serde_json::json!("directory sync failed")),
+        ("unknown", serde_json::json!(true)),
+    ] {
+        let mut changed = report.clone();
+        changed[field] = value;
+        assert!(check(&changed).is_err(), "{field}: {changed}");
+    }
+    assert!(require_release(&" ".repeat(4097), &pin, "root").is_err());
+    assert!(require_release(&format!("{report}\n{report}"), &pin, "root").is_err());
+}
+
+#[test]
 fn publication_receipts_refuse_partial_foreign_and_out_of_lifetime_results() {
     let pin = RecoveryPin {
         schema_version: 1,
