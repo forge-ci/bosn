@@ -4516,3 +4516,90 @@ are still to be wired. Native routing remains Legacy. Focused service/registry s
 Clippy and the sole primary review passed. The full exact-source gate remains
 required before pushing this candidate. None of
 these primitive/helper proofs closes the original broad #508 acceptance.
+
+### Dedicated PID1 publication transport (candidate, #508, 2026-10-21)
+
+Bosn #698 merged the preceding inspection/restart-cleanup work at
+`06125d9c` after its full local gate passed in 513 seconds (Rust 513s,
+Linux 477s), with stamped `0f3c6db1414f` verified before push. The original
+checkout returned to `main` and rebased after merge. This candidate continues
+in that original checkout; no additional Bosn worktree was created.
+
+`DockerActBackend::recover_tool_with_helper` now reads the durable record and
+creates a dedicated two-volume recovery helper. It checks the absent source
+engine by both frozen ID and name and verifies the private source's exact
+ownership through the same predicate terminal storage cleanup uses. It checks
+both source and shared-cache ownership again after Docker create, since a
+named-volume mount could otherwise recreate a deleted volume. The helper
+journal commits before Docker create and excludes concurrent source disposal.
+The canonical helper name is independently inspected against the full frozen
+profile before accepting its immutable ID; a wrong or lost create reply never
+registers an arbitrary ID or starts recovery. Recovery and reaping share the
+same active-helper guard and durable journal.
+
+Act is extracted offline from its pinned archive under a shared archive lock;
+both archive and executable digests are checked. The extracted executable and
+control record live in `/tmp/bosn-recovery`, away from the retained private
+source disk. The descriptor is closed before the shell execs act as PID1,
+with `--init=false`; there is no keepalive supervisor or `docker exec` recovery
+process. The helper has no network and no download fallback. It uses the
+existing strict privileged recovery profile, a read-only root, a bounded
+executable tmpfs, low CPU shares and fixed CPU/memory/PID limits.
+
+The typed, closed publication receipt must match the complete frozen pin and
+store, carry a canonical generation ID, and report complete/non-partial work
+without errors or pending stages. Its timestamp must be within the original
+finite reference lifetime, no earlier than the durable source-stop state and
+no later than observation. The helper must then be explicitly absent before
+publication is committed. The journal finish follows that commit, preserving
+the disposal fence during an uncertain database acknowledgement. A durably
+completed record never starts publication again. Neither this method nor its
+cleanup releases the recovery reference or removes either named volume.
+
+Evidence and failures:
+
+- The focused receipt test first failed because the parser did not exist, then
+  passed. Fault-injected Docker transport exercised the actual registry actor
+  and journal across successful publication, partial/mismatched/trailing
+  receipts, failed start, changed source ownership, wrong/lost create replies,
+  foreign commands, cleanup denial/lost removal replies and a present source
+  engine. These cases passed before expanding the matrix to 16 cases, including
+  mixed source/helper/removal errors and oversized receipt output. The mixed
+  source-error case first failed: a not-found line alongside permission denial
+  was incorrectly accepted. Shared absence/removal checks now require the
+  existing stricter `CommandResult::reports_missing` verdict, preserving the
+  journal on mixed diagnostics. The final live run also passed after this fix.
+- The first actual Docker transport run failed: released act2.20 refused Bosn's
+  stale `f6f345…` producer recipe pin. Independent rendering of the pinned
+  act2 source and the released fixture both yielded
+  `fa1d1738cdd1cc9efb8a7ba10c6ca580de21d2e18ea3a75a79492201ab1e9af9`.
+  The pin now matches those exact bytes. Unknown historical bindings remain
+  refused; no frozen record is rewritten. Normal routing had not activated
+  the old binding. Failure evidence and successful cleanup are retained in
+  `/tmp/bosn-693/live-publication-proof-recipe-red.json`.
+- The replacement actual Docker run passed all four phases: prepare the stopped
+  overlay, stage the verified offline archive, execute the real Rust helper
+  transport, and independently verify the published generation. The helper
+  `2978736e89289f407b7c3302ad097c7adf84121fc2d7751269cd0d54aaa6c389`
+  was absent and its journal `removed`; durable completion named generation
+  `ce9d9ca17ff7ec8e22d5772ba69d537ff00b4d4266f1501b9bb3e559a71b8307`,
+  while reference release and source disposal remained unset. Verification
+  checked the recovered payload/mode/settings, preservation of a newer Node
+  install, incomplete-install exclusion, an unchanged original lower and
+  retained protection. All fixture containers and both volumes were removed
+  with ownership checks and explicit absence verification. Evidence:
+  `/tmp/bosn-693/live-publication-proof.{py,json}` and
+  `live-publication-proof-final.log`. The opt-in Rust test was actually run in
+  a separate isolated container; ordinary CI explicitly ignores this fixture.
+
+The live fixture manually supplies source quiescence and reservation setup;
+it does not prove ordinary enrollment or retirement orchestration. Native
+routing remains Legacy. Reference-release transport, bounded recovery
+scheduling, normal lifecycle activation and the original broad storage,
+expiry, large/concurrent/corruption and full-workflow acceptance remain open.
+This candidate does not close #508. Final focused recovery validation passed
+(3 tests plus the separately executed live opt-in); cache helper validation
+passed (23 tests, 5 explicit opt-ins ignored). All-target Clippy passed after
+extracting one overlong test function without dropping assertions. The sole
+primary review found no remaining correctness issues. Full exact-source gate
+evidence is still required before pushing and will be recorded on the PR.

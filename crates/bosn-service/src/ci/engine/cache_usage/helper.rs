@@ -8,6 +8,7 @@ use super::{CONTROL_DEADLINE, DockerActBackend, engine_image, owned};
 #[path = "helper_profile.rs"]
 mod profile;
 use profile::Profile;
+pub(in crate::ci::engine) use profile::command_sha256;
 
 pub(in crate::ci::engine) struct Identity {
     pub name: String,
@@ -226,7 +227,7 @@ impl DockerActBackend {
             .await
             .map_err(|error| format!("measurement container {id} absence is unproven: {error}"))?;
         let detail = String::from_utf8_lossy(&result.stderr).to_ascii_lowercase();
-        if !result.ok()
+        if result.reports_missing()
             && (detail.contains("no such container:") || detail.contains("no such object:"))
         {
             return Ok(());
@@ -308,4 +309,4 @@ mod recovery_identity_tests;
 
 #[cfg(all(test, unix))]
 #[path = "recovery_cleanup_tests.rs"]
-mod recovery_cleanup_tests;
+pub(in crate::ci::engine) mod recovery_cleanup_tests;

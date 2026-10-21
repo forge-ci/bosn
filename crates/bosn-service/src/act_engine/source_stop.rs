@@ -29,7 +29,7 @@ pub(crate) fn source_retained_by_recovery(record: &ActEngineRecord) -> bool {
 /// The expected name comes from the frozen intent, not from Docker's answer, so
 /// an inspect that reports a different volume is a refusal rather than a
 /// substitution.
-fn verify_retained_source(
+pub(crate) fn verify_retained_source(
     document: &[u8],
     intent: &ActEngineIntent,
     frozen: &ActToolRecoveryIntent,

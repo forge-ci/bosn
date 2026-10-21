@@ -4,6 +4,13 @@ use bosn_registry::act::ActEngineRecord;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+#[path = "tool_recovery_helper.rs"]
+mod helper;
+
+#[cfg(test)]
+#[path = "tool_recovery_receipt_tests.rs"]
+mod receipt_tests;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecoveryPin {
@@ -12,6 +19,91 @@ struct RecoveryPin {
     generation: String,
     created_at: String,
     expires_at: String,
+}
+
+impl RecoveryPin {
+    fn from_intent(intent: &bosn_registry::act::ActToolRecoveryIntent) -> Result<Self, String> {
+        let timestamp = |seconds| -> Result<String, String> {
+            time::OffsetDateTime::from_unix_timestamp(seconds)
+                .map_err(|e| format!("tool recovery timestamp: {e}"))?
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(|e| format!("tool recovery timestamp: {e}"))
+        };
+        Ok(Self {
+            schema_version: 1,
+            owner: intent.owner.clone(),
+            generation: intent.generation.clone(),
+            created_at: timestamp(intent.created_at_seconds)?,
+            expires_at: timestamp(intent.expires_at_seconds)?,
+        })
+    }
+
+    fn encoded(&self) -> Result<String, String> {
+        let encoded = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        // Fixed keys, canonical hex and RFC3339 timestamps are shell-safe.
+        if encoded.len() > 1024 || encoded.contains('\'') {
+            return Err("tool recovery intent encoding invalid".into());
+        }
+        Ok(encoded)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicationReport {
+    schema_version: u32,
+    root: String,
+    pin: RecoveryPin,
+    generation: String,
+    completed_at: String,
+    completed: bool,
+    partial: bool,
+    #[serde(default)]
+    error: String,
+    #[serde(default)]
+    pending_stage: String,
+}
+
+fn require_publication(
+    text: &str,
+    pin: &RecoveryPin,
+    root: &str,
+    earliest: f64,
+    observed: f64,
+) -> Result<(String, f64), String> {
+    if text.len() > 4096 {
+        return Err("tool recovery publication receipt exceeds bound".into());
+    }
+    let report: PublicationReport = serde_json::from_str(text)
+        .map_err(|e| format!("tool recovery publication receipt: {e}"))?;
+    let timestamp = |value: &str| -> Result<f64, String> {
+        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+            .map(|at| at.unix_timestamp_nanos() as f64 / 1e9)
+            .map_err(|e| format!("tool recovery publication time: {e}"))
+    };
+    let at = timestamp(&report.completed_at)?;
+    if report.schema_version != 1
+        || report.root != root
+        || report.pin != *pin
+        || report.generation.len() != 64
+        || !report
+            .generation
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || !report.completed
+        || report.partial
+        || !report.error.is_empty()
+        || !report.pending_stage.is_empty()
+        || !earliest.is_finite()
+        || !observed.is_finite()
+        || at < earliest
+        || at > observed
+        || at < timestamp(&pin.created_at)?
+        || at >= timestamp(&pin.expires_at)?
+    {
+        return Err("tool recovery publication differs, is partial or outside its lifetime".into());
+    }
+    Ok((report.generation, at))
 }
 
 #[derive(Deserialize)]
@@ -77,24 +169,8 @@ impl DockerActBackend {
         {
             return Err("tool recovery cache mount differs from producer".into());
         }
-        let timestamp = |seconds| -> Result<String, String> {
-            time::OffsetDateTime::from_unix_timestamp(seconds)
-                .map_err(|e| format!("tool recovery timestamp: {e}"))?
-                .format(&time::format_description::well_known::Rfc3339)
-                .map_err(|e| format!("tool recovery timestamp: {e}"))
-        };
-        let pin = RecoveryPin {
-            schema_version: 1,
-            owner: intent.owner.clone(),
-            generation: intent.generation.clone(),
-            created_at: timestamp(intent.created_at_seconds)?,
-            expires_at: timestamp(intent.expires_at_seconds)?,
-        };
-        let encoded = serde_json::to_string(&pin).map_err(|e| e.to_string())?;
-        // All content is canonical hex, fixed keys and formatted timestamps.
-        if encoded.len() > 1024 || encoded.contains('\'') {
-            return Err("tool recovery intent encoding invalid".into());
-        }
+        let pin = RecoveryPin::from_intent(intent)?;
+        let encoded = pin.encoded()?;
         let path = format!("{ENGINE_WORK}/tool-recovery-intent.json");
         let root = format!("{ENGINE_CACHE}/toolstore-v1");
         let max = record
