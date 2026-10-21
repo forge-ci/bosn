@@ -71,18 +71,18 @@ impl DockerActBackend {
         registry: &RegistryActor,
         record: &CacheHelperRecord,
     ) -> Result<(), String> {
-        let identity = Identity::from_intent(&record.intent)?;
         let tracker = Tracker::new(registry, &record.intent.nonce);
         if record.state == CacheHelperState::Pending {
             if crate::ci::lifecycle::now_seconds() - record.intent.created_at
                 >= LATE_CREATE_WINDOW_SECS
                 && self
-                    .confirm_measurement_absent(&identity.name)
+                    .confirm_measurement_absent(&record.intent.name())
                     .await
                     .is_ok()
             {
                 return tracker.finish_absent().await;
             }
+            let identity = Identity::from_intent(&record.intent)?;
             return self
                 .recover_measurement(&identity, &record.intent.volume, Some(&tracker))
                 .await;
@@ -100,6 +100,7 @@ impl DockerActBackend {
             self.confirm_measurement_absent(id).await?;
             return tracker.finish(id).await;
         }
+        let identity = Identity::from_intent(&record.intent)?;
         let observed = identity.verify(
             &String::from_utf8_lossy(&result.stdout),
             &record.intent.volume,

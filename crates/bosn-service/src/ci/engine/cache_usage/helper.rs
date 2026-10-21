@@ -5,15 +5,16 @@ use std::collections::BTreeMap;
 
 use super::{CONTROL_DEADLINE, DockerActBackend, engine_image, owned};
 
-const LABEL: &str = "io.bosn.cache.measurement";
-const MAINTENANCE_LABEL: &str = "io.bosn.cache.maintenance";
+#[path = "helper_profile.rs"]
+mod profile;
+use profile::Profile;
 
 pub(in crate::ci::engine) struct Identity {
     pub name: String,
     pub(in crate::ci::engine) nonce: String,
     image: String,
     ownership: BTreeMap<String, String>,
-    maintenance: bool,
+    profile: Profile,
 }
 
 impl Identity {
@@ -26,16 +27,12 @@ impl Identity {
             nonce,
             image: engine_image(),
             ownership: BTreeMap::new(),
-            maintenance: false,
+            profile: Profile::Measurement,
         })
     }
 
     fn label_key(&self) -> &str {
-        if self.maintenance {
-            MAINTENANCE_LABEL
-        } else {
-            LABEL
-        }
+        self.profile.label_key()
     }
 
     pub fn label(&self) -> String {
@@ -46,20 +43,11 @@ impl Identity {
         intent: &bosn_registry::cache_helper::CacheHelperIntent,
     ) -> Result<Self, String> {
         intent.validate().map_err(|error| error.to_string())?;
-        if matches!(
-            &intent.role,
-            Some(bosn_registry::cache_helper::CacheHelperRole::ToolRecoveryV1 { .. })
-        ) {
-            return Err("recovery helper requires its dedicated source-volume identity".into());
-        }
+        let profile = Profile::from_intent(intent)?;
         let labels = bosn_core::ResourceLabels::new(
             &intent.registry_id,
             bosn_core::ResourceKind::Container,
-            if intent.role.is_some() {
-                "ci-cache-maintenance"
-            } else {
-                "ci-cache-measurement"
-            },
+            profile.component(),
             &intent.nonce,
             bosn_core::Scope::Spec,
             "machine",
@@ -70,7 +58,7 @@ impl Identity {
         Ok(Self {
             name: intent.name(),
             nonce: intent.nonce.clone(),
-            maintenance: intent.role.is_some(),
+            profile,
             image: intent.image.clone(),
             ownership: labels
                 .to_map()
@@ -106,13 +94,13 @@ impl Identity {
         document: &str,
         volume: &str,
     ) -> Result<String, String> {
+        if document.len() > 64 << 10 {
+            return Err("helper inspection exceeds bound".into());
+        }
         let rows: Vec<Helper> = serde_json::from_str(document)
             .map_err(|error| format!("helper inspection invalid: {error}"))?;
         let [row] = rows.as_slice() else {
             return Err("helper inspection did not return exactly one container".into());
-        };
-        let [mount] = row.mounts.as_slice() else {
-            return Err("helper inspection has unexpected mounts".into());
         };
         if !valid_id(&row.id)
             || row.name != format!("/{}", self.name)
@@ -123,17 +111,8 @@ impl Identity {
                 .iter()
                 .any(|(key, value)| row.config.labels.get(key) != Some(value))
             || !row.host_config.readonly_rootfs
-            || row.host_config.privileged
             || row.host_config.network_mode != "none"
-            || mount.kind != "volume"
-            || mount.name != volume
-            || mount.destination
-                != if self.maintenance {
-                    "/bosn/cache"
-                } else {
-                    "/cache"
-                }
-            || mount.rw != self.maintenance
+            || !self.profile.matches(row, volume)
         {
             return Err("helper identity or isolation does not match its create request".into());
         }
@@ -160,6 +139,9 @@ struct Helper {
 struct Config {
     image: String,
     labels: BTreeMap<String, String>,
+    entrypoint: Option<Vec<String>>,
+    #[serde(rename = "Cmd")]
+    arguments: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -168,11 +150,28 @@ struct HostConfig {
     readonly_rootfs: bool,
     privileged: bool,
     network_mode: String,
+    memory: Option<i64>,
+    nano_cpus: Option<i64>,
+    pids_limit: Option<i64>,
+    cpu_shares: Option<i64>,
+    tmpfs: Option<BTreeMap<String, String>>,
+    init: Option<bool>,
+    pid_mode: Option<String>,
+    auto_remove: Option<bool>,
+    restart_policy: Option<RestartPolicy>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct RestartPolicy {
+    name: String,
+    maximum_retry_count: i64,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Mount {
+    driver: Option<String>,
     #[serde(rename = "Type")]
     kind: String,
     name: String,
@@ -302,3 +301,11 @@ mod role_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "recovery_identity_tests.rs"]
+mod recovery_identity_tests;
+
+#[cfg(all(test, unix))]
+#[path = "recovery_cleanup_tests.rs"]
+mod recovery_cleanup_tests;
