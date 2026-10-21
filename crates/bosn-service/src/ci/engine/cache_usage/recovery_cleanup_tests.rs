@@ -19,15 +19,28 @@ const ID: &str = "11111111111111111111111111111111111111111111111111111111111111
 async fn apply(actor: &RegistryActor, command: ActRegistryCommand) {
     actor.act_registry(command).await.unwrap();
 }
-async fn seed(actor: &RegistryActor, old: bool, binding: bool) -> CacheHelperIntent {
+pub(in crate::ci::engine) async fn seed_source(
+    actor: &RegistryActor,
+    old: bool,
+) -> ActEngineRecord {
+    seed_source_with(actor, old, &"c".repeat(64), "bosn-ci-cache-test").await
+}
+
+pub(in crate::ci::engine) async fn seed_source_with(
+    actor: &RegistryActor,
+    old: bool,
+    generation: &str,
+    cache: &str,
+) -> ActEngineRecord {
     let mut engine = crate::ci::lifecycle::tests::intent(RUN);
     let profile = engine.creation_profile.as_mut().unwrap();
     profile.tmpfs_policy = ActEngineTmpfsPolicy::NamedDiskStorageRunTmpNoexecV2;
     profile.tool_generation = Some(ActToolGenerationBinding {
-        id: "c".repeat(64),
-        max_payload_bytes: 100,
-        overlay_recipe_sha256: "b".repeat(64),
+        id: generation.into(),
+        max_payload_bytes: 64 << 20,
+        overlay_recipe_sha256: crate::ci::engine::tool_overlay_recipe_sha256(),
     });
+    profile.cache_volume.as_mut().unwrap().name = cache.into();
     let observed = ActEngineObservation {
         name: engine.engine_name(),
         engine_id: "b".repeat(64),
@@ -106,6 +119,20 @@ async fn seed(actor: &RegistryActor, old: bool, binding: bool) -> CacheHelperInt
         },
     )
     .await;
+    let ActRegistryReply::Record(Some(record)) = actor
+        .act_registry(ActRegistryCommand::Get { run: RUN.into() })
+        .await
+        .unwrap()
+    else {
+        panic!("source record missing");
+    };
+    *record
+}
+
+async fn seed(actor: &RegistryActor, old: bool, binding: bool) -> CacheHelperIntent {
+    let record = seed_source(actor, old).await;
+    let frozen = record.tool_recovery.unwrap();
+    let created = frozen.created_at_seconds;
     let (mut helper, _) = super::recovery_identity_tests::fixture();
     helper.created_at = created as f64 + 0.4;
     helper.volume = frozen.cache_volume.clone();

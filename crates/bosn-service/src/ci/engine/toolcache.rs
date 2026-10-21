@@ -16,7 +16,7 @@ pub(super) const TOOLCACHE_VOLUME: &str = "act-toolcache";
 /// engine's store and target (`serve.OverlayRecipe`). A generation is frozen
 /// for it; serve refuses to mount a generation frozen for another recipe.
 pub(super) const OVERLAY_RECIPE_SHA256: &str =
-    "f6f345602dcd3a4651d99c771dc5ee918979717bc74511c2225adfcc87669818";
+    "fa1d1738cdd1cc9efb8a7ba10c6ca580de21d2e18ea3a75a79492201ab1e9af9";
 
 /// The `tool_generation` of serve's prepare request, if the engine has one.
 pub(super) fn generation_request(

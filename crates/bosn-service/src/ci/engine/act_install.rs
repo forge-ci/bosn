@@ -60,3 +60,17 @@ pub(crate) fn install_act_script(act: ActArtifact) -> String {
 pub(super) fn act_archive(act: ActArtifact) -> String {
     format!("{ENGINE_CACHE}/tools/act-{ACT_VERSION}-{}.tgz", act.sha256)
 }
+
+/// Offline extraction for fixed trusted helper paths. The shared archive stays
+/// locked through extraction, then the descriptor closes before PID1 exec.
+pub(super) fn offline_act_script(act: ActArtifact, bin: &str) -> String {
+    format!(
+        "mkdir -p {bin}; tgz={archive}; exec 9>>\"$tgz.lock\"; flock -s 9; \
+         echo \"{sum}  $tgz\" | sha256sum -c - >/dev/null && \
+         tar -xzf \"$tgz\" -C {bin} act && \
+         echo \"{binary}  {bin}/act\" | sha256sum -c - >/dev/null || exit $?; exec 9>&-",
+        archive = act_archive(act),
+        sum = act.sha256,
+        binary = act.binary_sha256,
+    )
+}

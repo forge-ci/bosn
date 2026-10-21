@@ -1,7 +1,7 @@
 //! One durable, finite-lived maintenance helper; never a workflow engine.
 use super::{
     ActEngineBackend, CACHE_VOLUME, CONTROL_DEADLINE, DockerActBackend, ENGINE_WORK,
-    MaintenanceAttempt, act_archive, act_artifact,
+    MaintenanceAttempt, act_artifact,
     cache_usage::{helper, journal},
     engine_image, owned,
 };
@@ -180,14 +180,8 @@ pub(super) fn helper_create_args(identity: &helper::Identity) -> Vec<String> {
 
 fn offline_install_script(act: super::ActArtifact) -> String {
     format!(
-        "mkdir -p {ENGINE_WORK}/bin; tgz={archive}; exec 9>>\"$tgz.lock\"; flock -s 9; \
-         echo \"{sum}  $tgz\" | sha256sum -c - >/dev/null && \
-         tar -xzf \"$tgz\" -C {ENGINE_WORK}/bin act && \
-         echo \"{binary}  {ENGINE_WORK}/bin/act\" | sha256sum -c - >/dev/null && \
-         {ENGINE_WORK}/bin/act --version",
-        archive = act_archive(act),
-        sum = act.sha256,
-        binary = act.binary_sha256,
+        "{}; {ENGINE_WORK}/bin/act --version",
+        super::act_install::offline_act_script(act, &format!("{ENGINE_WORK}/bin")),
     )
 }
 

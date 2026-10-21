@@ -283,8 +283,9 @@ impl DockerActBackend {
         if result.ok() {
             return self.confirm_measurement_absent(id).await;
         }
-        if detail.to_ascii_lowercase().contains("no such container:")
-            || detail.to_ascii_lowercase().contains("no such object:")
+        if result.reports_missing()
+            && (detail.to_ascii_lowercase().contains("no such container:")
+                || detail.to_ascii_lowercase().contains("no such object:"))
         {
             return Ok(());
         }
