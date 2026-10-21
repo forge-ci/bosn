@@ -4276,3 +4276,73 @@ supply trusted publication/release receipts; they do not perform act2
 publication or prove live Docker recovery. Normal enrollment, helper transport,
 publication and release orchestration remain unactivated until those complete
 paths are implemented and verified.
+
+
+### Act2 recovery publication contract (candidate, #508, 2026-10-21)
+
+[Act2 #71](https://github.com/zackees/act2/pull/71) merged at
+`9dc019f79de0d8fd4186fcfe33a2be2aecbd747c` after all PR checks passed.
+Preparation now persists and verifies the complete generation/store/recipe
+binding across serve restarts, and health uses that same bounded metadata.
+Historical seeded preparation stays readable; a generation-only stamp lacks
+producer evidence and refuses. Linux CI first exposed a separate ownership
+race: recursive runner chown encountered a Python temporary file withdrawn by
+another job. The correction skips already-owned entries and tolerates only a
+path proven absent after failure; existing files and dangling links still
+refuse. No CI check was removed or weakened.
+
+[Act2 #72](https://github.com/zackees/act2/pull/72), rebased onto that master,
+excludes native overlays and invalid preparation metadata from the legacy
+best-effort saver. A native close returns an explicit unsaved recovery note,
+retaining source data for post-stop publication. The focused regression first
+reproduced legacy-store writes and false saved-success in all three native,
+unverifiable and corrupt-readiness cases. The corrected full serve suite and
+pinned lint passed. This candidate is not a native save implementation.
+
+[Act2 #73](https://github.com/zackees/act2/pull/73), candidate
+`588c6e563d50f3c12d33904d54a34c79203e079c`, adds
+`cache tool-recovery publish` and capability `tool-recovery-publication-v1`.
+The coordinator must supply an exclusively held, quiescent stopped-source merged
+overlay view. Neither a pin nor the explicit CLI confirmation proves Docker
+ownership, writer absence or source-volume lifetime exclusion. The command does
+not mount/recover an overlay or supervise a helper.
+
+New publication requires the exact live pin and retains the original lower
+reader. Completed install discovery bounds namespace entries, install count,
+aggregate payload and metadata. Only installs changed from the original lower
+merge into the latest verified warm selection, preserving another engine's
+newer unchanged install. Incomplete installs stay out; missing/corrupt warm
+state refuses instead of becoming a cold cache. Snapshot inspection is reused
+for publication without a second planning hash; required source and copied-data
+verification remain.
+
+Selection and completion share one fsynced atomic pointer. Before selecting a
+successor, later writers durably archive that exact completion. An identical
+lost-reply retry returns the receipt without source access or another
+publication, preserving even a later same-path update. Publication never
+releases the pin: Bosn must commit completion, reconcile exact reference
+release, then perform ordinary guarded source removal. Archived receipt history
+is bounded to 10,000 canonical records, expires at most 32 past-lifetime receipts
+per archival pass, and refuses live overflow. Previous canonical selection
+readers refuse an extended pointer rather than overwrite an unarchived receipt.
+
+The actual CLI regression first failed on the missing publication operation,
+then proved changed-versus-unchanged installs, incomplete-install exclusion and
+lost-reply reconciliation. A real helper subprocess was killed after durable
+publication while withholding its reply; retry after source disappearance and
+a later selection recovered the same receipt. Focused tests also cover sync
+uncertainty, exact-intent conflicts, absent protection, cancellation, corrupt
+state, completion conventions and a full 10,000-record overflow/expiry fixture.
+Full artifact-cache and race suites passed. Their first local invocation could
+not execute an existing privilege-drop child through Go's private build
+directory; rebuilding the same test binary into accessible `/tmp` let that
+unchanged suite execute. Pinned golangci-lint v2.11.4 and the sole primary review
+are clean. Fresh remote checks on each rebased candidate remain required.
+
+These are provider candidates, not a verified dependency release or Bosn pin
+rollout. Normal Bosn enrollment and routing remain legacy. Actual helper mount
+recovery and source lifetime exclusion, restart orchestration, bounded runtime
+scheduling, shared-class accounting/expiry and full workflow/7.7GiB acceptance
+remain unfinished. Copy/publication currently holds the native catalog writer;
+production-scale performance has not been established. Do not enable the native
+route or close #508 based on these helper tests.
