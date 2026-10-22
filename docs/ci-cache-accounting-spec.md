@@ -4882,3 +4882,123 @@ volume cleanup is proved. Fixture `bosn693-live-publication-1344c9ec21ef`, gener
 `e7175675c2ebf7167853dd734574ea765964a0e2e5bb9e29783853991d39ce32`. Evidence:
 `/tmp/bosn-693/live-reference-release-22-proof.{py,json,log}`. This remains a
 manually reserved recovery fixture and does not prove ordinary enrollment.
+
+### Enrollment prerequisites after act2.22 (#508, 2026-10-21)
+
+The real-cache refusal above led to three merged act2 changes, not changes to
+the source cache or removal of inconvenient entries:
+
+- [act2 #77](https://github.com/zackees/act2/pull/77) preserves bounded,
+  kernel-confined relative symlink chains ending at an absent final leaf.
+  Independent publisher archive inspection confirmed both the GNU
+  `libgfortran.so` aliases and LLVM `clang++/clang-cl -> clang -> clang-20`
+  graph are shipped that way. Missing ancestors, escaping or absolute
+  targets, cycles and excessive traversal still refuse. The final lookup of
+  the original path must return ENOENT under the same kernel confinement;
+  this also enforces the aggregate directory/leaf traversal budget. Link
+  bytes remain unchanged. Snapshot compatibility does not establish that
+  those optional tools work.
+- [act2 #78](https://github.com/zackees/act2/pull/78) bounds explicit bulk
+  enrollment at fifteen minutes and copies at most four files concurrently.
+  Increasing the deadline alone failed after 957.6 seconds including cleanup;
+  live descriptor and I/O observations found serialized journal waits.
+  Metadata and file sync now finish on the original write descriptor before
+  it closes, retaining writeback-error reporting. Workers cancel and drain
+  before cleanup or publication; directories finish after their children.
+  File lengths, hashes and source/destination identity checks remain.
+- [act2 #79](https://github.com/zackees/act2/pull/79) permits an explicit
+  `installs: []` generation for a genuinely cold store. Omitted/null installs
+  still refuse, as do missing/corrupt current selections and an empty source
+  passed to warm bootstrap. This is a caller-selected cold initialization,
+  never an implicit repair of lost enrollment state.
+
+The final #78 candidate passed enrollment of a private metadata-preserving
+copy of the actual cache, mounted read-only for copying. Source allocation was
+6,463,148 KiB with 51,364 inodes. Enrollment took **497.465 seconds**, selected
+35 installs, and produced 51,388 generation entries containing 9,060,714,849
+logical payload bytes. Independent byte/link comparison and a separate metadata
+walk checked 51,335 payload entries (47,000 files and 203 symlinks), including
+UID/GID, mode and non-symlink nanosecond mtime. Symlink mtime is outside this
+manifest contract. Source-gone retry selected the identical generation
+`a0ad51a4dcc57f718052ff868449b1adc2845ff9a1a7df022e08ef9a57ec1f66`.
+Exact private container and volume absence was verified. Evidence:
+`/tmp/bosn-693/tool-bootstrap-real-cache-durable-copy-proof.{py,json,log}`.
+Logical bytes and allocated bytes differ; this is not a rerun of the original
+7.7 GiB allocated-cache survey or machine-wide accounting acceptance.
+
+The #79 candidate also passed actual CLI cold initialization, selection,
+PID1 execution with the original reader descriptor/inode and close-on-exec
+cleared, then the first completed-install successor. Missing/null spec,
+missing selection, empty warm source and corrupt selection refused. A
+source-gone warm retry preserved the selected generation. Exact fixture
+cleanup was verified. Evidence:
+`/tmp/bosn-693/tool-empty-generation-docker-proof.{py,json,log}`.
+
+All five exact default-branch CI jobs passed on merged act2 commit
+`309daac6f5cf37e27fb7ff78b6bfbb7302e83d23` in
+[39716801907](https://github.com/zackees/act2/actions/runs/39716801907).
+The release guard verified a clean default checkout, the remote default SHA,
+that CI evidence, and absent tag/release before pushing annotated
+`v0.2.89-act2.23`. The existing tag-triggered
+[release run 39717930961](https://github.com/zackees/act2/actions/runs/39717930961)
+completed successfully on that exact SHA. All eleven release archives match
+both the checksum file and GitHub asset digest/size; executable headers,
+architecture and embedded release were independently checked. Linux x86_64
+version/capability execution passed in isolated containers, whose absence was
+verified. Other architectures received static checks only. Evidence:
+`/tmp/bosn-693/act2-23-{release-guard,verification,runtime-smoke,release-provenance}.json`.
+The Linux archive SHA-256 is
+`228af48050fedbd1e8983a867c5f450c6f0dd02c5afb7499430bb51f4412a654`;
+its executable SHA-256 is
+`ca6b67a98e041e6ff531edda1c00df906ee59983682c99d18cc638b3d8dee5b2`.
+The released cold-generation proof passed with exact cleanup. The released
+large-cache proof also passed as detailed below; the Bosn candidate now pins
+these verified bytes.
+
+Ordinary Bosn planning still selects Legacy. Durable machine enrollment history,
+older-writer exclusion, production native selection/admission and reservation
+before ordinary retirement remain unfinished. The candidate proofs above do
+not complete those requirements, shared-class/archive routing and expiry,
+bounded history/query/storage, or unchanged full-workflow and concurrent/crash
+acceptance. #508 remains open and is the only #693 child being implemented.
+
+
+The Bosn candidate's isolated `ci-engine-test` task passed 63 engine tests
+(11 explicitly ignored), six pin tests and five Python runner-tool checks.
+The ignored live-Docker recovery fixture was then provisioned and actually
+executed with the newly compiled Rust test binary and verified act2.23 offline
+archive. All four phases passed: source preparation, archive staging, actual
+Rust helper transport and independent payload/mode/lower verification.
+Publication was protected by the real twenty-second reference; production
+source disposal completed at expiry, followed by source-free reference release.
+Exact helper/container/volume cleanup was verified. Evidence:
+`/tmp/bosn-693/act2-23-bosn-targeted.log` and
+`/tmp/bosn-693/live-reference-release-23-proof.{py,json,log}`. The Rust test
+binary SHA-256 is
+`94dfd62928dd57031e44e1f499c6cebe5319a373f94143dd643b56a4938ff284`.
+This remains an explicitly reserved fixture; ordinary native enrollment and
+retirement are not established by it.
+
+
+The released act2.23 full-cache proof passed, including exact private fixture
+absence. Enrollment took **508.589 seconds**, selected 35 installs and the
+same generation `a0ad51a4dcc57f718052ff868449b1adc2845ff9a1a7df022e08ef9a57ec1f66`,
+with 9,060,714,849 logical payload bytes and 51,388 generation entries.
+Current-selection validation, independent byte/link and metadata comparison,
+and source-gone identical-generation retry passed. Actual PID1 admission
+preserved the original reader descriptor/inode with close-on-exec cleared;
+it took 26.367 seconds for this large generation.
+
+An independent bounded, no-follow Python inode walk matched act2's native
+store accounting exactly: **102,802 path entries, 55,802 unique inodes,
+9,243,017,216 allocated bytes**, 9,121,036,395 apparent bytes,
+9,085,055,955 unique regular-file bytes and 18,145,770,804 referenced
+regular-file bytes. Accounting deduplicates `(device, inode)` and counts
+`st_blocks * 512`, including metadata blocks. These numbers cover this private
+native store, not the entire machine's Docker/image/build-cache footprint or
+an enforced machine quota. Evidence:
+`/tmp/bosn-693/tool-bootstrap-real-cache-release23-proof.{py,json,log}` and
+`/tmp/bosn-693/compare-native-tool-usage.py`. The production cache was bound
+read-only only for copying; enrollment and mutations used the owned clone.
+The source allocation was 6,463,148 KiB / 51,364 inodes, so the original
+7.7 GiB survey/full unchanged-workflow acceptance is still outstanding.
