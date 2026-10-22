@@ -6980,3 +6980,75 @@ remaining original #508 acceptance. Physical all-class/machine ceilings,
 scoped-builder expiry, pending/retained storage bounds and realistic original
 full-project/concurrent/crash/restart acceptance remain open. The whole
 exact-source Bosn gate is still required before pushing this rollout.
+
+### Ordinary archive rollout merged and bounded physical inventory (2026-10-22)
+
+Bosn #710 passed the whole local gate in428s (Linux378s, Rust427s;
+1,200 Rust tests passed,53 configured skips). Full stamped SHA
+`f2e0801f30f0f471878614beeb8398632f8b8cce` passed independent GATE-003
+verification before push. All14 remote checks were terminal (nine successes,
+five configured skips), with no unresolved review threads. Merged at
+`4940873379c2dbb34ad78d8cf5c4e1bed0fff50a`; the original checkout returned to
+clean main and rebased, exact tested/main trees matched, and task branches were
+removed after head checks. User stashes and unrelated worktree were preserved.
+Evidence: `archive-routing-local-gate{,-verify}.log`, `pr710-final-status.json`.
+
+The next act2 candidate adds bounded read-only whole-cache metadata accounting
+and shares the original native-tool inode/byte accumulator. The actual CLI
+regression failed on unavailable bounded reporting, then passed cross-class
+hardlink deduplication, sparse allocation and outside-link exclusion. Independent
+du agrees with allocated root bytes; unknown/incomplete state remains included.
+Review found final-component O_NOFOLLOW insufficient for aliased ancestors or
+trailing '/.' roots. Three additional regressions reproduced that bug; opening
+every clean root component relative to the preceding descriptor fixes it.
+Reports never follow symlinks, read payload contents or cross mount identities.
+Directory descriptors, traversal entry/depth limits and cancellation remain
+bounded; incomplete scans expose null byte totals.
+
+Actual same-filesystem bind-file and bind-directory fixtures passed in a
+private privileged container with networknone/nohostbinds; the container was
+proved absent. The first cleanup parser compared uppercase Docker absence text
+against lowercase output and failed its cleanup assertion; this harness failure
+is preserved, not counted as a production failure. Corrected proof passed0.42s; the final complete candidate was rebuilt and
+passed0.46s with cleanup verified, binary
+`233608fa71d0553376656d4033ef83680e190338e630b5e91a17c6ae9b3186cd`.
+Evidence: `cache-footprint-command-red.log`, `cache-footprint-root-alias-red.log`,
+`cache-footprint-mount-proof{,-cleanup-parser-failure}.{json,log}`.
+
+Namespace details retain only the largest256 rows using a bounded heap; omitted
+rows still contribute to complete all-class total. A258-namespace fixture checks
+legacy/cohort identity, hardlinks, largest selection and deterministic ties.
+Its initial expected tie ordering was wrong; the fixture now explicitly sizes
+the cohort payload and checks the defined path tie order. This inventory is a
+non-atomic sample, not a machine quota or deletion eligibility proof. No release,
+Bosn integration or complete #508 acceptance is claimed for this candidate yet.
+
+
+Final candidate `17f9d822a11f56dacab9f649f267b5a074b9d874` has clean
+sole-primary review, focused race tests (artifactcache2.924s, command1.466s),
+zero lint issues and Windows/Darwin package builds. Namespace lint initially
+reported two De Morgan simplifications; both were corrected without suppression.
+The full exact-candidate artifact-cache suite is running before push.
+
+The complete act2 candidate `17f9d822a11f56dacab9f649f267b5a074b9d874`
+passed the full artifact-cache suite170.954s, then opened act2 #87. Its six PR
+checks passed, including Linux job119998604771 in run39828652770. No dependency
+merge/release is claimed at this observation.
+
+Bosn's integration consumes a bounded typed JSON receipt and extracts only the
+digest-verified executable from a held archive descriptor into private tmpfs.
+The volume remains read-only and the helper has no network. Accounting helpers
+use512MiB for bounded inode maps; existing policy readers retain128MiB. Old du is
+now test-only independent reference sampling, with no production fallback.
+Initial focused transport tests failed seven cases because their synthetic
+Docker fixture omitted the newly required architecture lookup; adding that
+command and typed receipt preserved every cleanup/uncertain-create assertion.
+Review then caught raw output passing through trimming/lossy decoding before
+the256KiB parser bound. Actual transport regressions reproduced acceptance of
+leading padding, trailing padding and invalid UTF-8. Strict raw bounded capture
+fixes all three while retaining exact helper cleanup. The focused suite passed
+32 tests, with6 explicitly ignored private-Docker tests (one newly added helper
+versus reference proof still to run). Evidence:
+`cache-footprint-bosn-focused.log`, `cache-footprint-bosn-focused-final.log`,
+`cache-footprint-raw-transport-red.log`, `cache-footprint-bosn-raw-green.log`.
+No physical helper proof, verified next pin or full Bosn gate is claimed yet.
