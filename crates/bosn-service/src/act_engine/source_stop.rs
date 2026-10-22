@@ -7,10 +7,10 @@
 //! observations into an [`ActToolSourceStopProof`]; a client exit or a failed
 //! probe must never construct one.
 //!
-//! Recording the stop does **not** authorize deletion. Until publication and
-//! reference release are integrated, [`super::remove_storage_volume`] refuses
-//! while a record holds an unreleased recovery intent, so the source volume
-//! survives for the recovering reader and terminal metadata stays unfinalized.
+//! Recording the stop does **not** authorize deletion.
+//! [`super::remove_storage_volume`] retains live unreleased recovery and
+//! requires both registry admission exclusion and the producer's durable source
+//! fence before exact-owned physical deletion.
 
 use super::*;
 use bosn_registry::act::{

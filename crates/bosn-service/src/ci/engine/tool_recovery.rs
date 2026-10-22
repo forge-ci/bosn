@@ -84,6 +84,36 @@ struct ReleaseReport {
     error: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DisposalReport {
+    schema_version: u32,
+    root: String,
+    pin: RecoveryPin,
+    disposed: bool,
+    partial: bool,
+    #[serde(default)]
+    error: String,
+}
+
+fn require_disposal(text: &str, pin: &RecoveryPin, root: &str) -> Result<(), String> {
+    if text.len() > 4096 {
+        return Err("source disposal receipt exceeds bound".into());
+    }
+    let report: DisposalReport =
+        serde_json::from_str(text).map_err(|e| format!("source disposal receipt: {e}"))?;
+    if report.schema_version != 1
+        || report.root != root
+        || report.pin != *pin
+        || !report.disposed
+        || report.partial
+        || !report.error.is_empty()
+    {
+        return Err("producer source disposal not acknowledged or differs".into());
+    }
+    Ok(())
+}
+
 fn require_release(text: &str, pin: &RecoveryPin, root: &str) -> Result<(), String> {
     if text.len() > 4096 {
         return Err("tool recovery release receipt exceeds bound".into());

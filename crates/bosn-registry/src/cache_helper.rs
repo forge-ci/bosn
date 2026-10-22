@@ -32,12 +32,18 @@ pub enum CacheHelperRole {
         intent: act::ActToolRecoveryIntent,
         command_sha256: String,
     },
+    ToolRecoveryDisposalV1 {
+        run_id: String,
+        intent: act::ActToolRecoveryIntent,
+        command_sha256: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecoveryHelperPhase {
     Publish,
     Release,
+    Dispose,
 }
 
 pub struct RecoveryHelperBinding<'a> {
@@ -75,6 +81,17 @@ impl CacheHelperRole {
                 phase: RecoveryHelperPhase::Release,
                 source_mountpoint: None,
             }),
+            Self::ToolRecoveryDisposalV1 {
+                run_id,
+                intent,
+                command_sha256,
+            } => Some(RecoveryHelperBinding {
+                run_id,
+                intent,
+                command_sha256: Some(command_sha256),
+                phase: RecoveryHelperPhase::Dispose,
+                source_mountpoint: None,
+            }),
         }
     }
 }
@@ -98,6 +115,7 @@ impl CacheHelperIntent {
             Some(CacheHelperRole::MaintenanceV1) => "maintain",
             Some(CacheHelperRole::ToolRecoveryV1 { .. }) => "recover",
             Some(CacheHelperRole::ToolRecoveryReleaseV1 { .. }) => "release",
+            Some(CacheHelperRole::ToolRecoveryDisposalV1 { .. }) => "dispose",
         };
         format!("bosn-cache-{role}-{}", self.nonce)
     }

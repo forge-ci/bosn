@@ -53,7 +53,7 @@ fn backend(
     .unwrap();
     let data = serde_json::json!({"mode":mode,"source":frozen.source_volume,"cache":frozen.cache_volume,
         "run":record.intent.run_id,"engine":frozen.engine_id,"engine_name":record.intent.engine_name(),
-        "db":state.join("registry.sqlite3"),"release":record.tool_recovery_completion.is_some(),"pin":RecoveryPin::from_intent(frozen).unwrap()});
+        "db":state.join("registry.sqlite3"),"release":record.tool_recovery_completion.is_some() && record.tool_recovery_source_disposal_at.is_none(),"disposal":record.tool_recovery_source_disposal_at.is_some(),"pin":RecoveryPin::from_intent(frozen).unwrap()});
     std::fs::write(dir.path().join("input.json"), data.to_string()).unwrap();
     let script = dir.path().join("docker.py");
     std::fs::write(&script, DOCKER).unwrap();
@@ -548,6 +548,7 @@ fn actual_docker_recovery_helper_persists_publication_after_pid1_teardown() {
         // Exercise real finite expiry and the production source-removal gate,
         // then reconcile reference release with the source physically absent.
         dispose_expired_live_source(&actor, &backend, &after).await;
+        let disposal_helper = assert_disposal_removed(&reader, &backend).await;
         let release = backend
             .retry_tool_recovery(&actor, OWNER, None)
             .await
@@ -585,7 +586,7 @@ fn actual_docker_recovery_helper_persists_publication_after_pid1_teardown() {
         std::fs::write(
             format!("{path}.result.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
-                "publication_record":after,"record":released,"helper":helper,"release_helper":release_helper,"fixture_reservation":name,
+                "publication_record":after,"record":released,"helper":helper,"disposal_helper":disposal_helper,"release_helper":release_helper,"fixture_reservation":name,
                 "pin":RecoveryPin::from_intent(frozen).unwrap(),
             }))
             .unwrap(),
@@ -597,7 +598,7 @@ fn actual_docker_recovery_helper_persists_publication_after_pid1_teardown() {
 const DOCKER: &str = r#"
 import sys,json,sqlite3,datetime
 from pathlib import Path
-root=Path(sys.argv[1]); args=sys.argv[2:]; data=json.loads((root/'input.json').read_text());mode=data['mode'];release=data['release']
+root=Path(sys.argv[1]); args=sys.argv[2:]; data=json.loads((root/'input.json').read_text());mode=data['mode'];release=data['release'];disposal=data['disposal'];sourcefree=release or disposal
 with (root/'commands').open('a') as out: out.write(json.dumps(args)+'\n')
 def rows(prefix):
     with sqlite3.connect(data['db']) as db:
@@ -608,7 +609,8 @@ def absent(): print('Error: No such container: '+args[-1],file=sys.stderr);sys.e
 def flag(key): return args[args.index(key)+1]
 def ready():
     done=engine().get('tool_recovery_completion')
-    if release: assert done is not None and done.get('reference_released_at') is None
+    if disposal: assert engine().get('tool_recovery_source_disposal_at') is not None
+    elif release: assert done is not None and done.get('reference_released_at') is None
     else: assert done is None
 if args[:2]==['image','inspect']:
     print('amd64' if '{{.Architecture}}' in args else 'sha256:'+'a'*64)
@@ -626,8 +628,9 @@ elif args[0]=='create':
     h=helper();assert h['state']=='pending' and h.get('container_id') is None
     ready()
     assert '--init=false' in args and '--cpu-shares=256' in args
-    assert ('--privileged' in args)==(not release)
-    if release: assert flag('--cap-drop')=='ALL' and ' cache tool-recovery release ' in args[-1] and '--source-root' not in args[-1]
+    if (root/'removed').exists(): (root/'removed').rename(root/'previous-removed')
+    assert ('--privileged' in args)==(not sourcefree)
+    if sourcefree: assert flag('--cap-drop')=='ALL' and (' cache tool-recovery '+('dispose-source' if disposal else 'release')+' ') in args[-1] and '--source-root' not in args[-1]
     assert args[-2]=='-ec' and 'exec /tmp/bosn-recovery/bin/act ' in args[-1]
     assert 'wget' not in args[-1] and 'docker exec' not in args[-1]
     labels=dict(args[i+1].split('=',1) for i,a in enumerate(args) if a=='--label')
@@ -640,8 +643,8 @@ elif args[0]=='create':
             else: mount.update(Source=v['source'])
             mounts.append(mount)
     row=dict(Id='1'*64,Name='/'+flag('--name'),Config=dict(Image=args[-3],Labels=labels,Entrypoint=['/bin/sh'],Cmd=args[-2:]),
-        HostConfig=dict(ReadonlyRootfs=True,Privileged=not release,CapDrop=['ALL'] if release else None,NetworkMode='none',Memory=536870912,NanoCpus=2000000000,
-        PidsLimit=128,CpuShares=256,Tmpfs=({'/tmp':'exec,size=64m','/var/lib/docker':'ro,noexec,size=1m'} if release else {'/tmp':'exec,size=64m'}),Init=False,PidMode='',AutoRemove=True,
+        HostConfig=dict(ReadonlyRootfs=True,Privileged=not sourcefree,CapDrop=['ALL'] if sourcefree else None,NetworkMode='none',Memory=536870912,NanoCpus=2000000000,
+        PidsLimit=128,CpuShares=256,Tmpfs=({'/tmp':'exec,size=64m','/var/lib/docker':'ro,noexec,size=1m'} if sourcefree else {'/tmp':'exec,size=64m'}),Init=False,PidMode='',AutoRemove=True,
         RestartPolicy=dict(Name='no',MaximumRetryCount=0)),Mounts=mounts)
     if mode=='foreign-command': row['Config']['Cmd']=['-ec','sleep 600']
     (root/'created').write_text(json.dumps([row]))
@@ -667,12 +670,26 @@ elif args[0]=='start':
     report=dict(schema_version=1,root='/bosn/cache/toolstore-v1',pin=data['pin'],generation='d'*64,
         completed_at=at,completed=True,partial=False)
     if release: report=dict(schema_version=1,root='/bosn/cache/toolstore-v1',pin=data['pin'],removed=mode!='absent-retry',absent=mode!='not-absent',partial=False)
+    if disposal:
+        (root/'fenced').write_text('durable producer fence')
+        report=dict(schema_version=1,root='/bosn/cache/toolstore-v1',pin=data['pin'],disposed=mode!='not-disposed',partial=False)
+    if mode=='wrong-root': report['root']='/foreign'
+    if mode=='wrong-schema': report['schema_version']=2
+    if mode=='unknown': report['unknown']=True
+    if mode=='report-error': report['error']='directory sync failed'
     if mode=='partial': report['partial']=True
     if mode=='bad-pin': report['pin']['owner']='f'*64
     if mode=='trailing': print('diagnostic on stdout')
     if mode=='oversized': print(' '*4097,end='')
     print(json.dumps(report))
     if mode=='failed-start':sys.exit(1)
+elif args[:2]==['volume','ls']:
+    if (root/'source.json').exists(): print(data['source'])
+elif args[:2]==['volume','rm']:
+    assert disposal and args==['volume','rm',data['source']]
+    assert (root/'fenced').exists() and (root/'removed').exists()
+    (root/'source.json').rename(root/'source-removed.json')
+    if mode=='lost-volume-remove': sys.exit(1)
 elif args[0]=='rm':
     assert args==['rm','-f','-v','1'*64]
     ready()
@@ -743,4 +760,24 @@ fn publication_refuses_unsafe_mountpoints_before_journaling_or_create() {
             );
         });
     }
+}
+
+#[path = "tool_recovery_disposal_tests.rs"]
+mod disposal_tests;
+
+async fn assert_disposal_removed(
+    reader: &bosn_registry::ReadOnlyRegistry,
+    backend: &DockerActBackend,
+) -> bosn_registry::cache_helper::CacheHelperRecord {
+    let helper = last_helper(reader);
+    assert!(matches!(
+        helper.intent.role,
+        Some(CacheHelperRole::ToolRecoveryDisposalV1 { .. })
+    ));
+    assert_eq!(helper.state, CacheHelperState::Removed);
+    backend
+        .confirm_measurement_absent(helper.container_id.as_ref().unwrap())
+        .await
+        .unwrap();
+    helper
 }

@@ -1,5 +1,5 @@
 //! Phase-specific program and receipt authority for one journaled helper.
-use super::{RecoveryPin, require_publication, require_release};
+use super::{RecoveryPin, require_disposal, require_publication, require_release};
 use crate::{
     RegistryActor,
     act_registry::{ActRegistryCommand, ActRegistryReply},
@@ -16,6 +16,7 @@ pub(super) use bosn_registry::cache_helper::RecoveryHelperPhase as Operation;
 pub(super) enum Receipt {
     Published { generation: String, at: f64 },
     Released,
+    Disposed,
 }
 
 impl Receipt {
@@ -30,6 +31,10 @@ impl Receipt {
             .ok_or("tool recovery intent missing")?;
         let run = record.intent.run_id.clone();
         let command = match self {
+            // The caller consumes this verified receipt only after namespace
+            // teardown. Do not persist/reuse a registry timestamp as producer
+            // authority; every physical deletion retry runs the fence again.
+            Self::Disposed => return Ok(()),
             Self::Published { generation, at } => ActRegistryCommand::ToolRecoveryPublished {
                 run,
                 proof: ActToolRecoveryPublicationProof { intent, generation },
@@ -58,6 +63,12 @@ pub(super) fn already_completed(
 ) -> Result<bool, String> {
     match operation {
         Operation::Publish => Ok(record.tool_recovery_completion.is_some()),
+        Operation::Dispose => {
+            if record.tool_recovery_source_disposal_at.is_none() {
+                return Err("source disposal must be claimed before producer fencing".into());
+            }
+            Ok(false)
+        }
         Operation::Release => record
             .tool_recovery_completion
             .as_ref()
@@ -85,6 +96,11 @@ pub(super) fn role(
             source_mountpoint,
         },
         Operation::Release => CacheHelperRole::ToolRecoveryReleaseV1 {
+            run_id,
+            intent,
+            command_sha256: command,
+        },
+        Operation::Dispose => CacheHelperRole::ToolRecoveryDisposalV1 {
             run_id,
             intent,
             command_sha256: command,
@@ -117,6 +133,10 @@ pub(super) fn receipt(
         RecoveryHelperPhase::Release => {
             require_release(text, &pin, &root)?;
             Ok(Receipt::Released)
+        }
+        RecoveryHelperPhase::Dispose => {
+            require_disposal(text, &pin, &root)?;
+            Ok(Receipt::Disposed)
         }
     }
 }
