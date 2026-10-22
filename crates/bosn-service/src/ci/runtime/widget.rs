@@ -24,6 +24,15 @@ impl CiRuntime {
         self.widget_state().presence(Instant::now())
     }
 
+    /// The widget's release and presence under one lock. The state mutex is not
+    /// reentrant: a reply that reads one through a temporary guard and then the
+    /// other would deadlock the worker (and every later caller) on itself.
+    pub(super) fn widget_report(&self) -> (Option<String>, WidgetPresence) {
+        let state = self.widget_state();
+        let now = Instant::now();
+        (state.release(now).map(str::to_owned), state.presence(now))
+    }
+
     /// Apply the `[widget]` configuration (daemon start).
     pub fn configure_widget(&self, config: WidgetConfig) {
         *self.widget_config.lock().unwrap_or_else(|e| e.into_inner()) = config;
