@@ -7140,3 +7140,23 @@ engine events are preserved under `cache-footprint-local-gate-engine-killed.log`
 `cache-footprint-first-gate-{rust,tests}.log` and
 `cache-footprint-gate-engine-removal-summary.json`. Retry uses the ordinary gate
 and its replacement-engine lifecycle, without stopping unrelated work.
+
+
+### Whole-gate retry: discovery fixture readiness race
+
+Candidate `5ff8394e2a428b81da1d65dc3bb9fd3081f6708a` failed the Rust
+lane after 479s: 485 tests passed before fail-fast, one failed, 54 configured
+skips. `discovery_absence_and_outage_never_start_default_maintenance` observed
+the synthetic Docker log file immediately after open, cancelled its process,
+and then read an empty file instead of the expected complete inspect command.
+The observer now waits for that exact complete command before cancellation;
+the final exact command assertion and absence/outage maintenance assertions
+remain unchanged. Linux completed successfully with cleanup removed: 267 tests passed with ten
+configured skips. The whole gate failed after 570s. No passing full attestation or
+push is claimed for this failed candidate.
+
+The corrected exact-name focused test passed: one test, no failures or ignores,
+3.79s (`cache-footprint-discovery-observer-green.log`). A prior short-name
+`--exact` invocation selected zero tests and is not validation. The existing
+sole primary reviewer accepted the correction without findings. A new clean
+committed whole gate remains required before push.
