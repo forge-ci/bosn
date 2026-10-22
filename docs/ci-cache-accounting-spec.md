@@ -7079,3 +7079,53 @@ reply check passed:256 rows with maximum signed64-bit byte counters and a
 maximum-length volume name remain below the existing60KiB tool reply limit.
 Evidence: `cache-footprint-bosn-reply-bound.log`. The whole-source Bosn gate and
 actual helper/reference proof remain outstanding.
+
+Act2.30 is now independently verified: release39832895745 succeeded on exact
+`cdf2cc3ae814b03ee57f0a4ddb6a0a2266bc9bfd`; all eleven archives passed
+checksums, independent GitHub size/digest, architecture-header and version
+checks. Annotated tag identity, Linux version/capability execution and smoke
+cleanup passed. Linux archive:
+`80cdc0dfd81e9a0ada8bcc9855a72b3b7accf4553cd2f0cbc2143add594f2af6`;
+executable `0187cd478cff9c3ace3fdb200cdd321b18d30546d9649e1c0419a12e048cd54f`.
+Bosn's local pin now uses these verified digests. Evidence:
+`act2-30-release-provenance.json`, `act2-30-guarded-release.log`.
+
+The pinned focused suite passed35 tests with6 explicit private-Docker ignores
+in4.76s. The footprint helper's private executable tmpfs is now explicitly
+`exec,size=64m` (the verified executable is23,576,760 bytes), under its512MiB
+memory limit. Network remains disabled and the cache remains read-only. Its
+actual reference comparison is queued; no physical-helper success is claimed.
+
+### Production bounded accounting proof (2026-10-22)
+
+The actual read-only helper passed against independently verified released
+act2.30. Fixture `bosn693-physical-footprint-7c0bf2ab0ef2` used 51,000 small
+files, an 8 GiB sparse file, cross-class hardlinks, native history/snapshot data,
+and legacy/cohort directories for the same namespace. Total apparent bytes
+were **8,601,266,061**; allocated inode bytes were **220,192,768**. The total,
+every class and both namespace rows exactly matched the independent du oracle.
+Production measurement took **1,739 ms**; the Rust test finished in 3.58 seconds.
+Measurement helpers were absent afterward; all private controller containers and
+volumes were proved absent. The private Docker ID differed from the host's.
+
+The harness verified unchanged binary
+`0bcf76fd33ae89ee2a79697f16264fe8e9999b661168777f6c5980cf3cc3fcd0`.
+Observed source-tree digest:
+`920e26942d2d5b20369a042107b6fe8b91301e73fa13c0ec2e116f4df50b2d26`.
+Evidence: `cache-footprint-production-helper-proof.{py,json,log}` and
+`cache-footprint-bosn-final-build.log` (35 focused tests passed, six explicit
+private-Docker ignores, 7.08 seconds). The new physical proof was then run
+explicitly rather than counted among those configured ignores.
+
+**Bootstrap limitation:** offline measurement requires the current pinned act
+archive already present in the shared tools cache from CI preparation. Missing
+or corrupt archive data yields unknown/error, with no network or writable-cache
+fallback. Bootstrap before pressure/admission remains work; this limitation
+must not turn into a false zero or an admission/deletion authorization.
+
+This proves controlled bounded shared-volume accounting. It is not the original
+7.7 GiB allocated survey, a whole-machine quota, engine-layer/scoped-builder
+accounting, retained-source storage bounds, or full-project/concurrent/crash/
+restart acceptance. Those original #508 requirements remain open. Sole-primary
+code review is clean; the whole exact-source Bosn gate remains required before
+push.

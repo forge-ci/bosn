@@ -248,6 +248,7 @@ fn measurement_uses_bounded_offline_verified_reader() {
     let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
     assert!(commands.contains("cache usage --cache-server-path /cache --max-entries 1000000"));
     assert!(commands.contains("--memory 512m"));
+    assert!(commands.contains("--tmpfs /var/lib/docker:exec,size=64m"));
     assert!(commands.contains("--network none --read-only --cap-drop ALL"));
     assert!(commands.contains("target=/cache,readonly"));
     assert!(commands.contains("/proc/self/fd/9"));

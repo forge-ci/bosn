@@ -47,6 +47,12 @@ impl Reader {
             Self::Footprint => "512m",
         }
     }
+    fn tmpfs(self) -> &'static str {
+        match self {
+            Self::Policy => "/var/lib/docker",
+            Self::Footprint => "/var/lib/docker:exec,size=64m",
+        }
+    }
     fn output_limit(self) -> usize {
         match self {
             Self::Policy => super::CONTROL_OUTPUT,
@@ -180,7 +186,7 @@ impl DockerActBackend {
             "--cpus",
             "1",
             "--tmpfs",
-            "/var/lib/docker",
+            reader.tmpfs(),
             "--mount",
             &mount,
             "--entrypoint",

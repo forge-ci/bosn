@@ -773,16 +773,25 @@ All runtime state is under the daemon state directory (`ci/`):
   `pull_request.base.ref` and `.sha` name the same commit (#403). It is kept
   for the newest 10 runs so they can be retried.
 
-`runners cache` reports apparent file bytes and allocated filesystem blocks
-for the shared volume, its cache classes and repository namespaces. JSON
-includes `partial` and `errors`; an unreadable cache is unknown, never empty.
-Namespace details are capped at the largest or unknown 256 stores; omitted
-details make the report partial while volume totals stay independent.
+`runners cache` reports apparent file bytes and allocated inode blocks for the
+shared volume, its cache classes and repository namespaces. Inventory reads
+metadata, with limits of one million entries, depth 72 and 30 seconds. An
+incomplete scan has unknown byte totals; JSON includes `partial` and `errors`.
+The largest 256 namespace details are retained. Omitted details make the reply
+partial while the inclusive volume total stays independent.
+
 The CLI shows the largest contributors. Samples can change during active
-writes, and class totals include their namespace entries, so do not add them
-again to the volume total. `runners clear-cache` removes the whole volume;
-removal is refused while a run executes, and the next run recreates it cold.
-The living spec records verification and the remaining retention work.
+writes. Hardlinks can cross classes, and class rows include their namespaces,
+so component rows are not additive. Control files and unfinished state also
+contribute to the volume total. These are shared-volume samples, not engine
+Docker-layer accounting or a hard machine quota.
+
+CI preparation supplies the current pinned executable archive. Until that
+archive is available, offline measurement reports unknown usage. The reader
+uses a read-only cache mount, no network and a private executable tmpfs.
+`runners clear-cache` removes the whole volume; removal is refused while a run
+executes, and the next run recreates it cold. The living spec records validation
+and remaining retention work.
 
 The newest 200 finished runs are kept; `runners prune-cache --older-than-secs N
 --max-bytes N` prunes further.
