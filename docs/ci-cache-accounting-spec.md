@@ -7265,3 +7265,35 @@ widget-state caller. The fix reads both fields under one guard
 deadline measured from another OS thread, because the deadlock blocks the async
 worker itself. Without the fix it fails (an async-timeout variant hung 600 s
 instead); with the fix it passes.
+
+### Full-project acceptance results (#508 item 4, 2026-10-22)
+
+Private daemon `bosn693-accept-58876e4b077a` (Docker ID distinct from the host),
+Bosn built from main after #715, act2.31. Every phase ran this repository's own
+`ci.yml` (`--mode test`): rust, linux, both Darwin cross wheels, native wheel and
+policy jobs. In every run below, each locally runnable job succeeded. "incomplete"
+(exit 3) means only the jobs Bosn cannot run locally were not run: the Windows
+wheel, the hosted macOS smokes, the GitHub-API queue timing, and their dependants.
+Evidence: `acceptance-508.py`, `acceptance-508-final.json`.
+
+| Phase | Result | Shared cache allocated (complete, not partial) |
+|---|---|---|
+| Cold (empty cache) | 416 s; one timing-flaky unit test failed (fixed alongside) | 0.56 GiB |
+| Daemon stopped, then two clients at once (warm) | 408 s; the clients joined one run (2 submitters), all local jobs passed | 3.85 GiB |
+| Pinned reader archive corrupted | Accounting reseeded it (correct SHA, rewritten) and measured the same totals | 3.85 GiB |
+| Engine containers removed (fresh engine), warm cache | 500 s; all local jobs passed | 7.22 GiB (toolcache 6.03, images 0.53, actcache 0.64) |
+
+The steady state, 7.22 GiB allocated, reproduces the original ~7.7 GiB survey's
+scale and its tool-cache share. `ci doctor` deadlocked the daemon in the first
+pass (fixed in #715, now 0.1 s). The aborted daemon was a real crash, and the
+next daemon took over the registry and its runs without loss.
+
+Host survey (read-only: verified act2.31 binary bind-mounted, no network,
+volume read-only, helper proven absent afterwards; 2.2 s, 61,361 entries): the
+host's long-lived `bosn-ci-cache-v1` holds 43.89 GiB allocated (actcache 37.09 in
+7 repositories, each within its 8 GiB bound, toolcache 6.21, images 0.53). The
+37 GiB exceeds the 32 GiB cohort ceiling because the host still runs installed
+Bosn 0.1.23, which predates the aggregate cohort budget, the owned-footprint
+ceiling, the engine build-cache budget and pending-publication isolation. Those
+take effect when a release containing them ships through the pretag gate.
+Evidence: `host-cache-survey-act2-31.json`.
