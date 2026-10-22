@@ -6176,3 +6176,28 @@ The test executable hash was unchanged before/after
 Every outer fixture container and both host volumes were proved absent, removing
 all inner resources. This remains a controlled-update/tool-class proof; production
 native activation, full workflow acceptance and whole-machine policy are pending.
+
+
+### Full local gate: apparent-size portability correction (2026-10-22)
+
+The first full gate on `e85cc6ebf94266fe17e3772a1e7c1b6a49b96ec7`
+failed: Rust run `af361760-4ef8-40a4-9e61-f45cc39dc8ae` passed 420
+nextests and failed the new native accounting inode test. Linux run
+`ea8ecb53-8578-4273-85b4-ffbe2bfc5d89` passed. The apparent-byte
+expectation exceeded the sample by exactly three directory lengths (12,288
+bytes); no push was made.
+
+An isolated, read-only-root probe of the exact runner image `4f2d5083a9d1`
+confirmed GNU coreutils 9.4: a directory with `stat` length 60 containing one
+three-byte file reports three apparent bytes through `du -sbc`, and 4 KiB
+allocated through `du -skc`. The local build harness uses GNU coreutils 9.1,
+and the pinned engine uses BusyBox; both include directory lengths in apparent
+bytes. The probe container `bosn693-du-semantics-probe` was automatically removed.
+
+The independent inode oracle now records directory lengths separately and
+accepts exactly either complete apparent-byte convention. File and symlink
+lengths, cross-root hard-link deduplication, exact allocated bytes, external
+symlink preservation, and overflow refusal remain checked. This changes only
+the test: production measurement behavior is unchanged. Both focused accounting
+tests passed in the GNU 9.1 harness after the correction. A new full gate on the
+corrected commit is still required; the earlier failed gate is not acceptance.

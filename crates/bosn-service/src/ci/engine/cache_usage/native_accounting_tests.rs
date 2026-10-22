@@ -19,17 +19,22 @@ fn measured(root: &Path) -> CacheUsage {
     parse("test", &String::from_utf8(output.stdout).unwrap())
 }
 
-fn unique_usage(path: &Path, seen: &mut HashSet<(u64, u64)>) -> (u64, u64) {
+fn unique_usage(path: &Path, seen: &mut HashSet<(u64, u64)>) -> (u64, u64, u64) {
     let metadata = std::fs::symlink_metadata(path).unwrap();
     if !seen.insert((metadata.dev(), metadata.ino())) {
-        return (0, 0);
+        return (0, 0, 0);
     }
-    let mut usage = (metadata.len(), metadata.blocks() * 512);
+    let mut usage = (
+        metadata.len(),
+        metadata.blocks() * 512,
+        if metadata.is_dir() { metadata.len() } else { 0 },
+    );
     if metadata.is_dir() {
         for entry in std::fs::read_dir(path).unwrap() {
             let child = unique_usage(&entry.unwrap().path(), seen);
             usage.0 += child.0;
             usage.1 += child.1;
+            usage.2 += child.2;
         }
     }
     usage
@@ -58,7 +63,9 @@ fn native_tool_accounting_includes_enrollment_and_deduplicates_root_links() {
     let expected = [&legacy, &native, &history, &snapshot]
         .into_iter()
         .map(|path| unique_usage(path, &mut seen))
-        .fold((0, 0), |sum, entry| (sum.0 + entry.0, sum.1 + entry.1));
+        .fold((0, 0, 0), |sum, entry| {
+            (sum.0 + entry.0, sum.1 + entry.1, sum.2 + entry.2)
+        });
     let report = measured(root.path());
     assert!(!report.partial, "{report:?}");
     let tools = report
@@ -66,7 +73,13 @@ fn native_tool_accounting_includes_enrollment_and_deduplicates_root_links() {
         .iter()
         .find(|component| component.class == CacheClass::Toolcache)
         .unwrap();
-    assert_eq!(tools.bytes, Some(expected.0));
+    // The probed GNU du 9.4 excludes directory lengths; the probed BusyBox and
+    // GNU du 9.1 include them. Both retain exact file/symlink lengths and count
+    // each inode once. Allocated bytes have the same meaning in both tools.
+    assert!(
+        tools.bytes == Some(expected.0) || tools.bytes == Some(expected.0 - expected.2),
+        "unexpected apparent bytes: {tools:?}; inode totals: {expected:?}"
+    );
     assert_eq!(tools.allocated_bytes, Some(expected.1));
     assert_eq!(
         std::fs::read(foreign.path().join("unrelated")).unwrap(),
