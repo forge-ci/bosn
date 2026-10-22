@@ -49,3 +49,27 @@ fn memory_backed_native_execution_refuses_before_creating_or_fencing() {
         assert!(backend.machine.claim.lock().unwrap().is_none());
     });
 }
+
+#[test]
+fn ordinary_runtime_plan_requests_coordinated_archive_routing() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::default());
+        let runtime = CiRuntime::start(&dir, registry, backend.clone(), 1);
+        let record = crate::ci::tests::sample_record("50800000-0000-4000-8000-000000000003");
+        let planned = runtime
+            .plan(
+                &record,
+                async_engine::Deadline::after(Duration::from_secs(30)),
+            )
+            .await
+            .unwrap();
+        assert!(
+            matches!(
+                planned.invocation.cache_route,
+                crate::ci::cache_cohort::CacheRoute::Cohort { .. }
+            ),
+            "ordinary execution still bypasses coordinated archive migration and routing"
+        );
+        assert_eq!(backend.live(), 0, "planning must not mutate cache state");
+    });
+}

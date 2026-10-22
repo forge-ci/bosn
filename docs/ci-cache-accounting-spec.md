@@ -6546,3 +6546,183 @@ passed in 18.34s; file-length and include-base guards passed
 (`registry-storage-final-focused-validation.log`). The previously recorded 49
 daemon tests also passed. The whole exact-source local gate remains required
 before push; these results do not close #508.
+
+
+### Coordinated archive routing continuation (2026-10-22, unmerged)
+
+PR #709 merged at `a10152fb29833be643e6be6797de8c73a3209df7` after
+its 527-second whole local gate (1,187 Rust tests passed, 53 configured skips;
+Linux passed). Stamped candidate `d69b116f3c4158fee3936bf6603f09c24065d52b`
+independently passed exact GATE-003 verification before push. Remote run
+`39802261439` passed 11 jobs with three configured skips and no review threads.
+The original checkout returned to clean main and rebased; candidate and merged
+trees matched. The task branches and original watcher log were removed, and the
+three pre-existing stashes were preserved. Physical machine/cache-class bounds
+and the other original #508 acceptance items remain open.
+
+The next ordinary-planner regression ran and failed: production still selects
+`CacheRoute::Legacy` (`archive-production-route-red.log`). The first command used
+an incorrect exact filter and ran zero tests; that result is not RED evidence.
+The corrected command ran one test and failed its explicit coordinated-route
+assertion. This regression remains RED until production orchestration is wired.
+
+The unmerged act2 branch `feat/508-archive-enrollment`, in the existing external
+checkout, adds a per-namespace journal outside the destination, atomic legacy
+source fencing, explicit stopped-source publication, and admission validation.
+The old directory is retained privately; the old path becomes a refusal file.
+Fence alone never claims existing directory-FD writers have stopped. Completion
+requires caller-provided continuous writer exclusion, preserves completed warm
+archives through the existing verified import, and reconciles an existing
+publication using its receipt plus current inventory. Ready admission must not
+bootstrap missing state. It preserves frozen import bounds and does not delete
+retained sources. None of this is yet released or selected by Bosn.
+
+Initial focused tests found cold sources lacked the archive storage layout. A
+first correction used the public coordinated audit on a legacy source, which
+correctly refused absent transfer coordination; it now uses the same read-only
+locked legacy audit as import. The directory-FD fixture initially addressed the
+wrong archive filename; using Storage's actual filename fixed that fixture.
+Warm preservation, legacy reopen refusal, cold absent/empty enrollment, retained
+FD mutation refusal, lost publication acknowledgement, missing warm state and
+policy/unowned-destination refusal then passed. A command test performs real
+HTTP reserve/upload/commit and verifies hits through two fresh destination
+servers. Earlier focused package/command coverage passed, but those results
+precede the final review corrections.
+
+Primary review identified two defects: persisted device/inode numbers would
+refuse unchanged volumes after remount, and an existing untyped Bolt file could
+be initialized as fresh authority. The candidate now uses durable incarnation
+markers in the destination directory and metadata, with inode comparisons only
+within an operation; only a newly created journal may establish first authority.
+Regression coverage includes recreated empty metadata, preserved-incarnation
+file reopen, and an existing untyped journal. Final validation is pending.
+
+The first broad package/command attempt failed environmental gates: the existing
+retirement permission test could not execute its uid-65534 subprocess from Go's
+private build directory, and existing command tests had no Docker socket. That
+run is not a passing full suite; its chained race test did not execute
+(`archive-enrollment-package-race.log`). The focused/race rerun is tracked
+separately. No gate, release, push or production acceptance is claimed.
+
+Interrupted import without a destination deliberately refuses explicit private
+stage reconciliation rather than creating repeated unknown copies. Automatic
+bounded stage reconciliation, retained source expiry/accounting, orchestration,
+older-writer draining and unchanged full workflow acceptance remain required.
+This candidate does not close #508 or advance another #693 child.
+
+
+The review-corrected focused package/command run passed in 48.700s and
+4.205s; race coverage of archive/tool enrollment passed in 33.715s
+(`archive-enrollment-reviewed-tests.log`). The earlier complete artifact-cache
+package then passed in 284.735s using a Go execution wrapper that makes only its
+generated temporary binary directories traversable for the existing uid-65534
+subprocess; Go owns and removes those directories. This pass predates the next
+publication reconciliation change and is not current full-suite acceptance.
+
+Primary review then found a first-Ready gap after lost import acknowledgement:
+a valid empty destination plus the historical warm receipt could be accepted.
+The new actual lost-reply/replaced-store regression failed
+(`archive-lost-ack-empty-inventory-red.log`). Initial publication reconciliation
+now verifies the retained source fingerprint, reconstructs the frozen selected
+imports, and compares every destination metadata row and archive checksum with
+the source, including sampled original receipt checksums. Later Ready admission
+permits normal retention and new uploads. Focused package/command coverage passed
+in 50.023s/2.349s and archive enrollment race coverage in 10.202s
+(`archive-publication-reconciliation-green.log`). The destination transfer lease
+now additionally spans initial verification, durable incarnation establishment
+and Ready commit, excluding maintenance between validation and admission. Final
+tests/review for that ordering change remain pending. The Bosn planner is still
+RED and production routing remains Legacy; no release or push has occurred.
+
+
+Final ordering tests passed (artifact-cache focused 35.730s, commands 3.151s,
+archive race 4.207s); primary review found no remaining concrete issue. Lint
+then rejected the verification function's cyclomatic complexity, one redundant
+conversion and two fixture taint warnings. The checksum/metadata loop was split
+without dropping comparisons, the conversion removed, and fixture I/O corrected;
+no rule was suppressed. The first extraction rerun caught an undefined err
+binding, which was corrected. Final golangci-lint on artifact-cache and commands
+reports zero issues (`archive-enrollment-lint-final.log`). Final focused tests
+passed in 44.629s/2.181s and archive race coverage in 6.422s
+(`archive-enrollment-final-validation.log`); the same primary reviewer confirmed
+all comparisons and lease ordering survived extraction. The complete package
+pass above still predates these changes. No current full gate, push, release or
+Bosn production activation is claimed. Interrupted-stage reconciliation remains
+the next required recovery change before this candidate can be shipped.
+
+
+### Bounded archive import-stage recovery continuation (2026-10-22, unmerged)
+
+The existing act2 checkout is checkpointed at `dd07afd` on
+`feat/508-archive-enrollment`; the original Bosn checkout remains on
+`feat/508-archive-routing` with its production planner regression still RED.
+No new Bosn worktree, push or release was created.
+
+A new regression committed actual `ImportStarted` intent without creating a
+stage, then requested completion. It failed with the manual-reconciliation
+refusal (`archive-intent-before-stage-red.log`). Enrollment now derives one
+private stage from its frozen random identity rather than making a new random
+stage on each retry. The stage factory takes the cohort lease and verifies its
+ownership witness before clearing partial content. Missing witness plus
+nonempty content refuses; an empty directory can finish interrupted initial
+witness creation. The root witness is preserved throughout partial cleanup.
+Traversal uses the existing no-follow descriptor walker, refuses mount
+crossings, bounds the descriptor stack, and caps each reclamation pass at
+100,000 entries. Exhaustion retains progress and retries the same stage.
+Failed imports retain that one owned stage; successful publication consumes it.
+Retained original source data and unrelated paths are never cleanup targets.
+
+The ordinary import API keeps its existing random-stage and cleanup behavior.
+A shared stage-policy boundary avoids duplicating import/checksum/publication
+logic. The tool enrollment walker has only gained a root-marker parameter;
+its original wrapper preserves the existing tool witness and behavior.
+
+The intent-before-stage regression and focused archive/tool enrollment/import
+coverage passed: artifact-cache 38.689s and commands 2.583s
+(`archive-stage-recovery-first-tests.log`). New fixtures cover partial stage
+content, preserving an external symlink target, bounded partial reclamation and
+retry, and preserving an unowned nonempty stage. The old manual-only refusal
+assertion was replaced by automatic recovery acceptance; recreated warm metadata
+is still explicitly refused. Primary review found no concrete issue in this
+continuation. Full artifact-cache, race and lint validation remain running in
+`archive-stage-full-validation.log`; no current full pass is claimed yet.
+
+This is recovery-component evidence. Production needs typed retryable contention
+results, a source-fence/older-engine-drain/complete orchestration boundary and
+current admission checks before selecting Cohort. The pinned released act2 does
+not yet contain the new command. Required dependency CI/release verification,
+Bosn rollout, pending-storage accounting/source expiry and unchanged realistic
+workflow/restart acceptance remain open; #508 and #693 remain open.
+
+
+The full stage-recovery artifact-cache suite passed in 182.225s and archive/tool
+race coverage in 29.094s. Lint required restoring the two pre-existing
+caller-selected-root path annotations at their extracted calls, then passed
+(`archive-stage-lint-final.log`). No new rule was disabled.
+
+A separate real contention regression failed because the new command did not
+return a typed retryable result (`archive-contention-status-red.log`). Enrollment
+now returns `retryable` for native lock timeouts and bounded cleanup continuation;
+policy conflicts remain nonretryable. ImportReport retains typed internal causes
+without changing the ordinary import command's JSON shape, which older Bosn
+clients parse strictly. Focused tests passed45.485s/4.193s, archive race9.002s and
+lint zero issues (`archive-recovery-contention-validation.log`).
+
+The journal-lock regression then failed at1.005s, consuming its whole one-second
+caller deadline (`archive-journal-contention-red.log`). Archive history now has a
+250ms acquisition subdeadline; expiry maps to typed contention only while the
+parent context is still live. Shared tool history behavior is unchanged. Final
+focused package/command tests passed53.105s/2.367s and archive/tool race52.273s
+(`archive-bounded-recovery-final-validation.log`). Lint caught loader complexity22;
+extracting acquisition into `openArchiveHistory` preserved the authority checks.
+Focused journal/contention/untyped-authority tests passed5.775s and lint reports
+zero issues (`archive-journal-extraction-final.log`). The same primary reviewer
+confirmed the extraction and found no remaining concrete issue. The earlier full
+suite predates retry classification; normal dependency CI remains required.
+
+
+Act2 PR #85 is open at `d1629f88dddefd8c21668e138ee5a0cf29d3e105`
+(two reviewed local commits, clean external checkout). Dependency checks/review
+remain pending. Nothing is released or activated in Bosn; original scope and
+#508/#693 stay open. The original Bosn checkout contains only the in-progress
+planner regression and living-spec updates on its feature branch.
