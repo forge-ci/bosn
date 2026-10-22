@@ -134,3 +134,56 @@ fn the_slot_script_leases_and_retires_under_one_lock() {
     assert!(survey.held.is_empty() && survey.retiring && survey.requested);
     assert_eq!(reply::leased(&run(&args)), Ok(Leased::Retiring));
 }
+
+#[test]
+fn native_identity_labels_preserve_a_bounded_validated_binding() {
+    let mut intent = crate::ci::lifecycle::tests::intent("0a1b2c3d-4e5f-4a6b-8c7d-000000000001");
+    let owner = "0a1b2c3d-4e5f-4a6b-8c7d-000000000002";
+    let legacy = crate::act_engine::creation_labels(&intent, owner).unwrap();
+    let key = "com.zackees.bosn.act.tool-generation";
+    assert!(!legacy.contains_key(key));
+    assert_eq!(
+        EngineIdentity::of(&intent),
+        EngineIdentity::from_labels(&legacy)
+    );
+    let generation = ActToolGenerationBinding {
+        id: "a".repeat(64),
+        max_payload_bytes: 1 << 30,
+        overlay_recipe_sha256: crate::ci::engine::tool_overlay_recipe_sha256(),
+    };
+    intent.creation_profile = Some(
+        crate::act_engine::creation_profile_with_tools(
+            crate::ci::limits::size_engine(
+                crate::ci::lifecycle::tests::FAKE_HOST,
+                Default::default(),
+            )
+            .unwrap(),
+            Some(crate::ci::lifecycle::tests::test_cache().mount()),
+            Some(generation.clone()),
+        )
+        .unwrap(),
+    );
+    let labels = crate::act_engine::creation_labels(&intent, owner).unwrap();
+    assert_eq!(
+        EngineIdentity::of(&intent),
+        EngineIdentity::from_labels(&labels)
+    );
+    let mut missing = labels.clone();
+    missing.remove(key);
+    assert_ne!(
+        EngineIdentity::of(&intent),
+        EngineIdentity::from_labels(&missing)
+    );
+    let canonical = serde_json::to_string(&generation).unwrap();
+    for bad in [
+        " ".repeat(513),
+        "{}".into(),
+        canonical.replace(&"a".repeat(64), &"A".repeat(64)),
+        canonical.replace("1073741824", "0"),
+        canonical.replace("}", ",\"unknown\":true}"),
+    ] {
+        let mut invalid = labels.clone();
+        invalid.insert(key.into(), bad);
+        assert!(EngineIdentity::from_labels(&invalid).is_none());
+    }
+}

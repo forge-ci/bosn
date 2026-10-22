@@ -802,3 +802,62 @@ fn legacy_anonymous_disk_profiles_can_be_observed_but_not_newly_created() {
     assert!(i.storage_volume_name().is_none());
     assert!(create_arguments(&i, OWNER, disk_limits()).is_err());
 }
+
+#[test]
+fn native_observation_preserves_historical_ownership_without_adoption_annotation() {
+    let mut i = intent();
+    let cache = bosn_registry::act::ActEngineCacheVolume {
+        name: "bosn-ci-cache-v1".into(),
+        target: crate::ci::engine::ENGINE_CACHE.into(),
+    };
+    let generation = bosn_registry::act::ActToolGenerationBinding {
+        id: "a".repeat(64),
+        max_payload_bytes: 1 << 30,
+        overlay_recipe_sha256: crate::ci::engine::tool_overlay_recipe_sha256(),
+    };
+    i.creation_profile = Some(
+        creation_profile_with_tools(limits(), Some(cache.clone()), Some(generation.clone()))
+            .unwrap(),
+    );
+    let required = i.required_labels(OWNER).unwrap();
+    let created = creation_labels(&i, OWNER).unwrap();
+    let annotation = "com.zackees.bosn.act.tool-generation";
+    assert!(!required.contains_key(annotation));
+    assert!(created.contains_key(annotation));
+    let mut d = document();
+    d[0]["Config"]["Cmd"] =
+        json!(engine_command_with_tools(Some(&cache), Some(&generation), None).unwrap());
+    d[0]["HostConfig"]["Mounts"] = json!([
+        {"Type":"volume","Source":cache.name,"Target":cache.target}
+    ]);
+    d[0]["Mounts"].as_array_mut().unwrap().push(json!({
+        "Type":"volume", "Name":cache.name, "Destination":cache.target,
+        "Driver":"local", "RW":true,
+    }));
+    for labels in [required, created] {
+        d[0]["Config"]["Labels"] = json!(labels);
+        assert!(
+            observe_engine(
+                &serde_json::to_vec(&d).unwrap(),
+                &i,
+                OWNER,
+                &classic_identity(),
+                limits(),
+            )
+            .is_ok(),
+            "historical and annotated containers remain owned"
+        );
+    }
+    d[0]["Config"]["Cmd"] = json!(engine_command());
+    assert!(
+        observe_engine(
+            &serde_json::to_vec(&d).unwrap(),
+            &i,
+            OWNER,
+            &classic_identity(),
+            limits(),
+        )
+        .is_err(),
+        "the frozen native command remains mandatory"
+    );
+}

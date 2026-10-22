@@ -28,7 +28,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
-use bosn_registry::act::ActEngineIntent;
+use bosn_registry::act::{ActEngineIntent, ActToolGenerationBinding};
 
 use super::engine::BoxFuture;
 
@@ -108,6 +108,7 @@ pub struct EngineIdentity {
     engine_image: String,
     runner_image: String,
     init_command: String,
+    tool_generation: Option<ActToolGenerationBinding>,
 }
 
 impl EngineIdentity {
@@ -115,8 +116,13 @@ impl EngineIdentity {
         &self.act_version
     }
 
+    pub fn tool_generation(&self) -> Option<&ActToolGenerationBinding> {
+        self.tool_generation.as_ref()
+    }
+
     pub fn of(intent: &ActEngineIntent) -> Option<Self> {
         Some(Self {
+            tool_generation: intent.creation_profile.as_ref()?.tool_generation.clone(),
             act_version: intent.act_version.clone(),
             act_image: intent.act_image_digest.clone(),
             engine_image: intent.engine_image_digest.clone(),
@@ -138,6 +144,17 @@ impl EngineIdentity {
             engine_image: get("engine-image")?,
             runner_image: get("runner-image")?,
             init_command: get("init-command-sha256")?,
+            tool_generation: match labels.get("com.zackees.bosn.act.tool-generation") {
+                Some(text) => {
+                    if text.len() > 512 {
+                        return None;
+                    }
+                    let generation: ActToolGenerationBinding = serde_json::from_str(text).ok()?;
+                    generation.validate().ok()?;
+                    Some(generation)
+                }
+                None => None,
+            },
         })
     }
 }

@@ -4689,3 +4689,196 @@ Evidence: `/tmp/bosn-693/live-reference-release-proof.{py,json}` and
 recovery tests and four identity tests (their separate hardware opt-ins were
 explicitly ignored), and all-target Clippy passed. The separately executed
 live proof is additional evidence, not an ordinary CI pass.
+
+### Warm tool-cache bootstrap dependency (candidate, #508, 2026-10-21)
+
+Act2 [#75](https://github.com/zackees/act2/pull/75) merged at
+`e80072a16cf8737c56d62574098a74e249da102e`. The external checkout returned
+to clean `master` and rebased after merge; Bosn development continues in its
+original checkout. The exact merged SHA passed the full default-branch
+workflow-dispatch run [39700626307](https://github.com/zackees/act2/actions/runs/39700626307):
+Linux tests, native Windows/macOS tests, lint and snapshot builds all succeeded.
+
+The dependency adds explicit `cache tool-bootstrap`: a caller that has excluded
+all legacy source writers can publish all supported completed installs from
+the legacy tool-cache tree as the first selected immutable generation. It
+plans bounded namespace/payload metadata before initializing a destination,
+then uses the existing closed-object publisher and original catalog writer
+through generation publication and selection. Missing, empty, oversized,
+invalid and aliased sources are refused. Incomplete installs are excluded;
+corrupt existing selection or payload is refused rather than replaced. A
+valid selected generation is verified and synced on retry without reopening
+the old source. A visible selection on a directory-sync failure remains
+reported as partial until reconciliation succeeds.
+
+The focused API and CLI regressions first failed because the operation did
+not exist. A separate alias regression then caught a linked namespace being
+silently omitted; bootstrap now refuses namespace links outside completed
+installs, preserving recovery's previous scan behavior. The broader recovery,
+generation and snapshot suites passed (artifactcache 63.563s, CLI 7.568s).
+Latest bootstrap tests passed after explicit empty-destination coverage;
+golangci-lint 2.11.4 reported zero issues. A sole primary review found no
+remaining substantive findings. Local Go execution used the existing Docker
+harness with read-only source.
+
+The built CLI also passed an actual Docker-volume proof with 33,554,432 bytes
+of completed payload: exact source/generation byte comparison, executable
+modes, exclusion of an incomplete install and identical selected generation
+on retry after renaming away the source. Its exact labelled volume and two
+fixture containers were removed and absence verified. Evidence is retained
+under `/tmp/bosn-693/tool-bootstrap-*`. This 32 MiB proof does not satisfy the
+original realistic large-cache/concurrency or full-workflow acceptance.
+
+Bootstrap is deliberate enrollment, not a missing-cache fallback. Its caller
+must persist enrollment history and exclude older writers; an ordinary
+startup must read/validate current selection and refuse missing or corrupt
+enrolled state. A report is not a generation reader lease. Bosn still needs
+ordinary native selection/admission, reservation/retirement orchestration,
+archive/all-class routing, allocated-inode accounting, scoped GC and the
+remaining original bounded-storage/history and actual-workflow proofs.
+Native routing remains Legacy and #508 stays open.
+
+Post-merge verification found that bootstrap also needed the legacy seeder's
+`source/*` boundary: abandoned private root stages must not become selected
+installs, consume the public payload budget, or make private root symlinks a
+refusal. Independent stage and alias regressions reproduced both failures.
+The act2.21 tag remains at the audited candidate SHA; its release run
+[39701754299](https://github.com/zackees/act2/actions/runs/39701754299) was
+canceled before a GitHub release existed or any Bosn pin changed. Do not move
+or reuse that tag.
+
+The correction merged in [act2 PR #76](https://github.com/zackees/act2/pull/76),
+master `43445419b24317efd69b37c5cc6cf24071884d3e` (reviewed head
+`80281a97391eaa863f7628678fcd886dcd945d00`): a typed scan mode prunes private root entries for deliberate
+legacy enrollment while preserving native recovery behavior. Visible aliases
+are still refused and nested hidden contents inside public installs stay
+validated. Focused bootstrap tests pass, the broader CLI/artifactcache suites
+pass, and golangci-lint reports zero issues. Independent review is clean.
+The actual built CLI selected exactly 33,554,432 public payload bytes with a
+64 MiB limit despite a separate hidden 40 MiB completed stage and private
+alias. Those private entries and the incomplete install were excluded; exact
+payloads, executable modes and source-gone retry were verified. Exact fixture
+cleanup and absence checks passed. Evidence:
+`/tmp/bosn-693/tool-bootstrap-private-docker-proof.{py,json,log}`.
+
+All six PR checks succeeded, including Linux tests and native Windows/macOS
+checks. The external checkout returned to clean master, rebased, and its
+merged branch and watcher files were removed (logs retained with evidence).
+Exact merged full CI
+[39704094890](https://github.com/zackees/act2/actions/runs/39704094890) passed
+all five jobs. The guarded new tag `v0.2.89-act2.22` names that exact SHA,
+after clean-default-branch and local/remote tag/release absence checks. The
+existing release workflow completed successfully in
+[39705227950](https://github.com/zackees/act2/actions/runs/39705227950). The
+artifact verification and candidate pin update are recorded below; main
+remains on act2.20 until this candidate is merged.
+
+
+### Leased native binding in run admission (candidate, #508, 2026-10-21)
+
+A focused regression exposed a normal shared-run handoff bug before enabling
+native planning. A native engine bound to generation `a` served runs from its
+maker and a second registry. Preparation incorrectly received `None` from
+the first run's legacy template and generation `b` from the second run's
+conflicting template, even though both leased the same engine. Evidence:
+`/tmp/bosn-693/native-lease-binding-red.log`. The conflicting template
+was then strengthened to use the real producer factory and its correct
+frozen command; reverting only the preparation authority to the original
+plan-based path reproduced the same failure. That path was restored to the
+lease binding immediately afterward. Evidence:
+`native-lease-binding-valid-template-red.log` and its GREEN counterpart
+under `/tmp/bosn-693` (17 focused tests passed, 3.60 seconds).
+
+The lease now carries the actual engine's frozen native binding, and run
+preparation takes it from the lease. Newly created engines expose a bounded,
+closed-schema generation annotation so another daemon's typed engine identity
+and adopted lease preserve the same binding. Malformed or oversized annotations, annotations with unknown fields, and
+invalid binding fields cannot supply an identity; an omitted annotation cannot
+match a wanted native identity. Legacy engine labels remain unchanged.
+The native maker/adopter regression passes, as do the focused machine and
+shared-engine tests (16 passed, 3.60 seconds).
+Evidence: `native-lease-binding-green.log` and
+`native-lease-binding-suite.log` under `/tmp/bosn-693`.
+
+Independent review caught a historical compatibility edge: this new metadata
+must not become a mandatory ownership label for an already frozen native
+record. Creation annotations are now emitted separately from
+`required_labels`; existing profile, command, ownership and mount checks stay
+mandatory for observation and retirement. An explicit regression observes
+both historical unannotated and newly annotated native containers against the
+same frozen profile, then refuses a changed command. It passes; evidence:
+`/tmp/bosn-693/native-lease-historical-observation.log`. Historical records are
+not rewritten and unannotated foreign native engines are not adopted.
+
+This fixes binding authority at the handoff; it does not itself enroll a
+machine or reserve recovery references. Normal native selection under the
+machine claim, durable enrollment history, writer exclusion and lifecycle
+reservation/retirement remain required before activation.
+
+
+### Verified act2.22 candidate and real-cache refusal (2026-10-21, #508)
+
+The release workflow completed successfully on exact merged SHA
+`43445419b24317efd69b37c5cc6cf24071884d3e`, after full CI passed that SHA.
+All eleven released archives were independently checked against the release
+checksum file and GitHub asset SHA-256/size, executable architecture headers,
+and embedded release. Linux x86_64 version and execution-capability smoke
+passed in isolated containers; those exact containers are absent. Other
+architectures received static artifact checks, not local execution claims.
+Evidence: `/tmp/bosn-693/act2-22-{release-guard,verification,runtime-smoke}.json`.
+The candidate updates Bosn's pin to this verified release:
+
+- Archive: `3eab8e383dcfa389eaba3adccfda6ab7fb7981b0950a063082ee5a540dd551a3`.
+- Executable: `bbe3f82d542ed767085b09552f480a0930a4cdd061e82c691d5afa2a8b8d9cfa`.
+
+The released CLI passed the private-stage proof: 32 MiB of completed public
+payload was selected under a 64 MiB limit despite a 40 MiB private stage and
+private alias. Exact byte/mode comparison, incomplete exclusion and an
+identical generation on source-gone retry passed. Cleanup is verified in
+`/tmp/bosn-693/tool-bootstrap-22-docker-proof.json`. Initial fixture attempts
+needed a scoped read capability for protected source cache files and an
+executable permission on the extracted smoke binary; their failed fixtures
+were cleaned up and their diagnostic records retained. These were harness
+permission failures, not accepted bootstrap results.
+
+A separate real-cache experiment copied the production tool tree through a
+read-only bind into an owned private volume, leaving its live engine alone.
+The source measured **6,426,096 KiB allocated and 51,359 inodes**, about
+6.1 GiB, not the earlier 7.7 GiB survey. That attempted clone normalized
+ownership only in its disposable copy; a future compatibility run must also
+preserve the real UID/GID metadata, using the required scoped capabilities.
+**Bootstrap refused the copied cache** after 16.40 seconds, without selecting
+a generation: the completed GNU toolchain contains
+`package/x86_64-conda-linux-gnu/lib/libgfortran.so` pointing relatively to
+`../../lib/libgfortran.so`, which is absent. Read-only inspection found the
+same `.so.5` and `.so.5.0.0` links and a completion marker in the production
+package. The publisher recipe selects locked GCC/G++, binutils and sysroot
+packages; the native snapshot currently rejects every dangling link.
+This is an unresolved real-layout compatibility finding, not a passing
+large-cache admission proof. No link or cache entry was removed, skipped,
+repaired, or treated as an empty cache to make enrollment succeed. The private
+fixture and diagnostic containers are absent. Evidence:
+`/tmp/bosn-693/tool-bootstrap-real-cache-proof.json`,
+`tool-bootstrap-real-cache-rejected-layout.py`, and
+`real-cache-syslib-links.json` in that directory.
+
+The candidate's pin/capability, machine, maker/adopter and historical native
+observation tests pass (26 focused tests, 3.60 seconds). The real-layout
+closure policy and ordinary native activation remain unfinished. This
+candidate does not enable native planning or establish the original full
+workflow, large-cache, concurrent writer, inode accounting or retention
+acceptance.
+
+
+The candidate also passed the actual Rust recovery-worker fixture against the
+verified, offline-staged act2.22 archive: prepare stopped overlay, stage
+archive, execute the real helper transport, and independently verify payload,
+mode, preservation of another tool update, incomplete-install exclusion and
+unchanged lower. The real 20-second reference protected publication; production
+source disposal then ran at expiry, and reference release succeeded after the
+source was gone. The final record is terminal with both disposal and release
+acknowledged, both helper journals are removed, and exact fixture/container/
+volume cleanup is proved. Fixture `bosn693-live-publication-1344c9ec21ef`, generation
+`e7175675c2ebf7167853dd734574ea765964a0e2e5bb9e29783853991d39ce32`. Evidence:
+`/tmp/bosn-693/live-reference-release-22-proof.{py,json,log}`. This remains a
+manually reserved recovery fixture and does not prove ordinary enrollment.

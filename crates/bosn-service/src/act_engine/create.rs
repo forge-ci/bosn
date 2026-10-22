@@ -246,9 +246,7 @@ pub fn create_arguments(
             "creation differs from frozen engine profile".into(),
         ));
     }
-    let labels = intent
-        .required_labels(owner)
-        .map_err(|e| ActEngineError(e.to_string()))?;
+    let labels = creation_labels(intent, owner)?;
     let mut args = vec![
         "create".into(),
         bosn_engine::LOW_CPU_PRIORITY_ARG.into(),
@@ -602,4 +600,28 @@ pub async fn remove_owned_engine(
         .await
         .map_err(|e| ActEngineError(e.to_string()))?;
     Ok(())
+}
+
+/// Creation metadata lets another daemon recover the native admission binding.
+/// It is deliberately separate from historical mandatory ownership labels:
+/// old containers without this annotation remain observable and retireable
+/// against their frozen profile/command, but cannot supply a native lease.
+pub(crate) fn creation_labels(
+    intent: &ActEngineIntent,
+    owner: &str,
+) -> Result<BTreeMap<String, String>, ActEngineError> {
+    let mut labels = intent
+        .required_labels(owner)
+        .map_err(|error| ActEngineError(error.to_string()))?;
+    if let Some(generation) = intent
+        .creation_profile
+        .as_ref()
+        .and_then(|profile| profile.tool_generation.as_ref())
+    {
+        labels.insert(
+            "com.zackees.bosn.act.tool-generation".into(),
+            serde_json::to_string(generation).map_err(|error| ActEngineError(error.to_string()))?,
+        );
+    }
+    Ok(labels)
 }

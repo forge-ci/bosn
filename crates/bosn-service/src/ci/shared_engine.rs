@@ -58,6 +58,8 @@ pub struct Lease {
     pub engine_id: String,
     pub engine_name: String,
     pub slot: u16,
+    /// Frozen by the leased engine, independently of a run's template plan.
+    pub tool_generation: Option<bosn_registry::act::ActToolGenerationBinding>,
     /// The engine's own memory, CPU and process limits, to size the run from.
     pub memory_bytes: u64,
     pub nano_cpus: u64,
@@ -92,6 +94,7 @@ impl Held {
             engine_id: self.id.clone(),
             engine_name: self.name.clone(),
             slot,
+            tool_generation: self.identity.tool_generation().cloned(),
             memory_bytes: self.memory_bytes,
             nano_cpus: self.nano_cpus,
             pids: self.pids,
