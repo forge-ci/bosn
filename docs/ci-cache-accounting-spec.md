@@ -7176,3 +7176,14 @@ driver with a separate state directory and a task-owned private Docker daemon;
 it does not alter the installed host daemon, driver, source checks or verifier.
 Private controller identity/cleanup evidence lives in
 `cache-footprint-private-gate.json` under `/tmp/bosn-693`.
+
+
+The first private-controller gate stopped before tests: both engine creates
+refused invalid nested cgroup domain controllers. The harness had launched
+dockerd directly. Its task-owned outer container was replaced, retaining its
+owned data volume, with the same ENGINE_INIT/private-cgroup-namespace setup
+used by earlier passing physical proofs. A real nested container now starts
+successfully and its exact absence was verified. The private and host Docker
+IDs differ. This repairs the validation harness; it changes no product source
+or gate checks. The failed pre-test runs remain recorded in
+`cache-footprint-private-runs.json` and `cache-footprint-private-local-gate.log`.
