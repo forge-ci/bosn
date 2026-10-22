@@ -7241,3 +7241,27 @@ Linux archive `15bda868...d367`, executable `f11007ca...819e`.
 
 The act2 #88 merge also tracked one stray `pr_merge_watch` log under `.clud/`.
 It is not part of the build and is removed in a follow-up.
+
+### Acceptance found a daemon deadlock in `ci doctor` (#508 item 4)
+
+The first real acceptance pass ran on a task-owned private Docker daemon
+(`bosn693-accept-58876e4b077a`, Docker ID distinct from the host) with Bosn
+built from main and act2.31. Its cold full-project run (`--mode test`, 416 s)
+built and tested the whole workspace. It failed only on the timing-sensitive
+unit test `a_run_whose_client_went_away_still_ends_and_is_cleaned` (1 s run
+timeout, fake backend), which lost a cleanup race under cold-build load. The
+pass after it hung. `bosn ci doctor` never replied, and the daemon then
+answered no client.
+
+A core dump (ptrace is denied on the host, so `kill -ABRT` plus `coredumpctl`
+was used; stacks in `acceptance-daemon-hang-stacks.txt`) showed a worker
+blocked locking the widget-state mutex inside `CiRuntime::doctor`. That reply's
+struct literal read `self.widget_state().release(..)`, whose `MutexGuard`
+temporary lives to the end of the statement, then called
+`self.widget_presence()`, which locks the same non-reentrant `std::sync::Mutex`.
+Every `bosn ci doctor` call self-deadlocked the worker and every later
+widget-state caller. The fix reads both fields under one guard
+(`widget_report`). The regression test runs two doctor calls with a 30 s
+deadline measured from another OS thread, because the deadlock blocks the async
+worker itself. Without the fix it fails (an async-timeout variant hung 600 s
+instead); with the fix it passes.

@@ -971,6 +971,7 @@ mod params;
 
 mod cache_usage;
 mod cancel;
+mod doctor;
 #[cfg(unix)]
 mod owners;
 mod source_identity;

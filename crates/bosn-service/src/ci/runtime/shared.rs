@@ -30,6 +30,7 @@ impl CiRuntime {
         let engine_capacity = self.engine_capacity().await;
         let admission_limit = Some(self.lock().scheduler.limit());
         let Some((engine, _)) = self.shared.status().await else {
+            let (widget_release, widget_presence) = self.widget_report();
             return Ok(DoctorReply {
                 engine: None,
                 report: None,
@@ -37,11 +38,8 @@ impl CiRuntime {
                 admission_limit,
                 task_capacity: self.task_capacity.get().cloned(),
                 daemon_release: Some(self.release.to_string()),
-                widget_release: self
-                    .widget_state()
-                    .release(std::time::Instant::now())
-                    .map(str::to_owned),
-                widget_presence: Some(self.widget_presence()),
+                widget_release,
+                widget_presence: Some(widget_presence),
             });
         };
         let report = self
@@ -49,6 +47,7 @@ impl CiRuntime {
             .doctor(&engine)
             .await
             .map_err(|error| CiError::new("internal", error))?;
+        let (widget_release, widget_presence) = self.widget_report();
         Ok(DoctorReply {
             engine: Some(engine),
             report: Some(report),
@@ -56,11 +55,8 @@ impl CiRuntime {
             admission_limit,
             task_capacity: self.task_capacity.get().cloned(),
             daemon_release: Some(self.release.to_string()),
-            widget_release: self
-                .widget_state()
-                .release(std::time::Instant::now())
-                .map(str::to_owned),
-            widget_presence: Some(self.widget_presence()),
+            widget_release,
+            widget_presence: Some(widget_presence),
         })
     }
 
