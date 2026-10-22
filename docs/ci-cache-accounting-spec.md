@@ -6909,3 +6909,43 @@ lint/Windows/macOS passed; Linux/snapshot remain running. No merge, release or
 Bosn rollout of #86 is claimed yet. Bosn's verified .28 pin, corrected physical
 workflow and evidence update have clean sole-primary review, but remain
 unpushed pending that safety rollout and the whole exact-source Bosn gate.
+
+### Merged source safety fix and released-binary regression (2026-10-22)
+
+Act2 #86 passed all six PR checks, including run `39819257462`, and merged at
+`5a5c973960c8b0ed94db3d59fe455579a3c296dc` with no review threads. The external
+checkout switched to master/rebased; its merged tree exactly matched candidate
+`8fa722b`, and its local/remote feature branches were removed after identity
+checks. The original Bosn checkout fetched/rebased onto main immediately after
+merge. Full workflow-dispatch CI `39821118708` then passed all five jobs on the
+exact merged default-branch SHA. The clean-default-branch/independent remote
+SHA/full-CI/absent-tag-and-release guard passed. Annotated act2.29 was requested
+through its existing tag workflow; release `39823012819` is building. No verified
+.29 artifact or Bosn pin is claimed yet.
+
+The actual runtime workflow now independently checks that the old archive path
+is a refusal file and its snapshot retains only the ownership witness after
+both ordinary runs. Its first attempt incorrectly included the journal file in
+a snapshot glob and failed generically; this fixture failure is not counted as
+RED. The corrected check accepts only directories, rejects symlinks, and its
+separate contract probe verifies marker-only success, journal exclusion and
+rejection of a newline-named payload. Probe scratch was moved to trash with
+safe-rm. Evidence: `archive-source-check-contract.json` and
+`archive-source-reclamation-release28-fixture-glob-failure.{json,log}`.
+
+The corrected actual Docker regression against independently verified released
+act2.28 failed135.60s with **archive source still retains payload entries**
+after the first ordinary two-job workflow completed successfully. This is the
+expected retained-source defect, not a workflow or parser failure. Fixture
+`bosn693-archive-reclaim-red-5abf999e04d6` released all private resources; the
+harness verified cleanup and unchanged test binary. Observed source-tree digest
+`bad2bc283d0b98472380f140de53e8fecbd190269a432d5e2883dded03aa331b`.
+Evidence: `archive-source-reclamation-release28-red-proof.{py,json,log}`. The
+same assertions must pass on verified act2.29 before Bosn is pushed.
+
+Read-only audit confirms remaining gaps: the run proxy intentionally narrows
+build-cache prune to no IDs (`pkg/serve/proxy_rules.go`, scopeBuildCache), and
+Bosn's storage samples are backing-filesystem df signals (`ci/storage.rs`), not
+owned engine allocation or a machine cache quota. Those mechanisms do not
+establish scoped-builder expiry or allocated machine ceilings. These remain
+implementation work, not satisfied acceptance criteria.

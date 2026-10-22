@@ -4,7 +4,9 @@ use crate::ci::{
     engine::ActEngineBackend,
     lifecycle::tests::{
         OWNER,
-        native_live::{Fixture, await_claim_release, fixture_backend, require_protection},
+        native_live::{
+            Fixture, await_claim_release, fixture_backend, fixture_engine_exec, require_protection,
+        },
         with_registry,
     },
 };
@@ -137,6 +139,36 @@ async fn workflow_run(runtime: &CiRuntime, phase: &str, sha: char) -> RunRecord 
     .expect("ordinary workflow must reach a terminal state")
 }
 
+async fn require_archive_source_reclaimed(engine: &str, record: &RunRecord) {
+    let namespace = crate::ci::cache_cohort::Namespace::parse(&record.cache_namespace()).unwrap();
+    let script = format!(
+        r#"set -eu
+source={}
+test -f "$source"
+snapshot=
+for candidate in "${{source%/*}}"/."${{source##*/}}".archive-enrollment-*; do
+    test ! -L "$candidate"
+    [ -d "$candidate" ] || continue
+    test -z "$snapshot"
+    snapshot=$candidate
+done
+test -n "$snapshot"
+test -f "$snapshot/.archive-source-identity-v1"
+remaining=$(find "$snapshot" -mindepth 1 -maxdepth 1 ! -name .archive-source-identity-v1 -exec printf x \;)
+if [ -n "$remaining" ]; then
+    printf 'archive source still retains payload entries\n' >&2
+    exit 1
+fi
+printf archive-source-reclaimed
+"#,
+        namespace.legacy_path()
+    );
+    assert_eq!(
+        fixture_engine_exec(engine, &script).await,
+        "archive-source-reclaimed"
+    );
+}
+
 #[test]
 #[ignore = "requires a private Docker daemon, pinned runner/archive and exact cleanup"]
 fn actual_runtime_workflows_recover_completed_tools_across_fresh_engines() {
@@ -162,11 +194,13 @@ fn actual_runtime_workflows_recover_completed_tools_across_fresh_engines() {
         let runtime = CiRuntime::start(&dir, registry.clone(), backend.clone(), 1);
         let first = workflow_run(&runtime, "initial", 'a').await;
         let first_engine = runtime.shared.status().await.unwrap().0;
+        require_archive_source_reclaimed(&first_engine, &first).await;
         require_protection(&registry, &first_engine).await;
         assert!(runtime.shared.retire_idle(Duration::ZERO).await);
         await_claim_release(&runtime.shared, &backend).await;
         let second = workflow_run(&runtime, "recovered", 'b').await;
         let second_engine = runtime.shared.status().await.unwrap().0;
+        require_archive_source_reclaimed(&second_engine, &second).await;
         assert_ne!(first_engine, second_engine);
         require_protection(&registry, &second_engine).await;
         assert!(runtime.shared.retire_idle(Duration::ZERO).await);
@@ -190,6 +224,7 @@ fn actual_runtime_workflows_recover_completed_tools_across_fresh_engines() {
                 "first": first, "second": second,
                 "first_engine": first_engine, "second_engine": second_engine,
                 "claims_released": true,
+                "archive_sources_reclaimed": true,
             }))
             .unwrap(),
         )
