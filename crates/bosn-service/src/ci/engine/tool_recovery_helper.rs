@@ -141,7 +141,7 @@ impl DockerActBackend {
         }
     }
 
-    async fn create_recovery_helper(
+    pub(in crate::ci::engine) async fn create_recovery_helper(
         &self,
         identity: &helper::Identity,
         intent: &CacheHelperIntent,
@@ -375,11 +375,6 @@ fn create_args(
     intent: &CacheHelperIntent,
     program: &str,
 ) -> Result<Vec<String>, String> {
-    let binding = intent
-        .role
-        .as_ref()
-        .and_then(CacheHelperRole::recovery_binding)
-        .ok_or("recovery helper role missing")?;
     let mut args = owned(&[
         "create",
         "--rm",
@@ -411,18 +406,32 @@ fn create_args(
         "-ec",
         program,
     ]);
-    let mut phase_args = match binding.phase {
-        Operation::Publish => owned(&[
+    let source_mountpoint = match &intent.role {
+        Some(CacheHelperRole::ToolSourceFinalizationV1 {
+            source_mountpoint, ..
+        }) => source_mountpoint.as_deref(),
+        Some(role) => {
+            let binding = role
+                .recovery_binding()
+                .ok_or("recovery helper role missing")?;
+            match binding.phase {
+                Operation::Publish => Some(
+                    binding
+                        .source_mountpoint
+                        .ok_or("recovery source mountpoint missing")?,
+                ),
+                Operation::Release | Operation::Dispose => None,
+            }
+        }
+        None => return Err("recovery helper role missing".into()),
+    };
+    let mut phase_args = match source_mountpoint {
+        Some(path) => owned(&[
             "--privileged",
             "--mount",
-            &format!(
-                "type=bind,source={},target=/var/lib/docker",
-                binding
-                    .source_mountpoint
-                    .ok_or("recovery source mountpoint missing")?
-            ),
+            &format!("type=bind,source={path},target=/var/lib/docker"),
         ]),
-        Operation::Release | Operation::Dispose => owned(&[
+        None => owned(&[
             "--cap-drop",
             "ALL",
             "--tmpfs",
@@ -436,4 +445,4 @@ fn create_args(
 
 #[cfg(all(test, unix))]
 #[path = "tool_recovery_helper_tests.rs"]
-mod tests;
+pub(in crate::ci::engine) mod tests;

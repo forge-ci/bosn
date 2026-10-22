@@ -9,7 +9,9 @@ use bosn_core::ResourceLabels;
 use serde::{Deserialize, Serialize};
 
 mod recovery;
+mod source_context;
 pub use recovery::{ActToolRecoveryIntent, ActToolSourceStopProof};
+pub use source_context::ActToolSourceContext;
 mod recovery_completion;
 mod recovery_disposal;
 pub use recovery_completion::{ActToolRecoveryCompletion, ActToolRecoveryPublicationProof};

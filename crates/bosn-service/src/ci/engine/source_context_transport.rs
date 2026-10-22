@@ -5,7 +5,10 @@ use super::{
 };
 
 impl DockerActBackend {
-    async fn observed_source_context(&self, name: &str) -> Result<(String, SourceContext), String> {
+    pub(super) async fn observed_source_context(
+        &self,
+        name: &str,
+    ) -> Result<(String, SourceContext), String> {
         let document = self
             .checked(
                 "source context inspection",

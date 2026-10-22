@@ -699,7 +699,12 @@ impl ActEngineBackend for DockerActBackend {
         Box::pin(async move {
             async_engine::join(
                 self.supervise_existing_cohort(registry, owner, stop),
-                self.supervise_tool_recovery(registry, owner, stop),
+                async_engine::join(
+                    self.supervise_tool_recovery(registry, owner, stop),
+                    // Keep the extra lifecycle state off the daemon worker's
+                    // stack; its Docker futures are large in dev builds.
+                    Box::pin(self.supervise_retained_sources(registry, owner, stop)),
+                ),
             )
             .await;
         })

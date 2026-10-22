@@ -8,15 +8,24 @@ use serde::{Deserialize, Serialize};
 mod recovery;
 
 const PREFIX: &str = "ci.cache-helper.v1:";
-const RECORD_BYTES: usize = 4096;
+const RECORD_BYTES: usize = 24_576;
 pub const MAX_HELPER_PAGE: usize = 64;
 /// Docker control deadline (30 s) plus ten minutes for a late create to settle.
 pub const LATE_CREATE_WINDOW_SECS: f64 = 630.0;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CacheHelperRole {
     MaintenanceV1,
+    /// Complete foreign source authority; the helper journal belongs to its
+    /// executing daemon, independently of the source's original registry.
+    ToolSourceFinalizationV1 {
+        context: Box<act::ActToolSourceContext>,
+        context_id: String,
+        command_sha256: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_mountpoint: Option<String>,
+    },
     ToolRecoveryV1 {
         run_id: String,
         intent: act::ActToolRecoveryIntent,
@@ -57,7 +66,7 @@ pub struct RecoveryHelperBinding<'a> {
 impl CacheHelperRole {
     pub fn recovery_binding(&self) -> Option<RecoveryHelperBinding<'_>> {
         match self {
-            Self::MaintenanceV1 => None,
+            Self::MaintenanceV1 | Self::ToolSourceFinalizationV1 { .. } => None,
             Self::ToolRecoveryV1 {
                 run_id,
                 intent,
@@ -113,6 +122,7 @@ impl CacheHelperIntent {
         let role = match &self.role {
             None => "measure",
             Some(CacheHelperRole::MaintenanceV1) => "maintain",
+            Some(CacheHelperRole::ToolSourceFinalizationV1 { .. }) => "finalize-source",
             Some(CacheHelperRole::ToolRecoveryV1 { .. }) => "recover",
             Some(CacheHelperRole::ToolRecoveryReleaseV1 { .. }) => "release",
             Some(CacheHelperRole::ToolRecoveryDisposalV1 { .. }) => "dispose",
@@ -129,6 +139,30 @@ impl CacheHelperIntent {
             || digest.is_none_or(|digest| !hex_id(digest))
         {
             return Err(Error::BadRow("cache helper intent"));
+        }
+        if let Some(CacheHelperRole::ToolSourceFinalizationV1 {
+            context,
+            context_id,
+            command_sha256,
+            source_mountpoint,
+        }) = &self.role
+        {
+            context.validate()?;
+            if !hex_id(context_id)
+                || !hex_id(command_sha256)
+                || source_mountpoint
+                    .as_ref()
+                    .is_some_and(|path| !valid_recovery_source_mountpoint(path))
+                || self.volume != context.recovery.cache_volume
+                || self.created_at < context.intent.created_at
+                || self.image
+                    != format!(
+                        "docker.io/library/docker@{}",
+                        context.intent.engine_image_digest
+                    )
+            {
+                return Err(Error::BadRow("source finalization helper identity"));
+            }
         }
         if let Some(binding) = self
             .role

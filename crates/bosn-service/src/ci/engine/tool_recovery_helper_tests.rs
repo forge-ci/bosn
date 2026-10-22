@@ -438,7 +438,10 @@ struct LiveFixture {
     generation: String,
 }
 
-async fn reserve_live_reference(backend: &DockerActBackend, record: &ActEngineRecord) -> String {
+pub(in crate::ci::engine) async fn reserve_live_reference(
+    backend: &DockerActBackend,
+    record: &ActEngineRecord,
+) -> String {
     let frozen = record.tool_recovery.as_ref().unwrap();
     let act = act_artifact("amd64").unwrap();
     let encoded = RecoveryPin::from_intent(frozen).unwrap().encoded().unwrap();
