@@ -5,10 +5,10 @@ use bosn_engine::{DockerEngine, RunOptions};
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Fixture {
-    docker_id: String,
-    act_version: String,
-    report: String,
+pub(crate) struct Fixture {
+    pub(crate) docker_id: String,
+    pub(crate) act_version: String,
+    pub(crate) report: String,
 }
 
 async fn native_policy(backend: &DockerActBackend) -> SparePlan {
@@ -36,14 +36,14 @@ async fn native_policy(backend: &DockerActBackend) -> SparePlan {
     plan
 }
 
-async fn require_protection(registry: &RegistryActor, engine_name: &str) {
+pub(crate) async fn require_protection(registry: &RegistryActor, engine_name: &str) {
     let run = engine_name.strip_prefix("bosn-act-").unwrap();
     let record = super::super::record(registry, run).await.unwrap().unwrap();
     assert!(record.tool_recovery.is_some());
     assert!(record.tool_recovery_reserved_at.is_some());
 }
 
-async fn await_claim_release(shared: &SharedEngine, backend: &DockerActBackend) {
+pub(crate) async fn await_claim_release(shared: &SharedEngine, backend: &DockerActBackend) {
     async_engine::timeout(Duration::from_secs(180), async {
         loop {
             shared.tend_machine(Duration::ZERO).await;
@@ -114,7 +114,7 @@ async fn require_fixture_update(engine: &str) {
     );
 }
 
-async fn fixture_backend(fixture: &Fixture) -> Arc<DockerActBackend> {
+pub(crate) async fn fixture_backend(fixture: &Fixture) -> Arc<DockerActBackend> {
     let docker = DockerEngine::docker();
     let identity = docker
         .with_args(["info", "--format", "{{.ID}}"])

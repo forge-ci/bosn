@@ -20,7 +20,7 @@ fn staged(runtime: &CiRuntime, id: &str) {
     std::fs::write(workflows.join("ci.yml"), "jobs:\n  a:\n    steps: []\n").unwrap();
 }
 
-fn request(staging: &str, sha_byte: char) -> SubmitRequest {
+pub(crate) fn request(staging: &str, sha_byte: char) -> SubmitRequest {
     SubmitRequest {
         staging: staging.into(),
         workspace: "/work/repo".into(),

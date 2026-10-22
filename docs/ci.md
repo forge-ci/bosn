@@ -377,9 +377,9 @@ stubbed job.
   lock, so a second serve never reaps the first's runs) and forwards:
   - `act serve prepare`: the pinned runner image (loaded from its tar in the
     cache volume, or pulled by digest once and saved there, and proved
-    against the publisher manifest and config) and the tool cache (seeded
-    once per engine from the cache volume's store, or a frozen tool
-    generation's overlay), then the runner's stock tools once per engine;
+    against the publisher manifest and config) and the tool cache (a frozen
+    native generation's writable overlay), then the runner's stock tools
+    once per engine;
   - per run, `act serve admit` (the run ID, its slot and limits; an admission
     that answers with any other scope is refused), `act serve exec` (for
     `act -l` and the run; secrets pass by name, never in argv) and
@@ -405,9 +405,20 @@ stubbed job.
   `act serve close` kills its act process tree and removes every container
   with its label or on its network, its networks and volumes, its work tree
   and its cgroup, and proves them gone. Other runs keep running. When act
-  exited on its own, serve then saves the run's newly completed, unmodified
-  tool-cache installs to the cache volume (the log says `tool cache saved`
-  or why not). A restarted serve reaps whatever a previous one left.
+  exited on its own, serve records its tool-cache save result. Native tool
+  updates are published from the stopped engine's retained source volume;
+  the daemon protects its lower generation before admission, recovers only
+  completed installs, and releases the source after durable publication.
+  A restarted serve reaps whatever a previous one left.
+
+  Before the first native engine starts, enrollment fences the legacy store
+  and waits for older writers to drain. Missing or inconsistent warm state
+  refuses admission rather than silently starting empty. The logical tool
+  generation payload limit is 64 GiB; it is not an allocated disk quota.
+  Native recovery requires disk-backed engine storage. A memory-backed plan
+  refuses before enrollment; select `[engine] storage = "disk"` on a host
+  with sufficient free disk. Machine-wide cache ceilings and coordinated
+  archive routing remain tracked in #508.
 
   `bosn ci doctor [--json]` runs act2's `act doctor` inside the engine
   against its serve: host and cgroup checks, and `serve.running` with the
@@ -653,6 +664,10 @@ with its VM. It holds:
   engine with `docker load` (a warm run skips the ~30 s pull).
 - `actions/`: act's action checkouts (`--action-cache-path`). These are keyed
   by repository and ref, so they are safe to share.
+- `toolstore-v1/`: native tool generations and recovery metadata. Enrollment
+  replaces the legacy `toolcache/` directory with a refusal file, then drains
+  remaining older writers before publication and admission. Its durable history
+  lives beside the native store; do not remove either to force a cold start.
 - `actcache/<namespace>/`: act's cache server store (`--cache-server-path`),
   one per repository identity. The namespace is a hash of the `origin`
   repository, or of the checkout path when there is no origin. So two
