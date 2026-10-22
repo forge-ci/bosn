@@ -1,8 +1,8 @@
 //! Bounded keyset pages for engine cleanup and native recovery phases.
 use super::*;
 
-const ACTIVE: &str = "SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'act.engine.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE e.kind > ? AND (json_extract(e.detail,'$.state') IS NULL OR json_extract(e.detail,'$.state')<>'terminal') ORDER BY e.kind LIMIT ?";
-const TOOLS: &str = "SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'act.engine.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE e.kind > ? AND json_extract(e.detail,'$.tool_recovery') IS NOT NULL AND ((json_extract(e.detail,'$.state')='cleanup_required' AND json_extract(e.detail,'$.tool_recovery_reserved_at') IS NOT NULL AND json_extract(e.detail,'$.tool_recovery_source_stopped_at') IS NOT NULL AND json_extract(e.detail,'$.tool_recovery_completion') IS NULL) OR (json_extract(e.detail,'$.tool_recovery_completion') IS NOT NULL AND json_extract(e.detail,'$.tool_recovery_completion.reference_released_at') IS NULL)) ORDER BY e.kind LIMIT ?";
+const ACTIVE: &str = "SELECT 'act.engine.v1:'||id,detail FROM ci_current WHERE family=1 AND pending=1 AND id>? ORDER BY id LIMIT ?";
+const TOOLS: &str = "SELECT 'act.engine.v1:'||id,detail FROM ci_current WHERE family=1 AND tools_pending=1 AND id>? ORDER BY id LIMIT ?";
 
 impl Registry {
     /// Bounded active engine page in immutable run-ID order. Repeat passes to
@@ -36,13 +36,17 @@ fn page(
     if limit == 0 || limit > MAX_PAGE_SIZE {
         return Err(Error::BadRow("act recovery page limit"));
     }
-    let after_kind = after_run_id.map(kind).transpose()?.unwrap_or_default();
+    registry.require_ci_ready()?;
+    let after_kind = after_run_id
+        .map(|id| kind(id).map(|_| id.to_owned()))
+        .transpose()?
+        .unwrap_or_default();
     let rows = registry.connection.query(
         sql,
         &[Value::Text(after_kind), Value::Integer((limit + 1) as i64)],
         QueryLimits {
             max_rows: limit + 1,
-            max_bytes: (limit + 1) * 32768,
+            max_bytes: (limit + 1) * (RECORD_BYTES + 1024),
         },
     )?;
     let more = rows.len() > limit;

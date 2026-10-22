@@ -6274,3 +6274,127 @@ Final service library/tests Clippy passed in 16.31s with `-D warnings`
 (`production-native-clippy-final.log`). The sole primary review found no
 remaining production finding. The full local gate is the remaining pre-push
 requirement; all broad original #508 requirements above remain in force.
+
+
+### Bounded registry recovery work in progress (2026-10-22)
+
+PR #707 merged at `663bebc3c7170b7943ef04b2adf59bf13b66d04c` after
+the exact full local gate passed in 559s including queue time. Rust passed 1,157
+nextests with 53 configured skips; Linux passed 264 with 10 skips. Stamped
+`9952d3e145dc9ceb1d18c870e6539b745e84691d` independently passed GATE-003
+before push. Required remote checks passed in `39781729011` (nine successes,
+five configured skips). The original checkout rebased onto main; its owned
+branch and exact watcher log were removed. Ordinary native recovery is now
+selected on main; archive routing remains Legacy.
+
+The next uncommitted work replaces history aggregation with typed, indexed
+current authority for engine/helper records. The exact production SQL cost
+regression ran in the isolated container: with 100 engine identities and 65
+returned rows, 10,000 and 100,000 historical snapshots exceeded the 100,000-VM-
+instruction budget. The same regression passes with current-state queues.
+`recovery-query-budget-red-executed.log` and `recovery-query-budget-green.log`
+record actual test execution; earlier host attempts lacked pytest or were refused
+by the host-test guard and are not RED evidence.
+
+The schema-v6 candidate atomically updates current authority with journal writes,
+retains three snapshot audit events per identity, and reads pending engines,
+native recoveries and helper exclusions through typed indexes. V5 upgrade holds
+the sole-writer fence, sets v6 before backfill to exclude older binaries, and
+walks reverse event-ID pages of at most 128. The cursor commits with each page;
+normal reads/admission remain gated until it completes. Daemon startup calls
+those pages on a blocking worker and yields between pages before binding IPC.
+Latest snapshots validate typed identities and owners. Superseded history never
+replaces newer authority. Explicit imports use that same current-state path.
+
+An isolated 9 MiB unrelated-event regression initially exhausted the migration
+page's 8 MiB result budget. Backfill now fetches managed payloads only within
+that bounded ID window; the regression passes and preserves the unrelated data.
+Evidence: `registry-migration-unrelated-large-red.log` and
+`registry-current-migration-corrected-tests.log` (four tests passed, including
+interrupted/reopened upgrade, invalid latest authority and 500-update churn).
+Managed JSON now has engine/helper byte checks before deserialization/storage.
+V6 validation requires its columns and exact canonical queue-index definitions.
+
+The first registry integration run passed 56 and failed four: two tests still
+expected malformed snapshots to be stored before read-time rejection, and two
+encoded the old current/future schema numbers. Invalid snapshots now refuse at
+the write boundary and those tests also require existing authority unchanged;
+the future-version fixture is v7. The corrected run passed all 17 library and
+60 integration tests (`registry-current-registry-corrected-tests.log`). The legacy
+compatibility/version tests moved into `act_lifecycle/record_validation.rs` when
+the original file reached 1,000 lines; no gate was raised. Registry/service
+library/tests Clippy passed in 22.28s (`registry-current-first-clippy.log`).
+
+The candidate now limits new engine/helper authority to 10,000 identities and
+retains terminal authority for seven days. Existing identities can still recover
+at capacity or below the replay floor. A trusted background observation clock
+drives batches of at most 64; a durable composite cursor advances past protected
+rows. Pending helpers, engine references and leases protect their authority.
+Terminal abandonment waits for exact source absence and recovery expiry;
+unreleased publication remains protected until acknowledgement. Legacy terminal
+proofs without the optional newer disposal marker remain collectible.
+
+Two admission/expiry regressions failed before implementation and passed after.
+Review found that admission incorrectly used intent creation time as a GC clock:
+the future-date regression failed, then passed after removing collection from
+admission. Only explicit trusted maintenance now advances collection. The registry
+suite passed 23 library and 63 integration tests; registry/service library/tests
+Clippy passed in 26.19s. The actual SQL budget tests passed three cases.
+
+The actual service startup test upgrades a previous-layout v5 database containing
+400 snapshots, verifies v6 authority and its three-event audit tail through a
+read-only connection after IPC becomes ready, then stops and restarts the daemon
+and verifies them again. It passed. A bounded one-record maintenance test also
+proves a protected parent does not starve a later eligible helper. Its first
+fixture used an absence timestamp before the required late-create window and
+correctly refused; the corrected fixture and all three retention integration
+tests passed. Docker was unavailable inside this unit-test container; this is
+registry/startup evidence, not new physical container evidence.
+
+The follow-up daemon suite passed all 48 selected tests in 15.75s; final
+registry/service library/tests Clippy passed in 21.01s. The sole primary reviewer
+reviewed every Rust, Python and documentation change and found no remaining
+concrete finding. Python lint initially rejected two long test lines; both were
+split without changing the query or VM budget. File-length and include-base
+guards pass.
+
+#### Recovery capacity correction before push
+
+The first whole gate ran on `a6afde0bf7f735b93a1da5bfeabdc8cc3a22b1a9`.
+Rust passed in 326s. Linux passed 266 tests with ten skips and failed one old
+Python import assertion expecting schema 5; the actual imported database correctly
+reported 6. The expectation now matches the new registry schema. That failed gate
+does not authorize a push.
+
+A final capacity audit found that ordinary authority at 10,000 records could
+block a fresh helper required to recover an existing engine. The former test
+covered updates to existing helpers, which did not prove new-helper admission.
+An actual typed fixture filled ordinary capacity, then tried twelve sequential
+completed recovery attempts; it failed before correction and passed afterward
+(`registry-recovery-reserve-red.log`, `registry-recovery-reserve-first-green.log`).
+
+Validated local recovery phases now have a separate finite reserve: at most eight
+retained helper attempts per engine and 90,000 total authority identities. An
+all-helper engine index bounds lookup. Only `begin_cache_helper` after exact
+existing-engine/phase validation can spend this reserve; generic events,
+maintenance and foreign finalization cannot. A ninth attempt can recycle one
+already-Removed helper with the identical frozen intent. Exact immutable-ID
+absence or the late-create absence proof is required before Removed; the parent's
+publication/release authority remains separate. Recycling advances durable replay
+protection before deleting the old audit/current rows in the same transaction.
+The system observation clock independently excludes future-dated recycling.
+Pending/uncertain attempts are never evicted: eight uncertain attempts refuse
+further admission and keep source protection intact. Existing over-cap legacy
+authority is preserved rather than dropped.
+
+The corrected registry suite passed 23 library and 65 integration tests; final
+registry/service library/tests Clippy passed in 19.70s. The reserve exhaustion
+test also rejects future-clock admission without changing the replay floor.
+The sole primary reviewer confirmed the capacity finding resolved and found no
+new concrete finding. A fresh whole exact-source gate remains required.
+
+This remains local source, not a shipped schema upgrade or a completed
+storage bound. Physical database/WAL accounting and ceilings remain unfinished.
+Deleting historical rows does not shrink old allocated SQLite files. Other event
+families retain their own unfinished storage policies. No full gate, push, PR or
+issue closure is claimed for this candidate.

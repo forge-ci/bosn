@@ -183,7 +183,7 @@ fn live_recovery_reference_prevents_terminal_cleanup() {
     );
 }
 
-fn stopped_recovery_fixture() -> (
+pub(super) fn stopped_recovery_fixture() -> (
     TemporaryDirectory,
     Registry,
     ActEngineIntent,

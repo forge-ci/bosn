@@ -175,10 +175,10 @@ fn read_only_missing_does_not_create_and_legacy_or_newer_schemas_are_refused() {
             &[],
         )
         .unwrap();
-    connection.execute("INSERT INTO meta VALUES ('schema_version','6'),('registry_id','11111111-2222-4333-8444-555555555555')", &[]).unwrap();
+    connection.execute("INSERT INTO meta VALUES ('schema_version','7'),('registry_id','11111111-2222-4333-8444-555555555555')", &[]).unwrap();
     assert!(matches!(
         Registry::open_writer(&v6),
-        Err(Error::UnsupportedSchema(6))
+        Err(Error::UnsupportedSchema(7))
     ));
     let (_bad_dir, malformed) = database_path();
     let reserved = kernal_api::platform::fs::create_private_file(&malformed).unwrap();
@@ -377,8 +377,8 @@ fn reconciliation_preview_is_read_only_holds_writer_fence_and_requires_gate() {
     let before = std::fs::read(&path).unwrap();
     let preview = Registry::open_reconciliation_preview(&path).unwrap();
     assert_eq!(
-        preview.meta("schema_version").unwrap().as_deref(),
-        Some("5")
+        preview.meta("schema_version").unwrap(),
+        Some(bosn_registry::SCHEMA_VERSION.to_string())
     );
     assert!(matches!(
         Registry::open_reconciliation_writer(&path),

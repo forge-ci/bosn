@@ -123,6 +123,11 @@ pub enum ActRegistryCommand {
     },
     MaintenanceRecord(bosn_registry::cache_maintenance::MaintenanceSnapshot),
     MaintenanceLatest,
+    /// Bounded metadata retention, independent of new workflow submissions.
+    HistoryMaintenance {
+        at: f64,
+        limit: usize,
+    },
     HelperBegin(bosn_registry::cache_helper::CacheHelperIntent),
     ToolRecoverySourceDisposal {
         run: String,
@@ -165,6 +170,7 @@ pub enum ActRegistryReply {
     Helpers(bosn_registry::cache_helper::CacheHelperPage),
     Record(Option<Box<ActEngineRecord>>),
     Maintenance(Option<bosn_registry::cache_maintenance::MaintenanceSnapshot>),
+    HistoryRemoved(usize),
 }
 
 impl RegistryActor {
@@ -193,6 +199,11 @@ pub(crate) fn apply(
     command: ActRegistryCommand,
     startup_open: &mut bool,
 ) -> Result<ActRegistryReply, bosn_registry::Error> {
+    if let ActRegistryCommand::HistoryMaintenance { at, limit } = command {
+        return registry
+            .maintain_ci_state(at, limit)
+            .map(ActRegistryReply::HistoryRemoved);
+    }
     // Admission closes the window even if its transaction is later refused or
     // its caller loses the reply. Actor queue order is the authority boundary.
     if matches!(
@@ -425,6 +436,7 @@ pub(crate) fn apply(
         ActRegistryCommand::Pending { .. }
         | ActRegistryCommand::ToolRecoveryPending { .. }
         | ActRegistryCommand::MaintenanceLatest
+        | ActRegistryCommand::HistoryMaintenance { .. }
         | ActRegistryCommand::Get { .. }
         | ActRegistryCommand::HelperPending { .. }
         | ActRegistryCommand::StartupInterrupt { .. }

@@ -185,6 +185,7 @@ mod daemon_idle;
 mod daemon_jobs;
 #[cfg(unix)]
 mod daemon_owner;
+mod daemon_registry_upgrade;
 mod guest;
 mod manifest_ensure;
 mod manifest_plan;

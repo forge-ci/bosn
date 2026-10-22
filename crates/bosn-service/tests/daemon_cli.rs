@@ -202,7 +202,7 @@ fn daemon_cli_serves_status_stops_and_preserves_singleton() {
     );
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(value["daemon"], "online");
-    assert_eq!(value["schema_version"], 5);
+    assert_eq!(value["schema_version"], bosn_registry::SCHEMA_VERSION);
     assert_eq!(value["daemon_version"], value["client_version"]);
     assert_eq!(value["daemon_protocol"], value["client_protocol"]);
     assert!(

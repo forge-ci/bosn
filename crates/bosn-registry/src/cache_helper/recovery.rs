@@ -95,7 +95,7 @@ impl Immediate<'_> {
         }
         .validate()?;
         self.pending_helper(
-            "SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'ci.cache-helper.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE (json_extract(e.detail,'$.intent.role.tool_recovery_v1.intent.source_volume')=?1 OR json_extract(e.detail,'$.intent.role.tool_source_finalization_v1.context.recovery.source_volume')=?1) AND (json_extract(e.detail,'$.state') IS NULL OR json_extract(e.detail,'$.state')<>'removed') LIMIT 1",
+            "SELECT 'ci.cache-helper.v1:'||id,detail FROM ci_current WHERE family=2 AND pending=1 AND source=? LIMIT 1",
             source,
         )
     }
@@ -105,7 +105,7 @@ impl Immediate<'_> {
         owner: &str,
     ) -> Result<Option<CacheHelperRecord>, Error> {
         self.pending_helper(
-            "SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'ci.cache-helper.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE json_extract(e.detail,'$.intent.role.tool_recovery_release_v1.intent.owner')=? AND (json_extract(e.detail,'$.state') IS NULL OR json_extract(e.detail,'$.state')<>'removed') LIMIT 1",
+            "SELECT 'ci.cache-helper.v1:'||id,detail FROM ci_current WHERE family=2 AND pending=1 AND release_owner=? LIMIT 1",
             owner,
         )
     }

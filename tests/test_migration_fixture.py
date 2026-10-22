@@ -145,7 +145,7 @@ def test_native_cli_imports_the_complete_v4_fixture_without_changing_source(
     with sqlite3.connect(destination / "registry.sqlite3") as connection:
         assert connection.execute(
             "SELECT value FROM meta WHERE key='schema_version'"
-        ).fetchone() == ("5",)
+        ).fetchone() == ("6",)
         assert connection.execute(
             "SELECT value FROM meta WHERE key='migration.reconciliation_required'"
         ).fetchone() == ("true",)

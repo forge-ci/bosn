@@ -38,7 +38,10 @@ use super::{
     machine::{Daemon, EngineIdentity, Holder, Leased, MachineEngine},
     spare::{Spare, SparePlan},
 };
-use crate::RegistryActor;
+use crate::{
+    RegistryActor,
+    act_registry::{ActRegistryCommand, ActRegistryReply},
+};
 
 mod enrollment;
 mod machine_ops;
@@ -348,6 +351,7 @@ impl SharedEngine {
     pub fn spawn_reaper(self: &Arc<Self>, ttl: impl Fn() -> Duration + Send + 'static) {
         let keeper = Arc::downgrade(self);
         async_engine::launch(async move {
+            let mut history_error = None;
             loop {
                 async_engine::sleep(REAP_EVERY).await;
                 let Some(keeper) = keeper.upgrade() else {
@@ -355,6 +359,28 @@ impl SharedEngine {
                 };
                 if keeper.state().closed {
                     return;
+                }
+                let result = keeper
+                    .registry
+                    .act_registry(ActRegistryCommand::HistoryMaintenance {
+                        at: super::lifecycle::now_seconds(),
+                        limit: 64,
+                    })
+                    .await;
+                match result {
+                    Ok(ActRegistryReply::HistoryRemoved(removed)) => {
+                        history_error = None;
+                        if removed > 0 {
+                            daemon_log!("bosn ci: expired {removed} terminal registry records");
+                        }
+                    }
+                    result => {
+                        let message = format!("{result:?}").chars().take(512).collect::<String>();
+                        if history_error.as_ref() != Some(&message) {
+                            daemon_log!("bosn ci: history maintenance deferred: {message}");
+                            history_error = Some(message);
+                        }
+                    }
                 }
                 let ttl = ttl();
                 if keeper.retire_idle(ttl).await {
