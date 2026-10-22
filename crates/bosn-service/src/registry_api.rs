@@ -3,6 +3,18 @@
 use super::*;
 
 impl RegistryActor {
+    pub(crate) async fn storage_checkpointer(
+        &self,
+    ) -> Result<bosn_registry::RegistryCheckpointer, Error> {
+        let (reply, wait) = async_engine::oneshot_channel();
+        self.sender
+            .send(DbCommand::StorageCheckpointer(reply))
+            .await
+            .map_err(|_| Error::ActorClosed)?;
+        wait.await
+            .map_err(|_| Error::ActorClosed)?
+            .ok_or(Error::ActorClosed)
+    }
     pub(crate) async fn put_manifest_volume_intents(
         &self,
         volumes: Vec<ManifestVolumeResource>,
@@ -536,6 +548,7 @@ pub struct RegistryActor {
     pub(crate) sender: async_engine::Sender<DbCommand>,
 }
 pub(crate) enum DbCommand {
+    StorageCheckpointer(async_engine::OneshotSender<Option<bosn_registry::RegistryCheckpointer>>),
     ActRegistry {
         command: Box<act_registry::ActRegistryCommand>,
         reply: async_engine::OneshotSender<Result<act_registry::ActRegistryReply, Error>>,

@@ -24,10 +24,7 @@ impl Registry {
         if meta(&connection, "schema_version")?.as_deref() == Some("5") {
             ci_state::migration::prepare(&mut connection)?;
         }
-        Ok(Self {
-            connection,
-            _writer: writer,
-        })
+        Self::finish_writer(connection, writer, path, identity)
     }
     /// Opens the one deliberately offline writer permitted to inspect and
     /// complete an imported Python-v4 registry.  Normal writers must keep
@@ -52,10 +49,7 @@ impl Registry {
             return Err(Error::ReconciliationNotRequired);
         }
         verify_database_identity(path, identity)?;
-        Ok(Self {
-            connection,
-            _writer: writer,
-        })
+        Self::finish_writer(connection, writer, path, identity)
     }
     /// Atomically reserves a new database path, initializes v6, and retains
     /// writer exclusion. The caller supplies the secure UUID because the
@@ -73,6 +67,11 @@ impl Registry {
         verify_database_identity(path, identity)?;
         let mut connection =
             Connection::open_with_busy_timeout(path, std::time::Duration::from_secs(5))?;
+        connection.execute("PRAGMA auto_vacuum=INCREMENTAL", &[])?;
+        // The kernel's WAL setup has already materialized an empty header.
+        // Rebuild only this newly-created, schema-free database to install
+        // pointer maps; never run a full VACUUM on an existing registry.
+        connection.execute("VACUUM", &[])?;
         let mut transaction = connection.begin_immediate()?;
         for statement in SCHEMA.split(';').map(str::trim).filter(|s| !s.is_empty()) {
             transaction.execute(statement, &[])?;
@@ -89,10 +88,44 @@ impl Registry {
         )?;
         transaction.commit()?;
         verify_database_identity(path, identity)?;
-        Ok(Self {
+        Self::finish_writer(connection, writer, path, identity)
+    }
+
+    fn finish_writer(
+        connection: Connection,
+        writer: fs::OwnedFileLock,
+        path: &Path,
+        identity: Option<fs::FileIdentity>,
+    ) -> Result<Self, Error> {
+        // Install the drop ordering before any fallible secondary setup, so
+        // error unwinding also closes SQLite before releasing writer authority.
+        let mut registry = Self {
             connection,
-            _writer: writer,
-        })
+            checkpoint_connection: None,
+            _writer: std::sync::Arc::new(writer),
+            storage_path: path.to_path_buf(),
+            storage_identity: identity,
+            ci_metadata_limit_bytes: storage::CI_METADATA_LIMIT_BYTES,
+        };
+        verify_database_identity(path, identity)?;
+        registry.storage_path = std::fs::canonicalize(path)?;
+        verify_database_identity(&registry.storage_path, identity)?;
+        // Open the checkpoint connection at the same fenced startup boundary,
+        // never in response to a later untrusted replacement of the path.
+        let checkpoint = Connection::open_with_busy_timeout(path, std::time::Duration::ZERO)?;
+        verify_database_identity(path, identity)?;
+        for connection in [&registry.connection, &checkpoint] {
+            connection.query(
+                "PRAGMA wal_autocheckpoint=0",
+                &[],
+                QueryLimits {
+                    max_rows: 1,
+                    max_bytes: 128,
+                },
+            )?;
+        }
+        registry.checkpoint_connection = Some(checkpoint);
+        Ok(registry)
     }
     /// Opens diagnostics only. It never initializes, migrates, or takes a writer lock.
     pub fn open_read_only(path: impl AsRef<Path>) -> Result<ReadOnlyRegistry, Error> {
@@ -361,7 +394,8 @@ impl Registry {
         }
         Ok(())
     }
-    /// The exact v5 schema installed by [`Self::create_writer`].
+    /// The base schema shared with v5. `create_writer` also installs the
+    /// current CI projection schema; this base alone is not a complete registry.
     pub fn schema_sql() -> &'static str {
         SCHEMA
     }
@@ -397,8 +431,10 @@ impl Registry {
     }
     pub fn begin_immediate(&mut self) -> Result<Immediate<'_>, Error> {
         self.require_ci_ready()?;
+        let storage = self.storage_check();
         Ok(Immediate {
             transaction: self.connection.begin_immediate()?,
+            storage,
         })
     }
     pub fn resources(&self, offset: usize, limit: usize) -> Result<Page<Resource>, Error> {

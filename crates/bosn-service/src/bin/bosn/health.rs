@@ -27,10 +27,13 @@ pub(crate) fn run_doctor(arguments: impl Iterator<Item = std::ffi::OsString>) {
     // #300: the census runs before the report is printed and inside a fixed overall budget,
     // so doctor is one bounded, completed operation that states whether its census finished.
     let scan = doctor_census(&state_dir);
+    let registry_storage =
+        bosn_registry::registry_storage_usage(&state_dir.join("registry.sqlite3"));
     let value = json!({
         "action": "doctor",
         "daemon": report.daemon,
         "registry": report.registry,
+        "registry_storage": registry_storage,
         "engine": report.engine,
         "client_version": report.client_version,
         "server_version": report.server_version,

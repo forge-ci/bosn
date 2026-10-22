@@ -4,6 +4,7 @@ use super::*;
 
 pub struct Immediate<'a> {
     pub(crate) transaction: Transaction<'a>,
+    pub(crate) storage: storage::StorageCheck,
 }
 impl<'a> Immediate<'a> {
     /// Atomically records the complete offline verification set and removes
@@ -591,6 +592,7 @@ impl<'a> Immediate<'a> {
             kind,
             detail,
             ci_state::WriteMode::Event,
+            &self.storage,
         )
     }
 
@@ -601,6 +603,7 @@ impl<'a> Immediate<'a> {
             &value.kind,
             &value.detail,
             ci_state::WriteMode::Import(value.id),
+            &self.storage,
         )
     }
     pub fn delete_resource(&mut self, id: &str) -> Result<(), Error> {

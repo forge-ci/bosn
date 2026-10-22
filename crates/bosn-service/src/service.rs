@@ -35,6 +35,8 @@ impl Service {
             stop: CancellationSource::new(),
             capacity: None,
             idle_exit: None,
+            #[cfg(test)]
+            registry_storage_gate: None,
         }
     }
     /// Exit once the daemon has been idle this long: no client connected and nothing
@@ -563,6 +565,12 @@ impl Service {
                 }
             })
         };
+        let storage_maintenance = crate::registry_storage::spawn(
+            actor.storage_checkpointer().await?,
+            self.stop.token(),
+            #[cfg(test)]
+            self.registry_storage_gate,
+        );
         let mut clients = async_engine::TaskGroup::new();
         let mut last_active = Instant::now();
         // A short idle limit is checked as often as it can expire.
@@ -654,6 +662,7 @@ impl Service {
         let _ = cohort_maintenance.await;
         actor.stop().await;
         let _ = worker.await;
+        let _ = storage_maintenance.await;
         Ok(())
     }
 }
@@ -662,6 +671,8 @@ impl Service {
 const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 pub struct Service {
+    #[cfg(test)]
+    pub(crate) registry_storage_gate: Option<crate::registry_storage::CheckpointGate>,
     pub(crate) act_backend: Arc<dyn ci::engine::ActEngineBackend>,
     pub(crate) state_dir: PathBuf,
     pub(crate) stop: CancellationSource,

@@ -21,6 +21,9 @@ fn full_ordinary_capacity_still_allows_more_than_eight_completed_recovery_attemp
         tx.begin_cache_helper(&helper).unwrap();
     }
     tx.commit().unwrap();
+    registry
+        .set_ci_metadata_limit_bytes(registry.storage_usage().unwrap().allocated_bytes.unwrap())
+        .unwrap();
     let mut first = None;
     for index in 0..12 {
         helper.nonce = format!("{index:08x}-2222-4222-8222-222222222222");
