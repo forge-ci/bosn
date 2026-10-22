@@ -680,7 +680,13 @@ impl ActEngineBackend for DockerActBackend {
         owner: &'a str,
         stop: &'a CancellationToken,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(self.supervise_existing_cohort(registry, owner, stop))
+        Box::pin(async move {
+            async_engine::join(
+                self.supervise_existing_cohort(registry, owner, stop),
+                self.supervise_tool_recovery(registry, owner, stop),
+            )
+            .await;
+        })
     }
     fn remove_cache<'a>(&'a self, volume: &'a str) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {

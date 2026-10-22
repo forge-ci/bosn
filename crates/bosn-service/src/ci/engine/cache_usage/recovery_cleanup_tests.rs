@@ -32,6 +32,16 @@ pub(in crate::ci::engine) async fn seed_source_with(
     generation: &str,
     cache: &str,
 ) -> ActEngineRecord {
+    seed_source_for_lifetime(actor, old, generation, cache, 3600).await
+}
+
+pub(in crate::ci::engine) async fn seed_source_for_lifetime(
+    actor: &RegistryActor,
+    old: bool,
+    generation: &str,
+    cache: &str,
+    lifetime_secs: i64,
+) -> ActEngineRecord {
     let mut engine = crate::ci::lifecycle::tests::intent(RUN);
     let profile = engine.creation_profile.as_mut().unwrap();
     profile.tmpfs_policy = ActEngineTmpfsPolicy::NamedDiskStorageRunTmpNoexecV2;
@@ -74,7 +84,7 @@ pub(in crate::ci::engine) async fn seed_source_with(
             run: RUN.into(),
             token: CLAIM.into(),
             created,
-            expires: created + 3600,
+            expires: created + lifetime_secs,
         },
     )
     .await;

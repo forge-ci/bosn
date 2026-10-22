@@ -146,6 +146,10 @@ pub enum ActRegistryCommand {
         after_nonce: Option<String>,
         limit: usize,
     },
+    ToolRecoveryPending {
+        after_run_id: Option<String>,
+        limit: usize,
+    },
     /// Latest state snapshot for one run (read-only).
     Get {
         run: String,
@@ -255,6 +259,15 @@ pub(crate) fn apply(
     {
         return registry
             .pending_act_engines(after_run_id.as_deref(), limit)
+            .map(ActRegistryReply::Recovery);
+    }
+    if let ActRegistryCommand::ToolRecoveryPending {
+        after_run_id,
+        limit,
+    } = command
+    {
+        return registry
+            .pending_tool_recoveries(after_run_id.as_deref(), limit)
             .map(ActRegistryReply::Recovery);
     }
     if let ActRegistryCommand::HelperPending { after_nonce, limit } = command {
@@ -410,6 +423,7 @@ pub(crate) fn apply(
             ActRegistryReply::Committed
         }
         ActRegistryCommand::Pending { .. }
+        | ActRegistryCommand::ToolRecoveryPending { .. }
         | ActRegistryCommand::MaintenanceLatest
         | ActRegistryCommand::Get { .. }
         | ActRegistryCommand::HelperPending { .. }

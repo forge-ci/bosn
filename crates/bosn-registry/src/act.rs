@@ -18,6 +18,8 @@ pub use spare::ActEngineBinding;
 mod socket;
 pub use socket::{ActEngineDockerSocket, ENGINE_DOCKER_SOCKET, ENGINE_SOCKET_DIR, SOCKET_DIR_MAX};
 
+mod recovery_queue;
+
 const PREFIX: &str = "act.engine.v1:";
 /// Frozen producer policy, not client-selected Docker options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -897,49 +899,6 @@ impl Immediate<'_> {
 impl Registry {
     pub fn act_engine(&self, run: &str) -> Result<Option<ActEngineRecord>, Error> {
         read_act_engine(&self.connection, &self.registry_id()?, run)
-    }
-    /// Bounded active recovery page using immutable run-ID keyset ordering.
-    /// Follow next_run_id until absent; retiring earlier pages cannot skip work.
-    /// Concurrent inserts at or before the cursor are intentionally covered by
-    /// the next reconciliation pass. A runtime must repeat passes, rather than
-    /// claim that a single traversal proves no concurrent work remains.
-    pub fn pending_act_engines(
-        &self,
-        after_run_id: Option<&str>,
-        limit: usize,
-    ) -> Result<ActEngineRecoveryPage, Error> {
-        if limit == 0 || limit > MAX_PAGE_SIZE {
-            return Err(Error::BadRow("act recovery page limit"));
-        }
-        let after_kind = after_run_id.map(kind).transpose()?.unwrap_or_default();
-        let rows = self.connection.query("SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'act.engine.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE e.kind > ? AND (json_extract(e.detail,'$.state') IS NULL OR json_extract(e.detail,'$.state')<>'terminal') ORDER BY e.kind LIMIT ?",
-            &[Value::Text(after_kind),Value::Integer((limit+1) as i64)], QueryLimits { max_rows: limit+1, max_bytes: (limit+1)*32768 })?;
-        let more = rows.len() > limit;
-        let items = rows
-            .iter()
-            .take(limit)
-            .map(|r| {
-                let k = text(r, 0)?;
-                decode(
-                    &text(r, 1)?,
-                    k.strip_prefix(PREFIX)
-                        .ok_or(Error::BadRow("act event kind"))?,
-                )
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let owner = self.registry_id()?;
-        if items.iter().any(|r| r.registry_id != owner) {
-            return Err(Error::ResourceIdentityConflict);
-        }
-        let next_run_id = more.then(|| {
-            items
-                .last()
-                .expect("nonempty bounded page")
-                .intent
-                .run_id
-                .clone()
-        });
-        Ok(ActEngineRecoveryPage { items, next_run_id })
     }
 }
 

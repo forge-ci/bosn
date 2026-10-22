@@ -4603,3 +4603,89 @@ passed (23 tests, 5 explicit opt-ins ignored). All-target Clippy passed after
 extracting one overlong test function without dropping assertions. The sole
 primary review found no remaining correctness issues. Full exact-source gate
 evidence is still required before pushing and will be recorded on the PR.
+
+### Source-free reference release and recovery scheduling (candidate, #508, 2026-10-21)
+
+Bosn #699 merged the dedicated publication helper at `8438889b` after a
+252-second full local gate (Rust 252s, Linux 234s), with stamped
+`dd55e6d3f546b168dcff15d58cbffa0bfbc45f1d` independently verified. Remote
+run 39693201859 met its required checks (nine successful, five configured
+skips). The original checkout returned to `main` and rebased after merge;
+this phase continues there without creating a Bosn worktree.
+
+Publication and reference release now share a journaled transport with separate
+typed roles and exact command digests. A release requires durable publication
+completion. It can reconcile in `CleanupRequired` or `Terminal`, including
+after expiry and source disposal, and never inspects or mounts the old engine
+or source disk. It mounts only the frozen owned shared cache, extracts the
+verified pinned executable offline, and execs the release command as PID1.
+The closed bounded receipt must prove absence of the exact frozen reference
+and match the complete pin/store. A retry reporting `removed: false` is valid
+only when it still proves that absence. Partial, foreign, oversized or trailing
+output is refused. Helper absence precedes the durable release acknowledgement;
+the journal finish follows it. A completed acknowledgement retries no Docker
+operation. An uncertain helper stays journaled for the existing reaper.
+
+The release profile drops all capabilities and remains unprivileged, with the
+same read-only root, no network, private PID namespace, disabled init,
+automatic removal, no restart, resource limits and low CPU weight. Its tmpfs
+map is exact: executable 64 MiB `/tmp` and read-only/noexec 1 MiB
+`/var/lib/docker`. The latter overrides the pinned DIND image's declared
+VOLUME; without it Docker silently creates an anonymous disk volume. The real
+release proof initially failed this exact identity check before startup. The
+fix preserves the strict one-named-mount rule. A subsequent create/inspect
+probe confirmed Docker's normalized map and absence of anonymous storage.
+The test harness also now captures cleanup inspections and removes anonymous
+container volumes explicitly. Earlier fixture cleanup claims covered named
+resources only; an audit found seven empty anonymous volumes from five
+fixture executions (CLI extraction and the two refused release helpers).
+The audit correlates their timestamps with those executions and captured
+volume events where available, verifies no attached containers and empty
+contents, and records each exact removal/absence. Older unrelated anonymous
+volumes were preserved. Evidence: `anonymous-proof-volume-audit.json` under
+`/tmp/bosn-693`.
+
+An independent supervisor now runs for already-reserved native records, even
+when enrollment discovery has no cohorts. Each pass reads at most eight pages
+of 64 bounded latest-record snapshots and attempts one external publication or
+release, advancing a keyset cursor on success or failure. Expired unpublished
+sources are left to ordinary fenced disposal; completed records can release
+after their source becomes terminal. Passes have a 900-second deadline, a
+10-second interval, cancellation and a bounded 64-entry diagnostic history.
+Daemon shutdown or idle exit can interrupt a pass; the journal remains the
+restart authority. The SQL query still aggregates historical events to find
+the latest record: result bounds do not establish bounded query cost or
+bounded history storage. Those original #508 requirements remain open.
+
+Focused evidence includes a missing release parser RED followed by GREEN,
+16 publication and 16 release transport cases, strict release-profile
+mutations, registry phase/expiry/reopen/duplicate admission cases and worker
+expiry/cursor/failure cases. Ordinary CI explicitly ignores the actual Docker
+fixture; it must be executed separately. That fixture still manually supplies
+reservation and source quiescence, so it does not establish ordinary native
+enrollment. Native routing remains Legacy. Normal lifecycle activation,
+archive/all-class routing, allocated inode accounting, scoped GC, bounded
+history/storage, realistic large/concurrent/corruption cases and unchanged
+full workflows on fresh engines remain required. This phase does not close
+#508. Final real-proof, review and full-gate evidence follows on the PR.
+
+The final real Docker fixture passed preparation, offline archive staging,
+the actual Rust worker transport and independent generation verification.
+It used a real 20-second reference lifetime: publication completed while
+protected, ordinary production disposal removed the source at expiry and
+finalized the record, then the independent worker acknowledged reference
+absence after expiry on that terminal record. The release helper
+`e8fa9aa818ce25e7b92d74a5a71f21ac305317db04f85323c3425511e7d53fa0`
+was absent and journaled `removed`; retrying the acknowledgement made no
+Docker contact. Recovered generation
+`e0cfd41b2f38837a34c3bcb6522c62017a26540e1a7c331b4f33460403c771e3`
+passed the existing payload/mode/newer-install/incomplete-install checks.
+The first corrected-profile run had already passed those four phases, then
+hit a harness-only cleanup assertion that mistook the intentionally retained
+shared build-target volume for an anonymous fixture volume; that audit was
+corrected and exact owned cleanup completed before repeating the full proof.
+Evidence: `/tmp/bosn-693/live-reference-release-proof.{py,json}` and
+`live-reference-release-proof-final.log`. Focused validation passed six
+recovery tests and four identity tests (their separate hardware opt-ins were
+explicitly ignored), and all-target Clippy passed. The separately executed
+live proof is additional evidence, not an ordinary CI pass.

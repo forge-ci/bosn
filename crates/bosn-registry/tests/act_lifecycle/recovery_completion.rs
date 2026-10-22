@@ -1,6 +1,138 @@
 use super::*;
 
 #[test]
+fn release_helpers_require_completion_and_can_reconcile_after_source_disposal() {
+    use bosn_registry::cache_helper::CacheHelperIntent;
+    let (dir, mut registry, engine, frozen) = stopped_recovery_fixture();
+    assert_initial_tool_queue(&registry);
+    let make = |nonce: &str, at| -> CacheHelperIntent {
+        serde_json::from_value(serde_json::json!({
+            "registry_id":OWNER,"nonce":nonce,"volume":frozen.cache_volume,
+            "image":format!("docker.io/library/docker@sha256:{}","e".repeat(64)),"created_at":at,
+            "role":{"tool_recovery_release_v1":{"run_id":RUN,"intent":frozen,"command_sha256":"d".repeat(64)}}
+        })).unwrap()
+    };
+    let helper = make("11111111-2222-4333-8444-555555555508", 9.0);
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&helper)
+            .is_err()
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.complete_act_tool_recovery(
+        RUN,
+        &ActToolRecoveryPublicationProof {
+            intent: frozen.clone(),
+            generation: "c".repeat(64),
+        },
+        8.0,
+    )
+    .unwrap();
+    tx.begin_cache_helper(&helper).unwrap();
+    tx.commit().unwrap();
+    let second = make("11111111-2222-4333-8444-555555555509", 10.0);
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&second)
+            .is_err(),
+        "one outstanding release per owner"
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    assert!(
+        tx.recovery_helper_for_source(&frozen.source_volume)
+            .unwrap()
+            .is_none(),
+        "source-free helper cannot hold a source disk"
+    );
+    finalize_expired_source(&mut tx, &engine, &frozen);
+    tx.finish_absent_cache_helper(&helper.nonce, 3605.0)
+        .unwrap();
+    tx.commit().unwrap();
+    drop(registry);
+    let mut registry = Registry::open_writer(dir.path().join("registry.sqlite3")).unwrap();
+    let helper = make(&second.nonce, 3606.0);
+    assert_eq!(
+        registry
+            .pending_tool_recoveries(None, 1)
+            .unwrap()
+            .items
+            .len(),
+        1,
+        "expired terminal references still need source-free release"
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.begin_cache_helper(&helper).unwrap();
+    tx.release_act_tool_recovery(RUN, &frozen, 3607.0).unwrap();
+    tx.finish_absent_cache_helper(&helper.nonce, 4237.0)
+        .unwrap();
+    tx.commit().unwrap();
+    let saved = registry.act_engine(RUN).unwrap().unwrap();
+    assert_eq!(saved.state, ActEngineState::Terminal);
+    assert!(
+        registry
+            .pending_tool_recoveries(None, 1)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(
+        saved
+            .tool_recovery_completion
+            .unwrap()
+            .reference_released_at,
+        Some(3607.0)
+    );
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&make("11111111-2222-4333-8444-555555555510", 4238.0))
+            .is_err()
+    );
+}
+
+fn assert_initial_tool_queue(registry: &Registry) {
+    assert_eq!(
+        registry
+            .pending_tool_recoveries(None, 1)
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+    assert!(
+        registry
+            .pending_tool_recoveries(Some(RUN), 1)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(registry.pending_tool_recoveries(None, 0).is_err());
+}
+
+fn finalize_expired_source(
+    tx: &mut bosn_registry::Immediate<'_>,
+    engine: &ActEngineIntent,
+    frozen: &ActToolRecoveryIntent,
+) {
+    tx.claim_act_tool_source_disposal(RUN, 3604.0).unwrap();
+    tx.finalize_act_cleanup(
+        RUN,
+        &ActEngineRemovalProof {
+            name: engine.engine_name(),
+            engine_id: Some(frozen.engine_id.clone()),
+            storage_volume: engine.storage_volume_name(),
+        },
+        3604.0,
+    )
+    .unwrap();
+}
+
+#[test]
 fn publication_and_reference_release_are_durable_ordered_and_idempotent() {
     let (dir, mut registry, intent, frozen) = stopped_recovery_fixture();
     let proof = ActToolRecoveryPublicationProof {

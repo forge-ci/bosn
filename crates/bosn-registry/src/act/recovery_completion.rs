@@ -146,8 +146,10 @@ impl Immediate<'_> {
             .act_record(run)?
             .ok_or(Error::BadRow("act intent missing"))?;
         record.check_time(at)?;
-        if record.state != ActEngineState::CleanupRequired
-            || record.tool_recovery.as_ref() != Some(intent)
+        if !matches!(
+            record.state,
+            ActEngineState::CleanupRequired | ActEngineState::Terminal
+        ) || record.tool_recovery.as_ref() != Some(intent)
         {
             return Err(Error::BadRow("tool recovery release identity"));
         }

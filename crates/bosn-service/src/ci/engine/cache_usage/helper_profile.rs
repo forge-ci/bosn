@@ -11,6 +11,10 @@ pub(super) enum Profile {
         source: String,
         command: String,
     },
+    Release {
+        cache: String,
+        command: String,
+    },
 }
 
 pub(in crate::ci::engine) fn command_sha256(
@@ -38,6 +42,12 @@ impl Profile {
                     .clone()
                     .ok_or("recovery helper command binding missing")?,
             }),
+            Some(CacheHelperRole::ToolRecoveryReleaseV1 { command_sha256, .. }) => {
+                Ok(Self::Release {
+                    cache: intent.volume.clone(),
+                    command: command_sha256.clone(),
+                })
+            }
         }
     }
     pub(super) fn label_key(&self) -> &str {
@@ -45,6 +55,7 @@ impl Profile {
             Self::Measurement => "io.bosn.cache.measurement",
             Self::Maintenance => "io.bosn.cache.maintenance",
             Self::Recovery { .. } => "io.bosn.cache.recovery",
+            Self::Release { .. } => "io.bosn.cache.recovery-release",
         }
     }
     pub(super) fn component(&self) -> &str {
@@ -52,6 +63,7 @@ impl Profile {
             Self::Measurement => "ci-cache-measurement",
             Self::Maintenance => "ci-cache-maintenance",
             Self::Recovery { .. } => "ci-cache-recovery",
+            Self::Release { .. } => "ci-cache-recovery-release",
         }
     }
     pub(super) fn matches(&self, row: &Helper, volume: &str) -> bool {
@@ -71,7 +83,17 @@ impl Profile {
                     && row.mounts.len() == 2
                     && exact_mount(&row.mounts, cache, "/bosn/cache")
                     && exact_mount(&row.mounts, source, "/var/lib/docker")
-                    && recovery_isolation(&row.host_config)
+                    && row.host_config.privileged
+                    && recovery_isolation(&row.host_config, false)
+                    && frozen_command(&row.config, command)
+            }
+            Self::Release { cache, command } => {
+                cache == volume
+                    && row.mounts.len() == 1
+                    && exact_mount(&row.mounts, cache, "/bosn/cache")
+                    && !row.host_config.privileged
+                    && row.host_config.cap_drop.as_deref() == Some(&["ALL".into()])
+                    && recovery_isolation(&row.host_config, true)
                     && frozen_command(&row.config, command)
             }
         }
@@ -109,10 +131,12 @@ fn frozen_command(config: &Config, expected: &str) -> bool {
         && command_sha256(entrypoint, arguments).is_ok_and(|hash| hash == expected)
 }
 
-fn recovery_isolation(host: &HostConfig) -> bool {
-    let tmpfs = BTreeMap::from([("/tmp".into(), "exec,size=64m".into())]);
-    host.privileged
-        && host.memory == Some(512 << 20)
+fn recovery_isolation(host: &HostConfig, release: bool) -> bool {
+    let mut tmpfs = BTreeMap::from([("/tmp".into(), "exec,size=64m".into())]);
+    if release {
+        tmpfs.insert("/var/lib/docker".into(), "ro,noexec,size=1m".into());
+    }
+    host.memory == Some(512 << 20)
         && host.nano_cpus == Some(2_000_000_000)
         && host.pids_limit == Some(128)
         && host.cpu_shares.is_some_and(|shares| {

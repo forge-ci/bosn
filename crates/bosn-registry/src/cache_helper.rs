@@ -24,6 +24,52 @@ pub enum CacheHelperRole {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         command_sha256: Option<String>,
     },
+    ToolRecoveryReleaseV1 {
+        run_id: String,
+        intent: act::ActToolRecoveryIntent,
+        command_sha256: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryHelperPhase {
+    Publish,
+    Release,
+}
+
+pub struct RecoveryHelperBinding<'a> {
+    pub run_id: &'a str,
+    pub intent: &'a act::ActToolRecoveryIntent,
+    pub command_sha256: Option<&'a str>,
+    pub phase: RecoveryHelperPhase,
+}
+
+impl CacheHelperRole {
+    pub fn recovery_binding(&self) -> Option<RecoveryHelperBinding<'_>> {
+        match self {
+            Self::MaintenanceV1 => None,
+            Self::ToolRecoveryV1 {
+                run_id,
+                intent,
+                command_sha256,
+            } => Some(RecoveryHelperBinding {
+                run_id,
+                intent,
+                command_sha256: command_sha256.as_deref(),
+                phase: RecoveryHelperPhase::Publish,
+            }),
+            Self::ToolRecoveryReleaseV1 {
+                run_id,
+                intent,
+                command_sha256,
+            } => Some(RecoveryHelperBinding {
+                run_id,
+                intent,
+                command_sha256: Some(command_sha256),
+                phase: RecoveryHelperPhase::Release,
+            }),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -44,6 +90,7 @@ impl CacheHelperIntent {
             None => "measure",
             Some(CacheHelperRole::MaintenanceV1) => "maintain",
             Some(CacheHelperRole::ToolRecoveryV1 { .. }) => "recover",
+            Some(CacheHelperRole::ToolRecoveryReleaseV1 { .. }) => "release",
         };
         format!("bosn-cache-{role}-{}", self.nonce)
     }
@@ -58,14 +105,14 @@ impl CacheHelperIntent {
         {
             return Err(Error::BadRow("cache helper intent"));
         }
-        if let Some(CacheHelperRole::ToolRecoveryV1 {
-            run_id,
-            intent,
-            command_sha256,
-        }) = &self.role
+        if let Some(binding) = self
+            .role
+            .as_ref()
+            .and_then(CacheHelperRole::recovery_binding)
         {
-            if command_sha256.as_ref().is_some_and(|hash| !hex_id(hash))
-                || !is_uuid(run_id)
+            let intent = binding.intent;
+            if binding.command_sha256.is_some_and(|hash| !hex_id(hash))
+                || !is_uuid(binding.run_id)
                 || intent.schema_version != 1
                 || !hex_id(&intent.owner)
                 || !hex_id(&intent.generation)

@@ -6,6 +6,10 @@ use std::time::Duration;
 
 #[path = "tool_recovery_helper.rs"]
 mod helper;
+#[path = "tool_recovery_operation.rs"]
+mod operation;
+#[path = "tool_recovery_worker.rs"]
+pub(super) mod worker;
 
 #[cfg(test)]
 #[path = "tool_recovery_receipt_tests.rs"]
@@ -62,6 +66,40 @@ struct PublicationReport {
     error: String,
     #[serde(default)]
     pending_stage: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReleaseReport {
+    schema_version: u32,
+    root: String,
+    pin: RecoveryPin,
+    // Informational: an identical retry can prove durable absence even when
+    // this invocation did not remove the already-absent reference.
+    #[expect(dead_code, reason = "closed schema; durable absence carries authority")]
+    removed: bool,
+    absent: bool,
+    partial: bool,
+    #[serde(default)]
+    error: String,
+}
+
+fn require_release(text: &str, pin: &RecoveryPin, root: &str) -> Result<(), String> {
+    if text.len() > 4096 {
+        return Err("tool recovery release receipt exceeds bound".into());
+    }
+    let report: ReleaseReport =
+        serde_json::from_str(text).map_err(|e| format!("tool recovery release receipt: {e}"))?;
+    if report.schema_version != 1
+        || report.root != root
+        || report.pin != *pin
+        || !report.absent
+        || report.partial
+        || !report.error.is_empty()
+    {
+        return Err("tool recovery reference absence not acknowledged or differs".into());
+    }
+    Ok(())
 }
 
 fn require_publication(

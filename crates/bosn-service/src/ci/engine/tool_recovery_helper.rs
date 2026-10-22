@@ -1,5 +1,8 @@
 //! Dedicated PID1 recovery: journal before create, prove teardown before acknowledgement.
-use super::{RecoveryPin, require_publication};
+use super::{
+    RecoveryPin,
+    operation::{self, Operation},
+};
 use crate::{
     RegistryActor,
     act_registry::{ActRegistryCommand, ActRegistryReply},
@@ -12,10 +15,7 @@ use crate::{
         toolcache::OVERLAY_RECIPE_SHA256,
     },
 };
-use bosn_registry::{
-    act::ActToolRecoveryPublicationProof,
-    cache_helper::{CacheHelperIntent, CacheHelperRole},
-};
+use bosn_registry::cache_helper::{CacheHelperIntent, CacheHelperRole};
 use std::time::Duration;
 
 const WORK: &str = "/tmp/bosn-recovery";
@@ -30,6 +30,29 @@ impl DockerActBackend {
         run: &str,
         owner: &str,
     ) -> Result<(), String> {
+        self.run_tool_helper(registry, run, owner, Operation::Publish)
+            .await
+    }
+
+    /// Release an exact reference only after durable publication. This helper
+    /// never mounts the source and remains usable after expiry or disposal.
+    pub async fn release_tool_with_helper(
+        &self,
+        registry: &RegistryActor,
+        run: &str,
+        owner: &str,
+    ) -> Result<(), String> {
+        self.run_tool_helper(registry, run, owner, Operation::Release)
+            .await
+    }
+
+    async fn run_tool_helper(
+        &self,
+        registry: &RegistryActor,
+        run: &str,
+        owner: &str,
+        operation: Operation,
+    ) -> Result<(), String> {
         let record = match registry
             .act_registry(ActRegistryCommand::Get { run: run.into() })
             .await
@@ -41,7 +64,7 @@ impl DockerActBackend {
         if record.registry_id != owner {
             return Err("tool recovery registry differs".into());
         }
-        if record.tool_recovery_completion.is_some() {
+        if operation::already_completed(operation, &record)? {
             // A lost database reply must never start a second publication.
             return Ok(());
         }
@@ -50,7 +73,9 @@ impl DockerActBackend {
             .as_ref()
             .ok_or("tool recovery intent missing")?;
         frozen.validate_record(&record).map_err(|e| e.to_string())?;
-        let (intent, program) = self.prepare_recovery_helper(&record, owner).await?;
+        let (intent, program) = self
+            .prepare_recovery_helper(&record, owner, operation)
+            .await?;
         let identity = helper::Identity::from_intent(&intent)?;
         let _active = journal::ActiveHelper::claim(self, &intent.nonce);
         let tracker = journal::Tracker::new(registry, &intent.nonce);
@@ -58,30 +83,24 @@ impl DockerActBackend {
         let id = self
             .create_recovery_helper(&identity, &intent, &program, &tracker)
             .await?;
-        let publication = async {
+        let outcome = async {
             tracker.register(&id).await?;
             // Docker may recreate a missing named volume during create.
             // Check exact ownership and both source identities again before start.
-            self.verify_recovery_source(&record, owner).await?;
+            self.verify_helper_storage(&record, owner, operation)
+                .await?;
             let output = self
                 .run(owned(&["start", "--attach", &id]), RECOVERY_DEADLINE)
                 .await?;
             if !output.ok() {
                 return Err(format!(
-                    "tool recovery publication failed: {}",
+                    "tool recovery helper failed: {}",
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
             let receipt = std::str::from_utf8(&output.stdout)
-                .map_err(|e| format!("tool recovery publication encoding: {e}"))?;
-            let pin = RecoveryPin::from_intent(frozen)?;
-            require_publication(
-                receipt,
-                &pin,
-                &format!("{ENGINE_CACHE}/toolstore-v1"),
-                record.updated_at,
-                crate::ci::lifecycle::now_seconds(),
-            )
+                .map_err(|e| format!("tool recovery helper encoding: {e}"))?;
+            operation::receipt(operation, receipt, &record)
         }
         .await;
         // A CLI report can precede failed overlay cleanup. PID1 teardown and
@@ -93,23 +112,11 @@ impl DockerActBackend {
                 .await
         };
         cleanup.map_err(|e| {
-            format!("recovery namespace teardown unproven: {e}; publication: {publication:?}")
+            format!("recovery namespace teardown unproven: {e}; outcome: {outcome:?}")
         })?;
-        match publication {
-            Ok((generation, at)) => {
-                registry
-                    .act_registry(ActRegistryCommand::ToolRecoveryPublished {
-                        run: run.into(),
-                        proof: ActToolRecoveryPublicationProof {
-                            intent: frozen.clone(),
-                            generation,
-                        },
-                        at,
-                    })
-                    .await
-                    .map_err(|e| {
-                        format!("recovery publication acknowledgement needs reconciliation: {e}")
-                    })?;
+        match outcome {
+            Ok(receipt) => {
+                receipt.commit(registry, &record).await?;
                 // Keep the durable disposal fence until completion commits.
                 tracker.finish(&id).await
             }
@@ -163,12 +170,22 @@ impl DockerActBackend {
         &self,
         record: &ActEngineRecord,
         owner: &str,
+        operation: Operation,
     ) -> Result<(CacheHelperIntent, String), String> {
         let frozen = record
             .tool_recovery
             .as_ref()
             .ok_or("tool recovery intent missing")?;
-        self.verify_recovery_source(record, owner).await?;
+        if record
+            .intent
+            .creation_profile
+            .as_ref()
+            .and_then(|profile| profile.cache_volume.as_ref())
+            .is_none_or(|volume| volume.target != ENGINE_CACHE)
+        {
+            return Err("tool recovery cache target differs from frozen store".into());
+        }
+        self.verify_helper_storage(record, owner, operation).await?;
         self.ensure_engine_image().await?;
         let arch = self
             .checked(
@@ -184,7 +201,10 @@ impl DockerActBackend {
             )
             .await?;
         let act = act_artifact(&arch).ok_or("unsupported recovery image architecture")?;
-        let program = recovery_program(record, act)?;
+        let program = match operation {
+            Operation::Publish => recovery_program(record, act)?,
+            Operation::Release => release_program(record, act)?,
+        };
         let arguments = vec!["-ec".into(), program.clone()];
         let intent = CacheHelperIntent {
             registry_id: owner.into(),
@@ -192,13 +212,34 @@ impl DockerActBackend {
             image: engine_image(),
             volume: frozen.cache_volume.clone(),
             created_at: crate::ci::lifecycle::now_seconds(),
-            role: Some(CacheHelperRole::ToolRecoveryV1 {
-                run_id: record.intent.run_id.clone(),
-                intent: frozen.clone(),
-                command_sha256: Some(helper::command_sha256(&["/bin/sh".into()], &arguments)?),
-            }),
+            role: Some(operation::role(
+                operation,
+                record,
+                helper::command_sha256(&["/bin/sh".into()], &arguments)?,
+            )?),
         };
         Ok((intent, program))
+    }
+
+    async fn verify_helper_storage(
+        &self,
+        record: &ActEngineRecord,
+        owner: &str,
+        operation: Operation,
+    ) -> Result<(), String> {
+        match operation {
+            Operation::Publish => self.verify_recovery_source(record, owner).await,
+            Operation::Release => {
+                self.verify_measured_volume(
+                    &record
+                        .tool_recovery
+                        .as_ref()
+                        .ok_or("tool recovery intent missing")?
+                        .cache_volume,
+                )
+                .await
+            }
+        }
     }
 
     async fn verify_recovery_source(
@@ -248,13 +289,8 @@ fn recovery_program(
         .tool_generation
         .as_ref()
         .ok_or("tool recovery generation missing")?;
-    if generation.overlay_recipe_sha256 != OVERLAY_RECIPE_SHA256
-        || profile
-            .cache_volume
-            .as_ref()
-            .is_none_or(|v| v.target != ENGINE_CACHE)
-    {
-        return Err("tool recovery producer recipe or cache target differs".into());
+    if generation.overlay_recipe_sha256 != OVERLAY_RECIPE_SHA256 {
+        return Err("tool recovery producer recipe differs".into());
     }
     let encoded = RecoveryPin::from_intent(frozen)?.encoded()?;
     let install = offline_act_script(act, &format!("{WORK}/bin"));
@@ -264,14 +300,31 @@ fn recovery_program(
     ))
 }
 
+fn release_program(
+    record: &ActEngineRecord,
+    act: crate::ci::engine::ActArtifact,
+) -> Result<String, String> {
+    let frozen = record
+        .tool_recovery
+        .as_ref()
+        .ok_or("tool recovery intent missing")?;
+    let encoded = RecoveryPin::from_intent(frozen)?.encoded()?;
+    let install = offline_act_script(act, &format!("{WORK}/bin"));
+    Ok(format!(
+        "{install}; printf '%s' '{encoded}' >{WORK}/intent.json; exec {WORK}/bin/act --cache-server-path {ENGINE_CACHE}/toolstore-v1 cache tool-recovery release --record {WORK}/intent.json --apply"
+    ))
+}
+
 fn create_args(
     identity: &helper::Identity,
     intent: &CacheHelperIntent,
     program: &str,
 ) -> Result<Vec<String>, String> {
-    let Some(CacheHelperRole::ToolRecoveryV1 { intent: frozen, .. }) = &intent.role else {
-        return Err("recovery helper role missing".into());
-    };
+    let binding = intent
+        .role
+        .as_ref()
+        .and_then(CacheHelperRole::recovery_binding)
+        .ok_or("recovery helper role missing")?;
     let mut args = owned(&[
         "create",
         "--rm",
@@ -285,7 +338,6 @@ fn create_args(
         "--network",
         "none",
         "--read-only",
-        "--privileged",
         "--init=false",
         "--restart=no",
         "--memory",
@@ -298,18 +350,30 @@ fn create_args(
         "/tmp:exec,size=64m",
         "--mount",
         &format!("type=volume,source={},target={ENGINE_CACHE}", intent.volume),
-        "--mount",
-        &format!(
-            "type=volume,source={},target=/var/lib/docker",
-            frozen.source_volume
-        ),
         "--entrypoint",
         "/bin/sh",
         &intent.image,
         "-ec",
         program,
     ]);
-    args.splice(2..2, identity.ownership_args());
+    let mut phase_args = match binding.phase {
+        Operation::Publish => owned(&[
+            "--privileged",
+            "--mount",
+            &format!(
+                "type=volume,source={},target=/var/lib/docker",
+                binding.intent.source_volume
+            ),
+        ]),
+        Operation::Release => owned(&[
+            "--cap-drop",
+            "ALL",
+            "--tmpfs",
+            "/var/lib/docker:ro,noexec,size=1m",
+        ]),
+    };
+    phase_args.extend(identity.ownership_args());
+    args.splice(2..2, phase_args);
     Ok(args)
 }
 

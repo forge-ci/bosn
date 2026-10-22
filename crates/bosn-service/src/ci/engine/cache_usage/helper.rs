@@ -150,6 +150,7 @@ struct Config {
 struct HostConfig {
     readonly_rootfs: bool,
     privileged: bool,
+    cap_drop: Option<Vec<String>>,
     network_mode: String,
     memory: Option<i64>,
     nano_cpus: Option<i64>,

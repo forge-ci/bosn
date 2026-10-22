@@ -6,20 +6,21 @@ impl Immediate<'_> {
         &mut self,
         helper: &CacheHelperIntent,
     ) -> Result<(), Error> {
-        let Some(CacheHelperRole::ToolRecoveryV1 { run_id, intent, .. }) = &helper.role else {
+        let Some(binding) = helper
+            .role
+            .as_ref()
+            .and_then(CacheHelperRole::recovery_binding)
+        else {
             return Ok(());
         };
+        let intent = binding.intent;
         let record = self
-            .act_record(run_id)?
+            .act_record(binding.run_id)?
             .ok_or(Error::BadRow("recovery helper engine missing"))?;
-        if record.state != act::ActEngineState::CleanupRequired
-            || record.tool_recovery.as_ref() != Some(intent)
+        if record.tool_recovery.as_ref() != Some(intent)
             || record.tool_recovery_reserved_at.is_none()
             || record.tool_recovery_source_stopped_at.is_none()
-            || record.tool_recovery_completion.is_some()
-            || record.tool_recovery_source_disposal_at.is_some()
             || helper.created_at < record.updated_at
-            || !intent.is_live(helper.created_at)
             || helper.image
                 != format!(
                     "docker.io/library/docker@{}",
@@ -28,13 +29,36 @@ impl Immediate<'_> {
         {
             return Err(Error::BadRow("recovery helper source not admitted"));
         }
-        if self
-            .recovery_helper_for_source(&intent.source_volume)?
-            .is_some()
-        {
-            return Err(Error::BadRow(
-                "recovery source already has a pending helper",
-            ));
+        match binding.phase {
+            RecoveryHelperPhase::Publish => {
+                if record.state != act::ActEngineState::CleanupRequired
+                    || record.tool_recovery_completion.is_some()
+                    || record.tool_recovery_source_disposal_at.is_some()
+                    || !intent.is_live(helper.created_at)
+                    || self
+                        .recovery_helper_for_source(&intent.source_volume)?
+                        .is_some()
+                {
+                    return Err(Error::BadRow(
+                        "recovery source not available for publication",
+                    ));
+                }
+            }
+            RecoveryHelperPhase::Release => {
+                if !matches!(
+                    record.state,
+                    act::ActEngineState::CleanupRequired | act::ActEngineState::Terminal
+                ) || record
+                    .tool_recovery_completion
+                    .as_ref()
+                    .is_none_or(|done| done.reference_released_at.is_some())
+                    || self.pending_reference_release(&intent.owner)?.is_some()
+                {
+                    return Err(Error::BadRow(
+                        "recovery reference not available for release",
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -50,10 +74,30 @@ impl Immediate<'_> {
             target: "/source".into(),
         }
         .validate()?;
-        let rows = self.transaction.query(
+        self.pending_helper(
             "SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'ci.cache-helper.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE json_extract(e.detail,'$.intent.role.tool_recovery_v1.intent.source_volume')=? AND (json_extract(e.detail,'$.state') IS NULL OR json_extract(e.detail,'$.state')<>'removed') LIMIT 1",
-            &[Value::Text(source.into())],
-            QueryLimits { max_rows: 1, max_bytes: RECORD_BYTES + 128 },
+            source,
+        )
+    }
+
+    fn pending_reference_release(
+        &mut self,
+        owner: &str,
+    ) -> Result<Option<CacheHelperRecord>, Error> {
+        self.pending_helper(
+            "SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'ci.cache-helper.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE json_extract(e.detail,'$.intent.role.tool_recovery_release_v1.intent.owner')=? AND (json_extract(e.detail,'$.state') IS NULL OR json_extract(e.detail,'$.state')<>'removed') LIMIT 1",
+            owner,
+        )
+    }
+
+    fn pending_helper(&mut self, sql: &str, key: &str) -> Result<Option<CacheHelperRecord>, Error> {
+        let rows = self.transaction.query(
+            sql,
+            &[Value::Text(key.into())],
+            QueryLimits {
+                max_rows: 1,
+                max_bytes: RECORD_BYTES + 128,
+            },
         )?;
         rows.first()
             .map(|row| {
