@@ -62,6 +62,9 @@ case "$1" in
     printf '%064d\n' 1 ;;
 
   start)
+    if [ -e "$base/archive-missing" ]; then
+      [ -e "$base/seeded" ] || exit 3
+    fi
     if [ -e "$base/success" ]; then
       cat "$base/report.json"
       if [ -f "$base/exit-code" ]; then exit "$(cat "$base/exit-code")"; fi
@@ -93,6 +96,9 @@ case "$1" in
       denied) echo 'permission denied' >&2; exit 1 ;;
       *) exit 0 ;;
     esac ;;
+  run)
+    if [ -e "$base/seed-fails" ]; then echo 'wget: download failed' >&2; exit 1; fi
+    : > "$base/seeded" ;;
   *) exit 2 ;;
 esac
 "#,
@@ -342,4 +348,31 @@ fn footprint_transport_preserves_partial_exit_and_refuses_complete_failed_proces
             assert_eq!(report.bytes, None);
         }
     }
+}
+
+#[test]
+fn a_missing_reader_archive_is_seeded_then_measured_without_ci_preparation() {
+    let (dir, backend) = fixture(true, "absent");
+    std::fs::write(dir.path().join("archive-missing"), "").unwrap();
+    let report = measure(&backend).unwrap();
+    assert_eq!(report.bytes, Some(0));
+    let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+    let seed = commands
+        .lines()
+        .find(|line| line.starts_with("run --rm"))
+        .expect("seed helper ran");
+    assert!(seed.contains("target=/bosn/cache") && !seed.contains("readonly"));
+    assert!(seed.contains("--cap-drop ALL") && seed.contains("--pull never"));
+    assert_eq!(commands.matches("create --rm").count(), 2);
+}
+
+#[test]
+fn a_failed_seed_is_an_error_not_an_empty_cache() {
+    let (dir, backend) = fixture(true, "absent");
+    std::fs::write(dir.path().join("archive-missing"), "").unwrap();
+    std::fs::write(dir.path().join("seed-fails"), "").unwrap();
+    let error = measure(&backend).unwrap_err();
+    assert!(error.contains("act archive seed failed"), "{error}");
+    let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+    assert_eq!(commands.matches("create --rm").count(), 1);
 }

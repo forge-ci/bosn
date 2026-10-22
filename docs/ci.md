@@ -786,9 +786,13 @@ so component rows are not additive. Control files and unfinished state also
 contribute to the volume total. These are shared-volume samples, not engine
 Docker-layer accounting or a hard machine quota.
 
-CI preparation supplies the current pinned executable archive. Until that
-archive is available, offline measurement reports unknown usage. The reader
-uses a read-only cache mount, no network and a private executable tmpfs.
+The reader uses the current pinned act archive from the cache volume, through
+a read-only cache mount, no network and a private executable tmpfs. When the
+archive is missing or fails its digest, for example before any CI preparation,
+accounting first runs a short-lived seed helper: it downloads the pinned URL
+under the archive's exclusive lock, checks the digest and writes only that
+file. Then it measures again. A failed seed is an accounting error, never an
+empty cache.
 `runners clear-cache` removes the whole volume; removal is refused while a run
 executes, and the next run recreates it cold. The living spec records validation
 and remaining retention work.

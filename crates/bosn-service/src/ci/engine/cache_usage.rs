@@ -22,6 +22,7 @@ mod native_accounting_tests;
 #[cfg(test)]
 mod reference_tests;
 mod retry;
+mod seed;
 #[cfg(test)]
 use reference_tests::{SCRIPT, parse};
 pub use retry::HelperCleanupRetry;
@@ -112,7 +113,7 @@ impl DockerActBackend {
             .await?;
         let act = super::act_artifact(&architecture)
             .ok_or("unsupported accounting image architecture")?;
-        let output = self
+        let mut output = self
             .read_cache_with_profile(
                 volume,
                 context,
@@ -120,6 +121,21 @@ impl DockerActBackend {
                 Reader::Footprint,
             )
             .await?;
+        if output.exit_code == footprint_program::ARCHIVE_UNAVAILABLE {
+            // Accounting must not wait for CI preparation to cache the reader.
+            self.seed_act_archive(volume, act).await?;
+            output = self
+                .read_cache_with_profile(
+                    volume,
+                    context,
+                    &footprint_program::program(act),
+                    Reader::Footprint,
+                )
+                .await?;
+            if output.exit_code == footprint_program::ARCHIVE_UNAVAILABLE {
+                return Err("pinned act archive is still unavailable after seeding".into());
+            }
+        }
         footprint::parse(volume, &output.text, output.exit_code).map_err(|error| {
             if output.exit_code == 0 {
                 error
@@ -240,8 +256,9 @@ impl DockerActBackend {
                 super::RunOptions::bounded(CONTROL_DEADLINE, reader.output_limit()),
             )
             .await?;
-        let accepted_exit =
-            output.ok() || matches!(reader, Reader::Footprint) && output.exit_code == 1;
+        let accepted_exit = output.ok()
+            || matches!(reader, Reader::Footprint)
+                && matches!(output.exit_code, 1 | footprint_program::ARCHIVE_UNAVAILABLE);
         if !accepted_exit {
             return Err(format!(
                 "cache measure failed: {}",
