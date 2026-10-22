@@ -15,6 +15,7 @@ jobs:
   install:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/cache@v4
         id: archives
         with:
@@ -26,6 +27,7 @@ jobs:
           CACHE_HIT: ${{ steps.archives.outputs.cache-hit }}
         run: |
           set -euo pipefail
+          test -f phase
           if [ "$(cat phase)" = recovered ]; then
             test "$CACHE_HIT" = true
             (cd .acceptance-cache && sha256sum -c provenance.sha256)
@@ -60,6 +62,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/cache@v4
         id: archives
         with:

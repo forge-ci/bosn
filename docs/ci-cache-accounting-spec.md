@@ -6826,3 +6826,86 @@ Future observations use a fresh query to avoid reusing that stale response.
 Bosn candidate `b7876c4e` remains local/unpushed and still requires independent
 verification of all release archives and the actual extended workflow proof
 before its dependency pin/whole-source gate can be completed.
+
+### Verified act2.28 and ordinary archive workflow (2026-10-22)
+
+Release `39816300762` completed successfully on the exact tested act2 merge
+`f82a878a86ebc0790fe02cff74fd92ba18934a01`. All eleven published archives were
+independently checked against checksum text, GitHub digest/size, executable
+headers/architectures and embedded version. Linux version/capability execution,
+annotated tag target and smoke-container cleanup passed. Linux archive SHA256
+`7c169ccd338b41b7df48a1f8be215d609b8a737f932b8ce2b2a0c4e595ad811d`;
+executable SHA256
+`cbadf22037868f2ee3c19400f0450262324a7cb3b7a56bf06234295035ee33fe`.
+Evidence: `/tmp/bosn-693/act2-28-release-provenance.json` and related verifier
+records. Bosn's unpushed candidate now pins these verified artifacts.
+
+The first extended workflow failed on its recovered run because the fixture
+omitted actions/checkout and `phase` was absent from the job workspace. The
+conditional's first-run behavior had masked this absence. This was a fixture
+failure, not evidence of an archive transport failure. The corrected workflow
+checks out the frozen source in both jobs and asserts `phase` exists before
+branching; no cache-hit, hash, executable/package-content, completed-tool or
+mode checks were relaxed. The failed trace is retained as
+`production-archive-workflow-proof-failure1.{json,log}`.
+
+The corrected ordinary-runtime fixture passed267.80s on released act2.28:
+`bosn693-archive-workflow-0e90925331a0`. Two successive identical two-job
+workflows used distinct engines
+`bosn-act-9e2755bd-2b39-44b3-9607-2949e338bb88` and
+`bosn-act-051e5878-16d1-429b-8bb7-3233f52ba94a`. Actual actions/cache restore
+preserved newly compiled C executable/source and npm package hashes/content
+between jobs and fresh engines. Native completed tools and mode751 survived
+normal retirement/post-stop recovery; unfinished installs remained excluded.
+Both claims released; all task fixture containers and host volumes were proven
+absent. Observed source-tree digest
+`0dcb69f54be80b6767565b720b743d944e3dddc458805fb36d8d35d03937c457`,
+test binary SHA256
+`e13bda4c29b54af7559dd873e776f78191e475a5bac21082b70a1681dcd809d7`.
+The harness verified the binary remained unchanged through the proof. Evidence:
+`production-archive-workflow-proof.{py,json,log}`. This is a controlled workflow
+fixture, not the original full-project/concurrency/crash/restart/large-file
+acceptance or an exact-source local gate.
+
+### Archive source reclamation and pending-publication protection candidate
+
+Act2 PR #86 (`8fa722b`) is a draft; this code is not in act2.28 and is not yet
+consumed by Bosn. Two regressions failed before implementation: Complete and
+idle cohort maintenance retained source `bolt.db` and archive payload after
+Ready (`archive-source-reclamation-red.log`). The candidate reclaims payload
+only after durable verified Ready, checking exact fence, snapshot witness and
+current destination authority. A descriptor-relative, mount-checked walk visits
+at most100,000 entries per attempt and keeps the small ownership witness.
+Interrupted cleanup resumes from idle cohort maintenance before namespace
+metadata is opened. Symlink/witness/fence/destination/pending refusals retain
+source data; bounded partial removal and cancellation remain resumable.
+
+A separate real RED demonstrated aggregate GC deleting an imported archive
+before first-publication reconciliation (`archive-pending-publication-maintenance-red.log`).
+Maintenance now refuses a pending published namespace before archive eviction;
+the corrected test requires exact retained destination archive count/bytes and
+source metadata. This safety fix must be released before the Bosn candidate is
+pushed. No closure or production safety claim is based on act2.28 alone.
+
+Focused tests passed22.025s; affected archive/aggregate/tool race tests
+passed60.896s. The initial CLI filter selected zero tests and is not validation;
+corrected archive/tool command tests passed1.976s. Windows amd64 and Darwin
+arm64 artifact-cache cross-builds passed. Gosec initially traced maintenance
+paths into existing readers; reads are now anchored with os.Root, with opened
+directory/file identity checks. No rule was disabled. Final lint reports zero
+issues, and the sole-primary read-only reviewer is clean. A full package pass
+239.740s preceded the final pending-publication guard; the whole final-candidate
+suite is running again (`archive-source-reclamation-final-full-tests.log`). PR
+and exact merged-default-branch full CI, release and all-archive verification
+remain required. Source expiry is one part of the original #508 scope; physical
+all-class/machine bounds, scoped builders and remaining original acceptance are
+still open.
+
+The final source-reclamation artifact-cache suite passed277.876s on exact act2
+`8fa722b7a80ebdd973e50afa0d613f5e302644b7`, including the pending-publication
+guard and corrected source-symlink/bounded-retry fixtures. PR #86 was marked
+ready after the final local pass. Remote checks run `39819257462` is live:
+lint/Windows/macOS passed; Linux/snapshot remain running. No merge, release or
+Bosn rollout of #86 is claimed yet. Bosn's verified .28 pin, corrected physical
+workflow and evidence update have clean sole-primary review, but remain
+unpushed pending that safety rollout and the whole exact-source Bosn gate.
