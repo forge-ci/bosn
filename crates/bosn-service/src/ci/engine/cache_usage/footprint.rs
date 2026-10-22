@@ -100,13 +100,14 @@ struct Report {
     error: String,
 }
 
-pub(super) fn parse(volume: &str, text: &str) -> Result<CacheUsage, String> {
+pub(super) fn parse(volume: &str, text: &str, exit_code: i32) -> Result<CacheUsage, String> {
     if text.len() > MAX_REPORT {
         return Err("cache footprint report exceeds bound".into());
     }
     let report: Report =
         serde_json::from_str(text).map_err(|error| format!("cache footprint receipt: {error}"))?;
-    if report.schema_version != 1
+    if exit_code != if report.partial { 1 } else { 0 }
+        || report.schema_version != 1
         || report.root != "/cache"
         || report.observed_at.len() > 64
         || time::OffsetDateTime::parse(

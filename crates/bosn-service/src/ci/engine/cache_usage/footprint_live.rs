@@ -22,46 +22,13 @@ fn actual_readonly_footprint_helper_matches_reference_and_cleans_up() {
             .await
             .unwrap();
         assert_eq!(docker_id, fixture.docker_id);
-        let sample = backend
-            .checked(
-                "independent reference sample",
-                owned(&[
-                    "run",
-                    "--rm",
-                    bosn_engine::LOW_CPU_PRIORITY_ARG,
-                    "--label",
-                    "io.bosn.fixture=footprint-reference",
-                    "--network",
-                    "none",
-                    "--read-only",
-                    "--cap-drop",
-                    "ALL",
-                    "--memory",
-                    "128m",
-                    "--cpus",
-                    "1",
-                    "--pids-limit",
-                    "64",
-                    "--tmpfs",
-                    "/var/lib/docker:ro,noexec,size=1m",
-                    "--mount",
-                    "type=volume,source=bosn-ci-cache-v1,target=/cache,readonly",
-                    "--entrypoint",
-                    "sh",
-                    &engine_image(),
-                    "-c",
-                    SCRIPT,
-                ]),
-                CONTROL_DEADLINE,
-            )
-            .await
-            .unwrap();
-        let reference = parse(super::super::CACHE_VOLUME, &sample);
-        assert!(!reference.partial, "{reference:?}");
+        let reference = reference_sample(&backend).await;
+        let started = std::time::Instant::now();
         let measured = backend
             .measure_cache_tracked(super::super::CACHE_VOLUME, Some((&registry, OWNER)))
             .await
             .unwrap();
+        let measurement_elapsed_ms = started.elapsed().as_millis();
         assert!(!measured.partial, "{measured:?}");
         assert_eq!(measured.bytes, reference.bytes);
         assert_eq!(measured.allocated_bytes, reference.allocated_bytes);
@@ -101,10 +68,52 @@ fn actual_readonly_footprint_helper_matches_reference_and_cleans_up() {
         std::fs::write(
             fixture.report,
             serde_json::to_vec_pretty(&serde_json::json!({
-                "passed":true,"reference":reference,"measured":measured,"helpers_absent":true
+                "passed":true,"reference":reference,"measured":measured,"helpers_absent":true,
+                "measurement_elapsed_ms":measurement_elapsed_ms
             }))
             .unwrap(),
         )
         .unwrap();
     });
+}
+
+async fn reference_sample(backend: &DockerActBackend) -> CacheUsage {
+    let sample = backend
+        .checked(
+            "independent reference sample",
+            owned(&[
+                "run",
+                "--rm",
+                bosn_engine::LOW_CPU_PRIORITY_ARG,
+                "--label",
+                "io.bosn.fixture=footprint-reference",
+                "--network",
+                "none",
+                "--read-only",
+                "--cap-drop",
+                "ALL",
+                "--memory",
+                "128m",
+                "--cpus",
+                "1",
+                "--pids-limit",
+                "64",
+                "--tmpfs",
+                "/var/lib/docker:ro,noexec,size=1m",
+                "--mount",
+                "type=volume,source=bosn-ci-cache-v1,target=/cache,readonly",
+                "--entrypoint",
+                "sh",
+                &engine_image(),
+                "-c",
+                SCRIPT,
+            ]),
+            CONTROL_DEADLINE,
+        )
+        .await
+        .unwrap();
+    let reference = parse(super::super::CACHE_VOLUME, &sample);
+    assert!(!reference.partial, "{reference:?}");
+
+    reference
 }

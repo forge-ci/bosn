@@ -1,4 +1,6 @@
-use super::footprint::parse;
+fn parse(volume: &str, text: &str) -> Result<crate::ci::CacheUsage, String> {
+    super::footprint::parse(volume, text, 0)
+}
 use serde_json::{Value, json};
 
 fn receipt() -> Value {
@@ -106,7 +108,7 @@ fn incomplete_footprint_keeps_every_byte_total_unknown() {
             row["usage"][field] = Value::Null;
         }
     }
-    let report = parse("owned", &value.to_string()).unwrap();
+    let report = super::footprint::parse("owned", &value.to_string(), 1).unwrap();
     assert!(report.partial);
     assert_eq!(report.bytes, None);
     assert_eq!(report.allocated_bytes, None);
@@ -117,4 +119,40 @@ fn incomplete_footprint_keeps_every_byte_total_unknown() {
             .all(|row| row.bytes.is_none() && row.allocated_bytes.is_none())
     );
     assert_eq!(report.errors, ["cache inventory entry bound exceeded"]);
+}
+
+#[test]
+fn footprint_completeness_requires_matching_process_exit() {
+    let complete = receipt().to_string();
+    assert!(super::footprint::parse("owned", &complete, 1).is_err());
+    assert!(super::footprint::parse("owned", &complete, 75).is_err());
+    let mut partial = receipt();
+    partial["partial"] = json!(true);
+    partial["error"] = json!("incomplete");
+    assert!(super::footprint::parse("owned", &partial.to_string(), 0).is_err());
+    assert!(
+        super::footprint::parse("owned", &partial.to_string(), 1).is_err(),
+        "partial process cannot publish known bytes"
+    );
+}
+
+#[test]
+fn maximum_footprint_details_stay_within_the_tool_reply_limit() {
+    let mut value = receipt();
+    let row = value["namespaces"][0].clone();
+    let mut rows = Vec::new();
+    for index in 0..256 {
+        let mut current = row.clone();
+        current["namespace"] = json!(format!("{index:016x}"));
+        current["store_path"] = json!(format!("actcache/cohort-v1/{index:016x}"));
+        current["usage"]["apparent_bytes"] = json!(i64::MAX);
+        current["usage"]["allocated_bytes"] = json!(i64::MAX - 511);
+        current["usage"]["unique_file_bytes"] = json!(i64::MAX);
+        current["usage"]["referenced_file_bytes"] = json!(i64::MAX);
+        rows.push(current);
+    }
+    value["namespaces"] = Value::Array(rows);
+    let report = parse(&"v".repeat(255), &value.to_string()).unwrap();
+    assert_eq!(report.components.len(), 261);
+    assert!(serde_json::to_vec(&report).unwrap().len() < 60 * 1024);
 }

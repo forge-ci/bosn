@@ -64,6 +64,7 @@ case "$1" in
   start)
     if [ -e "$base/success" ]; then
       cat "$base/report.json"
+      if [ -f "$base/exit-code" ]; then exit "$(cat "$base/exit-code")"; fi
     else
       echo 'read failed' >&2; exit 1
     fi ;;
@@ -286,6 +287,9 @@ fn footprint_transport_bounds_raw_bytes_and_requires_utf8() {
             _ => unreachable!(),
         };
         std::fs::write(path, reply).unwrap();
+        if scenario == "invalid-utf8" {
+            std::fs::write(dir.path().join("exit-code"), "1").unwrap();
+        }
         if measure(&backend).is_ok() {
             accepted.push(scenario);
         }
@@ -299,4 +303,42 @@ fn footprint_transport_bounds_raw_bytes_and_requires_utf8() {
         accepted.is_empty(),
         "raw boundary accepted malformed receipts: {accepted:?}"
     );
+}
+
+#[test]
+fn footprint_transport_preserves_partial_exit_and_refuses_complete_failed_process() {
+    for (partial, exit_code, accepted) in [(false, 1, false), (true, 1, true), (true, 0, false)] {
+        let (dir, backend) = fixture(true, "removed");
+        let path = dir.path().join("report.json");
+        if partial {
+            let mut report: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            report["partial"] = serde_json::json!(true);
+            report["error"] = serde_json::json!("entry bound exceeded");
+            for field in [
+                "apparent_bytes",
+                "allocated_bytes",
+                "unique_file_bytes",
+                "referenced_file_bytes",
+            ] {
+                report["total"][field] = serde_json::Value::Null;
+                for row in report["components"].as_array_mut().unwrap() {
+                    row["usage"][field] = serde_json::Value::Null;
+                }
+            }
+            std::fs::write(path, report.to_string()).unwrap();
+        }
+        std::fs::write(dir.path().join("exit-code"), exit_code.to_string()).unwrap();
+        let result = measure(&backend);
+        assert_eq!(
+            result.is_ok(),
+            accepted,
+            "partial={partial} exit={exit_code}: {result:?}"
+        );
+        if let Ok(report) = result {
+            assert!(report.partial);
+            assert_eq!(report.allocated_bytes, None);
+            assert_eq!(report.bytes, None);
+        }
+    }
 }

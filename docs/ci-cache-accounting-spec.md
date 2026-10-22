@@ -6983,10 +6983,10 @@ exact-source Bosn gate is still required before pushing this rollout.
 
 ### Ordinary archive rollout merged and bounded physical inventory (2026-10-22)
 
-Bosn #710 passed the whole local gate in428s (Linux378s, Rust427s;
-1,200 Rust tests passed,53 configured skips). Full stamped SHA
+Bosn #710 passed the whole local gate in 428s (Linux 378s, Rust 427s;
+1,200 Rust tests passed, 53 configured skips). Full stamped SHA
 `f2e0801f30f0f471878614beeb8398632f8b8cce` passed independent GATE-003
-verification before push. All14 remote checks were terminal (nine successes,
+verification before push. All 14 remote checks were terminal (nine successes,
 five configured skips), with no unresolved review threads. Merged at
 `4940873379c2dbb34ad78d8cf5c4e1bed0fff50a`; the original checkout returned to
 clean main and rebased, exact tested/main trees matched, and task branches were
@@ -7009,14 +7009,14 @@ Actual same-filesystem bind-file and bind-directory fixtures passed in a
 private privileged container with networknone/nohostbinds; the container was
 proved absent. The first cleanup parser compared uppercase Docker absence text
 against lowercase output and failed its cleanup assertion; this harness failure
-is preserved, not counted as a production failure. Corrected proof passed0.42s; the final complete candidate was rebuilt and
-passed0.46s with cleanup verified, binary
+is preserved, not counted as a production failure. Corrected proof passed in 0.42s; the final complete candidate was rebuilt and
+passed in 0.46s with cleanup verified, binary
 `233608fa71d0553376656d4033ef83680e190338e630b5e91a17c6ae9b3186cd`.
 Evidence: `cache-footprint-command-red.log`, `cache-footprint-root-alias-red.log`,
 `cache-footprint-mount-proof{,-cleanup-parser-failure}.{json,log}`.
 
-Namespace details retain only the largest256 rows using a bounded heap; omitted
-rows still contribute to complete all-class total. A258-namespace fixture checks
+Namespace details retain only the largest 256 rows using a bounded heap; omitted
+rows still contribute to complete all-class total. A 258-namespace fixture checks
 legacy/cohort identity, hardlinks, largest selection and deterministic ties.
 Its initial expected tie ordering was wrong; the fixture now explicitly sizes
 the cohort payload and checks the defined path tie order. This inventory is a
@@ -7031,24 +7031,51 @@ reported two De Morgan simplifications; both were corrected without suppression.
 The full exact-candidate artifact-cache suite is running before push.
 
 The complete act2 candidate `17f9d822a11f56dacab9f649f267b5a074b9d874`
-passed the full artifact-cache suite170.954s, then opened act2 #87. Its six PR
-checks passed, including Linux job119998604771 in run39828652770. No dependency
+passed the full artifact-cache suite in 170.954s, then opened act2 #87. Its six PR
+checks passed, including Linux job 119998604771 in run 39828652770. No dependency
 merge/release is claimed at this observation.
 
 Bosn's integration consumes a bounded typed JSON receipt and extracts only the
 digest-verified executable from a held archive descriptor into private tmpfs.
 The volume remains read-only and the helper has no network. Accounting helpers
-use512MiB for bounded inode maps; existing policy readers retain128MiB. Old du is
+use 512 MiB for bounded inode maps; existing policy readers retain 128 MiB. Old du is
 now test-only independent reference sampling, with no production fallback.
 Initial focused transport tests failed seven cases because their synthetic
 Docker fixture omitted the newly required architecture lookup; adding that
 command and typed receipt preserved every cleanup/uncertain-create assertion.
 Review then caught raw output passing through trimming/lossy decoding before
-the256KiB parser bound. Actual transport regressions reproduced acceptance of
+the 256 KiB parser bound. Actual transport regressions reproduced acceptance of
 leading padding, trailing padding and invalid UTF-8. Strict raw bounded capture
 fixes all three while retaining exact helper cleanup. The focused suite passed
-32 tests, with6 explicitly ignored private-Docker tests (one newly added helper
+32 tests, with 6 explicitly ignored private-Docker tests (one newly added helper
 versus reference proof still to run). Evidence:
 `cache-footprint-bosn-focused.log`, `cache-footprint-bosn-focused-final.log`,
 `cache-footprint-raw-transport-red.log`, `cache-footprint-bosn-raw-green.log`.
 No physical helper proof, verified next pin or full Bosn gate is claimed yet.
+
+Act2 #87 merged at `cdf2cc3ae814b03ee57f0a4ddb6a0a2266bc9bfd` after all
+six checks and no unresolved threads. Both checkouts rebased; the tested/merged
+trees matched and task branches were removed after identity checks. Exact-master
+full CI 39831194698 passed all five jobs. Clean checkout, independent remote SHA,
+full-CI and absent-tag/release guards passed, then requested act2.30 through the
+existing release workflow 39832895745. Release verification remains pending.
+
+The reader now preserves the actual scanner exit: only 0/complete or 1/partial
+receipts are accepted; a failed process cannot publish known complete bytes.
+Initial exit-state testing exposed lost stderr for an empty failed reply; bounded
+diagnostic preservation fixes it while retaining the original failure assertion.
+The focused suite passed 34 tests/6 explicit private-Docker ignores in 10.04s.
+Clippy initially required simplifying an exit-condition Boolean; after that
+correction it passed in 18.50s, with no suppression. The actual helper fixture's
+101-line function was split by responsibility after its first Clippy failure.
+Sole-primary review is clean. Evidence: `cache-footprint-bosn-exit-tests.log`,
+`cache-footprint-bosn-complete-tests.log`, `cache-footprint-bosn-{exit,complete}-clippy.log`.
+The prepared physical proof uses 51,000 small files and an 8 GiB sparse file; this
+is controlled logical-size evidence, not the original 7.7 GiB allocated survey.
+
+Release39832895745 succeeded; independent all-eleven-archive verification is
+running before any Bosn pin change. The replacement parser's maximum namespace
+reply check passed:256 rows with maximum signed64-bit byte counters and a
+maximum-length volume name remain below the existing60KiB tool reply limit.
+Evidence: `cache-footprint-bosn-reply-bound.log`. The whole-source Bosn gate and
+actual helper/reference proof remain outstanding.

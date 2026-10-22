@@ -28,6 +28,12 @@ pub use retry::HelperCleanupRetry;
 
 const MAX_NAMESPACES: usize = 256;
 
+struct Captured {
+    text: String,
+    diagnostic: String,
+    exit_code: i32,
+}
+
 #[derive(Clone, Copy)]
 enum Reader {
     Policy,
@@ -101,14 +107,23 @@ impl DockerActBackend {
         let act = super::act_artifact(&architecture)
             .ok_or("unsupported accounting image architecture")?;
         let output = self
-            .read_cache_with_memory(
+            .read_cache_with_profile(
                 volume,
                 context,
                 &footprint_program::program(act),
                 Reader::Footprint,
             )
             .await?;
-        footprint::parse(volume, &output)
+        footprint::parse(volume, &output.text, output.exit_code).map_err(|error| {
+            if output.exit_code == 0 {
+                error
+            } else {
+                format!(
+                    "{error}; accounting process exited {}: {}",
+                    output.exit_code, output.diagnostic
+                )
+            }
+        })
     }
 
     /// Fixed trusted readers share the same read-only helper and journal.
@@ -118,17 +133,18 @@ impl DockerActBackend {
         context: Option<(&crate::RegistryActor, &str)>,
         script: &'static str,
     ) -> Result<String, String> {
-        self.read_cache_with_memory(volume, context, script, Reader::Policy)
+        self.read_cache_with_profile(volume, context, script, Reader::Policy)
             .await
+            .map(|capture| capture.text.trim().to_owned())
     }
 
-    async fn read_cache_with_memory(
+    async fn read_cache_with_profile(
         &self,
         volume: &str,
         context: Option<(&crate::RegistryActor, &str)>,
         script: &str,
         reader: Reader,
-    ) -> Result<String, String> {
+    ) -> Result<Captured, String> {
         self.verify_measured_volume(volume).await?;
         let image = engine_image();
         let mount = format!("type=volume,source={volume},target=/cache,readonly");
@@ -211,14 +227,16 @@ impl DockerActBackend {
         measured
     }
 
-    async fn read_measurement(&self, id: &str, reader: Reader) -> Result<String, String> {
+    async fn read_measurement(&self, id: &str, reader: Reader) -> Result<Captured, String> {
         let output = self
             .run_bounded(
                 owned(&["start", "--attach", id]),
                 super::RunOptions::bounded(CONTROL_DEADLINE, reader.output_limit()),
             )
             .await?;
-        if !output.ok() {
+        let accepted_exit =
+            output.ok() || matches!(reader, Reader::Footprint) && output.exit_code == 1;
+        if !accepted_exit {
             return Err(format!(
                 "cache measure failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
@@ -229,9 +247,14 @@ impl DockerActBackend {
         }
         let text = String::from_utf8(output.stdout)
             .map_err(|error| format!("cache measurement is not UTF-8: {error}"))?;
-        Ok(match reader {
-            Reader::Policy => text.trim().to_owned(),
-            Reader::Footprint => text,
+        Ok(Captured {
+            diagnostic: String::from_utf8_lossy(&output.stderr)
+                .trim()
+                .chars()
+                .take(512)
+                .collect(),
+            text,
+            exit_code: output.exit_code,
         })
     }
 

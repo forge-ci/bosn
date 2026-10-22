@@ -12,10 +12,7 @@ tar -xzf /proc/self/fd/9 -C "$bin" act
 test -f "$bin/act" && test ! -L "$bin/act"
 echo '{binary}  /var/lib/docker/bosn-cache-reader/act' | sha256sum -c - >/dev/null
 exec 9<&-
-status=0
-"$bin/act" cache usage --cache-server-path /cache --max-entries 1000000 || status=$?
-# A typed partial receipt is still useful; the Rust boundary validates it.
-test "$status" -eq 0 || test "$status" -eq 1
+exec "$bin/act" cache usage --cache-server-path /cache --max-entries 1000000
 "#,
         version = ACT_VERSION,
         archive = act.sha256,
