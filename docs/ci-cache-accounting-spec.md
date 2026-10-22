@@ -7187,3 +7187,23 @@ successfully and its exact absence was verified. The private and host Docker
 IDs differ. This repairs the validation harness; it changes no product source
 or gate checks. The failed pre-test runs remain recorded in
 `cache-footprint-private-runs.json` and `cache-footprint-private-local-gate.log`.
+
+
+### PR #711 merged; reader archive bootstrap
+
+PR #711 merged as `c75e7ea2` after the private-controller whole gate passed
+(577 s; 1,208 Rust tests passed with 54 skips; 267 Python tests passed with
+ten skips). The full stamped SHA `795b94bb` was verified, and nine remote checks
+passed with five configured skips. Its tree equals the tested tree.
+
+The next change closes the reader's archive precondition (#508 item 4). The
+footprint program exits 3 when `/cache/tools/act-<version>-<sha>.tgz` is absent
+or fails its digest. `measure_cache_tracked` then runs one `docker run --rm` seed
+helper (`cache_usage/seed.rs`): read-only root, all capabilities dropped,
+128 MiB, one CPU, 64 PIDs, `--pull never`, and the cache mounted writable at
+`/bosn/cache`. It runs the same `fetch_act_script` that engine preparation
+uses (exclusive `flock`, staged download, digest check, atomic rename). The
+helper then measures once more. A second exit 3 or a failed seed is an
+error. The measurement helper itself is unchanged: read-only and no network.
+Synthetic transport tests failed (RED) without the retry and pass (GREEN) with
+it. Remaining #508 items 1-3 and 5 are unchanged.

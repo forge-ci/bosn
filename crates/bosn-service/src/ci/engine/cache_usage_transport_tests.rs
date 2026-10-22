@@ -4,40 +4,8 @@ use super::{CACHE_VOLUME, CacheVolume, DockerActBackend};
 use bosn_engine::DockerEngine;
 use kernal_api::platform::fs::TemporaryDirectory;
 
-pub(super) fn fixture(success: bool, cleanup: &str) -> (TemporaryDirectory, DockerActBackend) {
-    let dir = TemporaryDirectory::new().unwrap();
-    let cache = CacheVolume::machine("11111111-2222-4333-8444-555555555555", 1.0).unwrap();
-    let document = serde_json::json!([{
-        "Name": cache.name, "Labels": cache.labels, "Scope": "local",
-        "Driver": "local", "Options": null
-    }]);
-    std::fs::write(dir.path().join("volume.json"), document.to_string()).unwrap();
-    std::fs::write(dir.path().join("cleanup"), cleanup).unwrap();
-    let helper = serde_json::json!([{
-        "Id": format!("{:064}", 1), "Name": "/@NAME@",
-        "Config": {"Image": super::engine_image(), "Labels": {"io.bosn.cache.measurement": "@NONCE@"}},
-        "HostConfig": {"ReadonlyRootfs": true, "Privileged": false, "NetworkMode": "none"},
-        "Mounts": [{"Type": "volume", "Name": CACHE_VOLUME, "Destination": "/cache", "RW": false}]
-    }]);
-    std::fs::write(dir.path().join("helper.json"), helper.to_string()).unwrap();
-    let empty = serde_json::json!({"filesystem_device":null,"path_entries":0,"unique_inodes":0,
-        "apparent_bytes":0,"allocated_bytes":0,"unique_file_bytes":0,"referenced_file_bytes":0});
-    let mut total = empty.clone();
-    total["filesystem_device"] = serde_json::json!(1);
-    total["path_entries"] = serde_json::json!(1);
-    total["unique_inodes"] = serde_json::json!(1);
-    let report = serde_json::json!({"schema_version":1,"root":"/cache","observed_at":"2026-10-22T00:00:00Z",
-        "total":total,"components":[{"class":"tools","usage":empty},{"class":"images","usage":empty},
-        {"class":"actions","usage":empty},{"class":"toolcache","usage":empty},
-        {"class":"actcache","usage":empty},{"class":"other","usage":empty}],
-        "namespaces":null,"omitted_namespaces":0,"partial":false});
-    std::fs::write(dir.path().join("report.json"), report.to_string()).unwrap();
-    if success {
-        std::fs::write(dir.path().join("success"), "").unwrap();
-    }
-    std::fs::write(
-        dir.path().join("docker.sh"),
-        r#"
+/// A synthetic Docker CLI driven by marker files in its base directory.
+const DOCKER_SCRIPT: &str = r#"
 base=$1
 shift
 printf '%s\n' "$*" >> "$base/commands"
@@ -62,6 +30,9 @@ case "$1" in
     printf '%064d\n' 1 ;;
 
   start)
+    if [ -e "$base/archive-missing" ]; then
+      [ -e "$base/seeded" ] || exit 3
+    fi
     if [ -e "$base/success" ]; then
       cat "$base/report.json"
       if [ -f "$base/exit-code" ]; then exit "$(cat "$base/exit-code")"; fi
@@ -93,11 +64,45 @@ case "$1" in
       denied) echo 'permission denied' >&2; exit 1 ;;
       *) exit 0 ;;
     esac ;;
+  run)
+    if [ -e "$base/seed-fails" ]; then echo 'wget: download failed' >&2; exit 1; fi
+    : > "$base/seeded" ;;
   *) exit 2 ;;
 esac
-"#,
-    )
-    .unwrap();
+"#;
+
+pub(super) fn fixture(success: bool, cleanup: &str) -> (TemporaryDirectory, DockerActBackend) {
+    let dir = TemporaryDirectory::new().unwrap();
+    let cache = CacheVolume::machine("11111111-2222-4333-8444-555555555555", 1.0).unwrap();
+    let document = serde_json::json!([{
+        "Name": cache.name, "Labels": cache.labels, "Scope": "local",
+        "Driver": "local", "Options": null
+    }]);
+    std::fs::write(dir.path().join("volume.json"), document.to_string()).unwrap();
+    std::fs::write(dir.path().join("cleanup"), cleanup).unwrap();
+    let helper = serde_json::json!([{
+        "Id": format!("{:064}", 1), "Name": "/@NAME@",
+        "Config": {"Image": super::engine_image(), "Labels": {"io.bosn.cache.measurement": "@NONCE@"}},
+        "HostConfig": {"ReadonlyRootfs": true, "Privileged": false, "NetworkMode": "none"},
+        "Mounts": [{"Type": "volume", "Name": CACHE_VOLUME, "Destination": "/cache", "RW": false}]
+    }]);
+    std::fs::write(dir.path().join("helper.json"), helper.to_string()).unwrap();
+    let empty = serde_json::json!({"filesystem_device":null,"path_entries":0,"unique_inodes":0,
+        "apparent_bytes":0,"allocated_bytes":0,"unique_file_bytes":0,"referenced_file_bytes":0});
+    let mut total = empty.clone();
+    total["filesystem_device"] = serde_json::json!(1);
+    total["path_entries"] = serde_json::json!(1);
+    total["unique_inodes"] = serde_json::json!(1);
+    let report = serde_json::json!({"schema_version":1,"root":"/cache","observed_at":"2026-10-22T00:00:00Z",
+        "total":total,"components":[{"class":"tools","usage":empty},{"class":"images","usage":empty},
+        {"class":"actions","usage":empty},{"class":"toolcache","usage":empty},
+        {"class":"actcache","usage":empty},{"class":"other","usage":empty}],
+        "namespaces":null,"omitted_namespaces":0,"partial":false});
+    std::fs::write(dir.path().join("report.json"), report.to_string()).unwrap();
+    if success {
+        std::fs::write(dir.path().join("success"), "").unwrap();
+    }
+    std::fs::write(dir.path().join("docker.sh"), DOCKER_SCRIPT).unwrap();
     let backend = DockerActBackend::new(DockerEngine::synthetic_for_test(
         "sh",
         [
@@ -342,4 +347,31 @@ fn footprint_transport_preserves_partial_exit_and_refuses_complete_failed_proces
             assert_eq!(report.bytes, None);
         }
     }
+}
+
+#[test]
+fn a_missing_reader_archive_is_seeded_then_measured_without_ci_preparation() {
+    let (dir, backend) = fixture(true, "absent");
+    std::fs::write(dir.path().join("archive-missing"), "").unwrap();
+    let report = measure(&backend).unwrap();
+    assert_eq!(report.bytes, Some(0));
+    let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+    let seed = commands
+        .lines()
+        .find(|line| line.starts_with("run --rm"))
+        .expect("seed helper ran");
+    assert!(seed.contains("target=/bosn/cache") && !seed.contains("readonly"));
+    assert!(seed.contains("--cap-drop ALL") && seed.contains("--pull never"));
+    assert_eq!(commands.matches("create --rm").count(), 2);
+}
+
+#[test]
+fn a_failed_seed_is_an_error_not_an_empty_cache() {
+    let (dir, backend) = fixture(true, "absent");
+    std::fs::write(dir.path().join("archive-missing"), "").unwrap();
+    std::fs::write(dir.path().join("seed-fails"), "").unwrap();
+    let error = measure(&backend).unwrap_err();
+    assert!(error.contains("act archive seed failed"), "{error}");
+    let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+    assert_eq!(commands.matches("create --rm").count(), 1);
 }
