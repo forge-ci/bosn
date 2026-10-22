@@ -5,7 +5,7 @@ use crate::ci::{
     lifecycle::tests::with_registry,
 };
 
-fn document(context: &SourceContext) -> serde_json::Value {
+pub(in crate::ci::engine) fn document(context: &SourceContext) -> serde_json::Value {
     serde_json::json!({
         "Id":"e".repeat(64), "Name":format!("/{}",context.name()),
         "State":{"Running":false,"Status":"created"},
@@ -261,3 +261,117 @@ elif args[:2]==['container','inspect']:
 elif args[0]=='rm': (root/'engine').rename(root/'removed-engine')
 else: raise AssertionError(args)
 "#;
+
+#[test]
+fn source_finalization_journal_uses_frozen_foreign_authority_without_engine_record() {
+    with_registry(|actor, state| async move {
+        use bosn_registry::{
+            Registry,
+            cache_helper::{CacheHelperIntent, CacheHelperRole},
+        };
+        let source = seed_source(&actor, false).await;
+        let context = ActToolSourceContext::from_record(&source).unwrap();
+        let owner = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        let path = state.join("replacement.sqlite3");
+        let mut registry = Registry::create_writer(&path, owner).unwrap();
+        assert!(
+            registry
+                .act_engine(&source.intent.run_id)
+                .unwrap()
+                .is_none()
+        );
+        let mut intent = CacheHelperIntent {
+            registry_id: owner.into(),
+            nonce: "12345678-2222-4333-8444-555555555555".into(),
+            volume: context.recovery.cache_volume.clone(),
+            image: format!(
+                "docker.io/library/docker@{}",
+                context.intent.engine_image_digest
+            ),
+            created_at: crate::ci::lifecycle::now_seconds(),
+            role: Some(CacheHelperRole::ToolRecoveryV1 {
+                run_id: context.intent.run_id.clone(),
+                intent: context.recovery.clone(),
+                command_sha256: Some("d".repeat(64)),
+                source_mountpoint: None,
+            }),
+        };
+        {
+            let mut tx = registry.begin_immediate().unwrap();
+            assert!(
+                tx.begin_cache_helper(&intent).is_err(),
+                "old local-record helper cannot recover a foreign source"
+            );
+        }
+        intent.role = Some(CacheHelperRole::ToolSourceFinalizationV1 {
+            context: Box::new(context.clone()),
+            context_id: "e".repeat(64),
+            command_sha256: "d".repeat(64),
+            source_mountpoint: None,
+        });
+        assert_invalid_finalization_authority(&intent);
+        let mut tx = registry.begin_immediate().unwrap();
+        tx.begin_cache_helper(&intent).unwrap();
+        tx.commit().unwrap();
+        let mut duplicate = intent.clone();
+        duplicate.nonce = "87654321-2222-4333-8444-555555555555".into();
+        {
+            let mut tx = registry.begin_immediate().unwrap();
+            assert!(
+                tx.begin_cache_helper(&duplicate).is_err(),
+                "a pending source helper must remain exclusive in this journal"
+            );
+        }
+        drop(registry);
+        let reopened = Registry::open_read_only(&path).unwrap();
+        assert_eq!(
+            reopened
+                .cache_helper(&intent.nonce)
+                .unwrap()
+                .unwrap()
+                .intent,
+            intent
+        );
+        assert!(
+            reopened
+                .act_engine(&source.intent.run_id)
+                .unwrap()
+                .is_none()
+        );
+    });
+}
+
+fn assert_invalid_finalization_authority(intent: &bosn_registry::cache_helper::CacheHelperIntent) {
+    use bosn_registry::cache_helper::CacheHelperRole;
+    for field in [
+        "owner",
+        "generation",
+        "context-id",
+        "image",
+        "cache",
+        "mount",
+    ] {
+        let mut changed = intent.clone();
+        let Some(CacheHelperRole::ToolSourceFinalizationV1 {
+            context,
+            context_id,
+            source_mountpoint,
+            ..
+        }) = &mut changed.role
+        else {
+            unreachable!()
+        };
+        match field {
+            "owner" => context.recovery.owner = "f".repeat(64),
+            "generation" => context.recovery.generation = "f".repeat(64),
+            "context-id" => *context_id = "bad".into(),
+            "image" => {
+                changed.image = format!("docker.io/library/docker@sha256:{}", "f".repeat(64))
+            }
+            "cache" => changed.volume = "foreign-cache".into(),
+            "mount" => *source_mountpoint = Some("/tmp/../foreign".into()),
+            _ => unreachable!(),
+        }
+        assert!(changed.validate().is_err(), "{field}");
+    }
+}

@@ -5,6 +5,12 @@ use std::collections::BTreeMap;
 
 pub(super) enum Profile {
     Measurement,
+    SourceFinalization {
+        cache: String,
+        source: String,
+        source_mountpoint: Option<String>,
+        command: String,
+    },
     Maintenance,
     Recovery {
         cache: String,
@@ -36,6 +42,17 @@ impl Profile {
         match &intent.role {
             None => Ok(Self::Measurement),
             Some(CacheHelperRole::MaintenanceV1) => Ok(Self::Maintenance),
+            Some(CacheHelperRole::ToolSourceFinalizationV1 {
+                context,
+                command_sha256,
+                source_mountpoint,
+                ..
+            }) => Ok(Self::SourceFinalization {
+                cache: intent.volume.clone(),
+                source: context.recovery.source_volume.clone(),
+                source_mountpoint: source_mountpoint.clone(),
+                command: command_sha256.clone(),
+            }),
             Some(CacheHelperRole::ToolRecoveryV1 {
                 intent: frozen,
                 command_sha256,
@@ -66,6 +83,7 @@ impl Profile {
     pub(super) fn label_key(&self) -> &str {
         match self {
             Self::Measurement => "io.bosn.cache.measurement",
+            Self::SourceFinalization { .. } => "io.bosn.cache.source-finalization",
             Self::Maintenance => "io.bosn.cache.maintenance",
             Self::Recovery { .. } => "io.bosn.cache.recovery",
             Self::Release { .. } => "io.bosn.cache.recovery-release",
@@ -75,6 +93,7 @@ impl Profile {
     pub(super) fn component(&self) -> &str {
         match self {
             Self::Measurement => "ci-cache-measurement",
+            Self::SourceFinalization { .. } => "ci-source-finalization",
             Self::Maintenance => "ci-cache-maintenance",
             Self::Recovery { .. } => "ci-cache-recovery",
             Self::Release { .. } => "ci-cache-recovery-release",
@@ -83,6 +102,28 @@ impl Profile {
     }
     pub(super) fn matches(&self, row: &Helper, volume: &str) -> bool {
         match self {
+            Self::SourceFinalization {
+                cache,
+                source,
+                source_mountpoint,
+                command,
+            } => {
+                if source_mountpoint.is_some() {
+                    Self::Recovery {
+                        cache: cache.clone(),
+                        source: source.clone(),
+                        source_mountpoint: source_mountpoint.clone(),
+                        command: command.clone(),
+                    }
+                    .matches(row, volume)
+                } else {
+                    Self::Release {
+                        cache: cache.clone(),
+                        command: command.clone(),
+                    }
+                    .matches(row, volume)
+                }
+            }
             Self::Measurement => {
                 !row.host_config.privileged && one_mount(&row.mounts, volume, "/cache", false)
             }

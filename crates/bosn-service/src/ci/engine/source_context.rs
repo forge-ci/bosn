@@ -2,7 +2,7 @@
 //! engine deletion and loss of the registry's owning daemon; it mounts no data.
 use super::{ActEngineRecord, owned};
 use crate::ci::machine::{EngineIdentity, Foreign};
-use bosn_registry::act::{ActEngineIntent, ActToolRecoveryIntent};
+use bosn_registry::act::ActToolSourceContext;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -12,40 +12,25 @@ const RECORD: &str = "com.zackees.bosn.act.source-context-record";
 const MAX_RECORD: usize = 16_384;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct SourceContext {
-    schema_version: u32,
-    registry_id: String,
-    intent: ActEngineIntent,
-    pub(super) recovery: ActToolRecoveryIntent,
+#[serde(transparent)]
+pub(super) struct SourceContext(pub(super) ActToolSourceContext);
+
+impl std::ops::Deref for SourceContext {
+    type Target = ActToolSourceContext;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl SourceContext {
     pub(super) fn from_record(record: &ActEngineRecord) -> Result<Self, String> {
-        let recovery = record
-            .tool_recovery
-            .clone()
-            .ok_or("source recovery intent missing")?;
-        recovery
-            .validate_record(record)
-            .map_err(|e| e.to_string())?;
-        let context = Self {
-            schema_version: 1,
-            registry_id: record.registry_id.clone(),
-            intent: record.intent.clone(),
-            recovery,
-        };
-        context.validate()?;
-        Ok(context)
+        ActToolSourceContext::from_record(record)
+            .map(Self)
+            .map_err(|e| e.to_string())
     }
 
-    fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1 {
-            return Err("source context schema differs".into());
-        }
-        self.recovery
-            .validate_engine_intent(&self.registry_id, &self.intent)
-            .map_err(|e| e.to_string())?;
+    pub(super) fn validate(&self) -> Result<(), String> {
+        self.0.validate().map_err(|e| e.to_string())?;
         self.ownership()?;
         Ok(())
     }
@@ -236,4 +221,4 @@ pub(super) fn parse(document: &str) -> Result<(String, SourceContext), String> {
 
 #[cfg(all(test, unix))]
 #[path = "source_context_tests.rs"]
-mod tests;
+pub(in crate::ci::engine) mod tests;

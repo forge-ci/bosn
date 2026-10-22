@@ -8,6 +8,8 @@ use std::time::Duration;
 mod helper;
 #[path = "tool_recovery_operation.rs"]
 mod operation;
+#[path = "source_finalization.rs"]
+mod source_finalization;
 #[path = "tool_recovery_worker.rs"]
 pub(super) mod worker;
 
@@ -144,6 +146,16 @@ fn require_publication(
     }
     let report: PublicationReport = serde_json::from_str(text)
         .map_err(|e| format!("tool recovery publication receipt: {e}"))?;
+    validate_publication_report(report, pin, root, earliest, observed)
+}
+
+fn validate_publication_report(
+    report: PublicationReport,
+    pin: &RecoveryPin,
+    root: &str,
+    earliest: f64,
+    observed: f64,
+) -> Result<(String, f64), String> {
     let timestamp = |value: &str| -> Result<f64, String> {
         time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
             .map(|at| at.unix_timestamp_nanos() as f64 / 1e9)

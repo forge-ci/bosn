@@ -5490,3 +5490,160 @@ of an obsolete historical fixture branch followed that validation; physical
 lost-reply coverage lives in the complete fenced transport fixture. The branch
 will require the full exact-source local gate and independent attestation
 verification before any push.
+
+### Retained native source recovery after registry loss (2026-10-22, #508)
+
+Bosn #704 merged at `1b8c494aacd3fda4c0324ed5e8fccbfff85a816f`.
+Its full exact-source local gate passed in 436s (Rust436s, Linux435s),
+stamped `17b259af1257dc696615930261d221b7db45ab09`, tree
+`028e35159c7ad9acc08b3a5381bb25d0a44fffeb`; independent GATE-003 verification
+passed before push. Remote run `39736979563` succeeded with eleven successful
+jobs and three configured skips, including independently executed Rust tests.
+The original checkout returned to clean rebased main and the owned branch and
+watcher files were removed. GitHub interpreted a negated closing-keyword phrase
+in that prerequisite PR as an issue-closing instruction. The issue was reopened,
+the phrase removed, and the resulting OPEN state and empty closing-reference
+list were verified. #508 remains unfinished; normal routing remains Legacy.
+
+A retained source context survives engine deletion, but the earlier helper
+requires a row in the original registry. The new shared typed
+`ActToolSourceContext` preserves the existing v1 serialized metadata and validates
+its full original registry/run/profile/recovery binding. A replacement registry
+journals `ToolSourceFinalizationV1` under its own owner, freezing the original
+context, immutable context ID, command hash and optional verified source bind.
+It neither invents an engine row nor opens the original registry. Pending helpers
+exclude another source helper in that journal. A snapshot remains bounded to
+24KiB, including the frozen source; this is not bounded historical event storage.
+
+Act2 #82 merged at `9c79f839737a787e5f632939e9e167e0c984ca4d`.
+Exact default-branch full CI `39742949161` passed all five jobs before the guarded
+annotated `v0.2.89-act2.25` tag triggered release run `39745051172`, which succeeded.
+All eleven archives were independently checked against checksums, GitHub asset
+digest/size, executable architecture/header and embedded release. Linux version
+and all nine capabilities passed runtime smoke with exact cleanup. Archive SHA256
+`8855c9fb840309b0eed71f85e17e8105aaecfebd4fef39ce28a8eab2f6a58e21`, executable
+SHA256 `f4784de9dd2ebbf6a8682decf855ca3a1a69d32dd458fc6847023585a7a7fb5a`.
+The external checkout is clean on rebased master; its task branch and exact
+observer files were removed. The Bosn candidate pins this verified release.
+Evidence: `/tmp/bosn-693/act2-25-release-provenance.json`,
+`act2-25-verification.json`, `act2-25-runtime-smoke.json`.
+
+The producer's `finalize-source` owns publication, successful view cleanup,
+reference release and durable source fencing. It requires an existing epoch-3
+store and exact existing coordination inode, never enrollment or reconstruction.
+Before expiry it publishes under the original source/lower leases; failed unmount
+retains those leases and cannot release the reference. After expiry it retries
+pending cleanup, fences existing readers, then releases the expired reference
+without opening a new source view. Every retry revalidates identity and repeats
+the fence. It does not physically delete storage. Its absent-command CLI RED,
+complete artifactcache/serve tests, focused CLI recovery tests, zero-issue Go lint,
+and actual stopped-overlay candidate proof are recorded in act2's public cache
+retention documentation. Initial dynamic-loader refusal and the corrected real
+expiry fixture remain explicit rather than being counted as successful checks.
+
+Bosn now has a separate retained-source supervisor in the daemon startup join.
+Discovery partitions canonical source-container names by immutable owner hex
+prefix. A query returns at most 65 IDs; an overflowing partition splits into
+sixteen children instead of silently discarding its older IDs. Docker name
+uniqueness bounds a full-owner leaf. The stack is at most 1,024 prefixes and the
+pending leaf at most 64 IDs. Each pass issues at most eight inventory queries,
+examines at most 32 candidates and attempts one source lifecycle. Cursor advancement
+includes failed/invalid candidates; current local nonterminal records remain with
+the existing recovery worker. Live engines are skipped. Waits are async,
+cancellable and bounded; diagnostic history is capped at 64 bounded keys.
+
+Before create, before helper start and after proven namespace teardown, the
+runtime revalidates the exact stopped metadata profile, engine ID/name absence,
+shared-cache ownership and any present source's original ownership. Live recovery
+uses an absence-refusing bind of the frozen Docker-side source path; expired
+finalization uses a source-free unprivileged profile. Both have distinct helper
+identity and frozen command binding. A closed, bounded receipt requires the
+entire exact pin, `disposed=true`, `reference_absent=true`, no partial result or
+error, and a valid publication within the original lifetime when still live.
+Only then does exact-owned non-forced volume removal proceed. Every deletion
+retry runs producer finalization again, including after a lost removal reply.
+Context metadata is removed by immutable ID only after source absence is proved.
+An unsupported historical engine image refuses; this is not universal mixed-image
+adoption. Missing/corrupt/legacy producer state also refuses.
+
+The actual receipt regression failed against the previous disposal parser, then
+passed with the dedicated closed finalization schema:
+`orphan-finalization-receipt-red.log`. The replacement-registry test stops the
+original actor, moves its database out of its original path, and verifies that
+no replacement engine row is fabricated. The 26-mode Docker boundary matrix
+passes, as does a lost physical-removal reply requiring a second producer helper
+(`orphan-finalization-transport-final-clippy.log`). The first matrix run exposed
+an incorrect fixture expectation: an expired source-free helper does not need a
+stable unused mountpoint. The changed-path refusal now uses a live source with a
+frozen bind. Initial compilation needed the existing backend trait import;
+Clippy later required splitting a 105-line test, without relaxing its limit.
+Corrected service/registry all-target Clippy passes in
+`orphan-finalization-pin25-clippy.log`.
+
+The actual Docker discovery proof provisioned 70 private, never-started metadata
+containers, including equal creation-second groups. Its parent query deliberately
+returned only 65 IDs; production prefix discovery still visited all 70, with
+query counts `[3,2,8,4]` across passes. Exact fixture absence and unchanged test
+binary were verified. Evidence: `source-discovery-docker-proof.{py,json,log}`.
+The first real replacement-registry disposal proof passed all runtime phases:
+fresh epoch-3 enrollment, stopped metacopy overlay, verified offline released
+archive, actual Rust helper with unavailable original registry, source/context
+removal, source-free producer retry, and independent payload/mode/settings,
+newer-Node, incomplete-install and unchanged-lower verification. Its cleanup
+assertion initially misclassified the intentionally retained read-only build
+target as an anonymous volume. Exact cleanup was completed separately and the
+build target preserved; this is recorded in
+`orphan-source25-initial-cleanup-refusal.{json,log}` and
+`orphan-source25-initial-cleanup-recovered.json`. A corrected full proof through
+the production worker is required before push; the earlier direct-helper result
+is not that proof.
+
+This candidate does not complete #508. Native creation/enrollment is still
+inactive, and the new path requires an already valid frozen context. Pre-Ready
+provisioning gaps, old-writer exclusion and migration, finite producer
+coordination/completion and registry helper/history reclamation, memory-mode
+handoff, all-class routing/accounting and machine ceilings, scoped builder GC,
+and unchanged full-workflow/fresh-engine/restart acceptance remain unfinished.
+Physical source/context removal does not prove finite lifetime for their producer
+coordination files or journal events. Original large/concurrent/many-file
+acceptance remains required. No other #693 child has started.
+
+
+The corrected complete Docker proof now passes through the production
+`retry_retained_sources` worker, rather than invoking only its helper. A
+fixture-scoped full-owner cursor selects only the private source; the separate
+70-container proof covers actual partitioning. All seven phases passed, the
+original registry was unavailable, the replacement registry had no engine row,
+and its finalization helper journal ended Removed. Source and context were
+physically absent before the source-free producer retry. Independent payload,
+mode/settings, newer Node, incomplete exclusion and unchanged-lower verification
+passed. All exact containers/volumes were cleaned and absence proved, while the
+read-only build target was preserved. Evidence:
+`orphan-source25-docker-proof.{py,json,log}` and `orphan-source25-result.json`.
+Before/after test-binary SHA256 is identical:
+`b6a0570acbb291aadaaa1f6c27c0cd3fa5b2e27a17c4007f5e1b3436ff8e4536`.
+The strengthened shared context also rejects aliasing the source and shared cache.
+Final context tests and service/registry all-target Clippy pass in
+`orphan-source-worker-final-clippy.log`. Full exact-source gate and PR are pending
+at this recording point. This completes the tested retained-context production
+path, not ordinary enrollment or the remaining issue-wide storage/expiry contract.
+
+
+The first full exact-source gate on `46951ea60d1936c3a9da4028bb36076c74665e5d`
+failed, and no lane attestation was accepted. The Rust lane
+`27c291b8-40f2-44e6-9016-e1c5144e70de` and tests lane
+`320654ec-84e6-4886-b93e-f3e825455bfc` both exposed a new daemon startup
+stack overflow on a normal Tokio worker. The installed-wheel smoke also
+aborted before daemon readiness. Focused source-helper proofs had missed the
+size of the composed production Service future. Evidence is retained in
+`orphan-source-local-gate.log`, `orphan-source-rust-full-failure.jsonl` and
+`orphan-source-linux-progress.jsonl`.
+
+The correction heap-owns the new retained-source supervisor at its join
+boundary and each bounded pass at its timeout boundary. It changes neither
+worker stack limits nor acceptance checks. With those two boundaries, the
+previously crashing Python registry-diagnostics test and both coalesced setup
+ensure/task tests pass with the ordinary dev-profile runtime in the Docker
+Rust harness. A fresh full gate, including installed-wheel daemon startup,
+is still required before push. This failure and correction do not complete
+#508 or authorize ordinary native routing.

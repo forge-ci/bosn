@@ -118,9 +118,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // bulk enrollment, and supports explicit cold empty generations.
             // act2.24 adds fresh epoch-3 enrollment and durable source-view
             // exclusion for source disposal; existing stores are never upgraded.
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.24/act_Linux_x86_64.tar.gz",
-            sha256: "0c343b45b524caa3bccb816475ff572f6d31f84782241556ec7338a550a27503",
-            binary_sha256: "0410bd0bad8134f78c7fb044dc6cdf0a9f8df15b1b03747270ce25e956e7071d",
+            // act2.25 reconciles retained source publication/release/fencing
+            // without the original registry; source deletion stays in Bosn.
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.25/act_Linux_x86_64.tar.gz",
+            sha256: "8855c9fb840309b0eed71f85e17e8105aaecfebd4fef39ce28a8eab2f6a58e21",
+            binary_sha256: "f4784de9dd2ebbf6a8682decf855ca3a1a69d32dd458fc6847023585a7a7fb5a",
         }),
         _ => None,
     }
