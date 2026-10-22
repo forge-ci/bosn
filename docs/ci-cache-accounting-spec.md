@@ -7160,3 +7160,19 @@ The corrected exact-name focused test passed: one test, no failures or ignores,
 `--exact` invocation selected zero tests and is not validation. The existing
 sole primary reviewer accepted the correction without findings. A new clean
 committed whole gate remains required before push.
+
+
+### Second external engine removal; isolated gate retry
+
+The corrected candidate `5336eec5` whole gate failed after254s without a
+passing lane. Both runs exited137 and could not close their scopes because
+shared driver engine `13583a134d252dfd6bcfb15fadd20ebde8a4bfe3e57317b35556493d4ab4f29a`
+was killed with explicit signal9 at Unix1792696520, died137 at1792696523 and
+was destroyed. Captured events do not establish an OOM cause or caller.
+Evidence: `cache-footprint-third-engine-events.jsonl` and
+`cache-footprint-local-gate-second-engine-kill.log`. Neither failed gate is
+reused as a pass. The next retry uses the same ordinary whole gate and installed
+driver with a separate state directory and a task-owned private Docker daemon;
+it does not alter the installed host daemon, driver, source checks or verifier.
+Private controller identity/cleanup evidence lives in
+`cache-footprint-private-gate.json` under `/tmp/bosn-693`.
