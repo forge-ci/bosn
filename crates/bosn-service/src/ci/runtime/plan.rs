@@ -129,7 +129,8 @@ impl CiRuntime {
         deadline: async_engine::Deadline,
     ) -> Result<EnginePlan, String> {
         super::super::pins::require_execution_pins(record.execution_pins.as_ref())?;
-        let config = super::super::config::load_engine(&self.state_dir)?;
+        let settings = super::super::config::load(&self.state_dir)?;
+        let config = settings.engine;
         let spec = self.engine_spec(config).await?;
         let intent = spec.intent(
             ActEngineBinding {
@@ -171,9 +172,12 @@ impl CiRuntime {
                     .join(&record.workflow)
                     .is_file(),
                 job: record.job.clone(),
-                cache_route: super::super::cache_cohort::CacheRoute::Legacy(
-                    super::super::cache_cohort::Namespace::parse(&record.cache_namespace())?,
-                ),
+                cache_route: super::super::cache_cohort::CacheRoute::Cohort {
+                    namespace: super::super::cache_cohort::Namespace::parse(
+                        &record.cache_namespace(),
+                    )?,
+                    policy: settings.cache.unwrap_or_default(),
+                },
                 secrets: self.secrets(record)?,
                 params: record.params.clone(),
                 scope: Some(scope),

@@ -36,11 +36,21 @@ pub struct Faults {
     pub cache_measure: bool,
 }
 
+pub type ArchiveReply = (
+    crate::ci::engine::ArchiveEnrollmentPhase,
+    Result<crate::ci::engine::ArchiveEnrollmentStatus, String>,
+);
+
 /// In-memory engine host: name -> observation. Creation and retirement
 /// drive the real registry actor through the same commands, in the same
 /// order, as the owned-engine layer does on Docker.
 #[derive(Default)]
 pub struct FakeBackend {
+    pub archive_replies: Mutex<Option<std::collections::VecDeque<ArchiveReply>>>,
+    /// Synthetic archive authority: frozen machine policy and namespace phases.
+    archive_policy: Mutex<Option<crate::ci::cache_policy::CachePolicy>>,
+    archive_states: Mutex<BTreeMap<String, crate::ci::engine::ArchiveEnrollmentPhase>>,
+    pub archive_phases: Mutex<Vec<crate::ci::engine::ArchiveEnrollmentPhase>>,
     pub engines: Mutex<BTreeMap<String, ActEngineObservation>>,
     pub faults: Mutex<Faults>,
     pub executions: Mutex<u32>,
@@ -68,6 +78,36 @@ pub struct FakeBackend {
     next: Mutex<u64>,
 }
 impl FakeBackend {
+    fn model_archive_enrollment(
+        &self,
+        request: crate::ci::engine::ArchiveEnrollmentRequest<'_>,
+    ) -> Result<crate::ci::engine::ArchiveEnrollmentStatus, String> {
+        use crate::ci::engine::{
+            ArchiveEnrollmentPhase as Phase, ArchiveEnrollmentStatus as Status,
+        };
+        let mut policy = self.archive_policy.lock().unwrap();
+        if policy.is_some_and(|existing| existing != request.policy) {
+            return Err("synthetic machine cache policy conflict".into());
+        }
+        let mut states = self.archive_states.lock().unwrap();
+        let state = states.get(request.namespace.as_str()).copied();
+        match (request.phase, state) {
+            (Phase::Require, Some(Phase::Complete)) => Ok(Status::Ready),
+            (Phase::Require, _) => Ok(Status::Refused("not enrolled".into())),
+            (Phase::Fence, Some(Phase::Complete)) => Ok(Status::Ready),
+            (Phase::Fence, _) => {
+                *policy = Some(request.policy);
+                states.insert(request.namespace.as_str().into(), Phase::Fence);
+                Ok(Status::Fenced)
+            }
+            (Phase::Complete, Some(Phase::Fence | Phase::Complete)) => {
+                states.insert(request.namespace.as_str().into(), Phase::Complete);
+                Ok(Status::Ready)
+            }
+            (Phase::Complete, _) => Err("synthetic archive completion before fencing".into()),
+        }
+    }
+
     pub fn with(faults: Faults) -> Self {
         let backend = Self::default();
         *backend.faults.lock().unwrap() = faults;
@@ -345,6 +385,24 @@ impl ActEngineBackend for FakeBackend {
                 },
             )
             .await
+        })
+    }
+    fn archive_enrollment<'a>(
+        &'a self,
+        request: crate::ci::engine::ArchiveEnrollmentRequest<'a>,
+    ) -> crate::ci::engine::BoxFuture<'a, Result<crate::ci::engine::ArchiveEnrollmentStatus, String>>
+    {
+        Box::pin(async move {
+            assert!(self.live_id(request.engine));
+            self.archive_phases.lock().unwrap().push(request.phase);
+            if let Some(replies) = self.archive_replies.lock().unwrap().as_mut() {
+                let (phase, reply) = replies
+                    .pop_front()
+                    .ok_or("unexpected archive enrollment in scripted backend")?;
+                assert_eq!(phase, request.phase);
+                return reply;
+            }
+            self.model_archive_enrollment(request)
         })
     }
     fn enroll_native_tools<'a>(

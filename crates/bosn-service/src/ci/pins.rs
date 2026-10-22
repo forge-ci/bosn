@@ -124,9 +124,12 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // writer exclusion; Ready selection never silently cold-bootstraps.
             // act2.27 reclaims the fenced legacy snapshot after durable Ready,
             // retaining its bounded ownership witness for interrupted cleanup.
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.27/act_Linux_x86_64.tar.gz",
-            sha256: "c00daa74122f652f0fcbc6612c0711fe9007523c417bb84894180091dde27b1a",
-            binary_sha256: "ddee7bc657330634332f3bc1e70d44e7254ba32d09632997938facf046a2a739",
+            // act2.28 adds durable coordinated archive enrollment and bounded
+            // resumable import stages. act2.29 reclaims verified Ready sources and
+            // excludes pending first publications from ordinary cohort eviction.
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.29/act_Linux_x86_64.tar.gz",
+            sha256: "f9f811f5a248c6cac62afc2920c80d6baecf6dea2de25fe71e1967921594deb4",
+            binary_sha256: "21373f9fa8e2315230ca1b708e0893b54ad4857f100c4bba9b776a0710278599",
         }),
         _ => None,
     }

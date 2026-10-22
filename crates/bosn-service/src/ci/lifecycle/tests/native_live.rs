@@ -69,7 +69,7 @@ fn actual_docker_native_policy_recovers_completed_update_after_retirement() {
     actual_native_policy_fixture(true);
 }
 
-async fn fixture_engine_exec(engine: &str, script: &str) -> String {
+pub(crate) async fn fixture_engine_exec(engine: &str, script: &str) -> String {
     let output = DockerEngine::docker()
         .with_args(["exec", engine, "sh", "-ec", script])
         .capture_async(RunOptions::bounded(Duration::from_secs(30), 4096))

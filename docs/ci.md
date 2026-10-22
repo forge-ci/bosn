@@ -679,22 +679,47 @@ server or its port.
 
 ### Shared cache budget (#544, #547)
 
-act2's serve mode in the machine's engine applies this budget to `actcache/`
-while no cohort policy is enrolled, which is the case on every machine today
-(`act serve --cache-budget-*`). It runs when serve starts and hourly while the
-engine is up; with no engine, no run writes the cache.
+Ordinary CI planning selects the coordinated archive cohort. Before work can
+start, act2 fences the repository's legacy source, Bosn waits for old engine
+writers to drain, and act2 verifies publication into `actcache/cohort-v1/`.
+Existing completed archives are imported; failed verification refuses execution
+instead of silently starting empty. Ready admission requires the existing
+immutable machine policy and current destination identity/inventory.
 
 | Bound | Value |
 |---|---|
 | Completed archives per repository namespace | ≤ 8 GiB; least recently used go first |
 | Archive unused for | 7 days, then it expires (an idle repository's namespace empties) |
 | Archive age | 30 days, then it expires even if it is still used |
-| Whole `actcache/` | ≤ 8 GiB × repositories that ran CI in the last 7 days |
+| Completed archives across the cohort | ≤ 32 GiB; protected/recent transfers can delay reclamation |
+| Maintenance interval | 5 minutes, including daemon maintenance without an active engine |
+
+Override all five values together in the daemon's `config.toml`:
+
+```toml
+[cache]
+repository_max_bytes = 8589934592
+aggregate_max_bytes = 34359738368
+max_age_secs = 2592000
+unused_age_secs = 604800
+maintenance_interval_secs = 300
+```
+
+The first enrollment freezes the machine policy. Another daemon proposing a
+different policy refuses; changing configuration alone cannot replace an
+existing agreement. Contention waits asynchronously within the run's timeout
+and responds to cancellation.
 
 These are act2's logical archive bytes (`act cache prune --apply`, the same
 retention act2's cache server runs in-process), not filesystem blocks. A pass
 deletes only archives inside the volume, never the volume, which stays
-pinned. Its gates:
+pinned. Verified completed migration sources are reclaimed after durable Ready;
+interrupted cleanup resumes during idle maintenance. Pending migration sources,
+incomplete state and filesystem overhead remain outside these completed-payload ceilings; they are included in the
+shared `actcache` usage sample. This is not a hard allocated machine quota.
+
+Before cohort enrollment, act2 serve retains the legacy per-repository budget
+(`--cache-budget-*`) on startup and hourly. That legacy pass has these gates:
 
 - **Liveness.** act2 takes the namespace's transfer lock and `bolt.db`
   exclusively, each with a 25 ms timeout. A namespace a live cache server or

@@ -43,6 +43,7 @@ use crate::{
     act_registry::{ActRegistryCommand, ActRegistryReply},
 };
 
+mod archive;
 mod enrollment;
 mod machine_ops;
 mod preparation;

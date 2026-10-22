@@ -6546,3 +6546,437 @@ passed in 18.34s; file-length and include-base guards passed
 (`registry-storage-final-focused-validation.log`). The previously recorded 49
 daemon tests also passed. The whole exact-source local gate remains required
 before push; these results do not close #508.
+
+
+### Coordinated archive routing continuation (2026-10-22, unmerged)
+
+PR #709 merged at `a10152fb29833be643e6be6797de8c73a3209df7` after
+its 527-second whole local gate (1,187 Rust tests passed, 53 configured skips;
+Linux passed). Stamped candidate `d69b116f3c4158fee3936bf6603f09c24065d52b`
+independently passed exact GATE-003 verification before push. Remote run
+`39802261439` passed 11 jobs with three configured skips and no review threads.
+The original checkout returned to clean main and rebased; candidate and merged
+trees matched. The task branches and original watcher log were removed, and the
+three pre-existing stashes were preserved. Physical machine/cache-class bounds
+and the other original #508 acceptance items remain open.
+
+The next ordinary-planner regression ran and failed: production still selects
+`CacheRoute::Legacy` (`archive-production-route-red.log`). The first command used
+an incorrect exact filter and ran zero tests; that result is not RED evidence.
+The corrected command ran one test and failed its explicit coordinated-route
+assertion. This regression remains RED until production orchestration is wired.
+
+The unmerged act2 branch `feat/508-archive-enrollment`, in the existing external
+checkout, adds a per-namespace journal outside the destination, atomic legacy
+source fencing, explicit stopped-source publication, and admission validation.
+The old directory is retained privately; the old path becomes a refusal file.
+Fence alone never claims existing directory-FD writers have stopped. Completion
+requires caller-provided continuous writer exclusion, preserves completed warm
+archives through the existing verified import, and reconciles an existing
+publication using its receipt plus current inventory. Ready admission must not
+bootstrap missing state. It preserves frozen import bounds and does not delete
+retained sources. None of this is yet released or selected by Bosn.
+
+Initial focused tests found cold sources lacked the archive storage layout. A
+first correction used the public coordinated audit on a legacy source, which
+correctly refused absent transfer coordination; it now uses the same read-only
+locked legacy audit as import. The directory-FD fixture initially addressed the
+wrong archive filename; using Storage's actual filename fixed that fixture.
+Warm preservation, legacy reopen refusal, cold absent/empty enrollment, retained
+FD mutation refusal, lost publication acknowledgement, missing warm state and
+policy/unowned-destination refusal then passed. A command test performs real
+HTTP reserve/upload/commit and verifies hits through two fresh destination
+servers. Earlier focused package/command coverage passed, but those results
+precede the final review corrections.
+
+Primary review identified two defects: persisted device/inode numbers would
+refuse unchanged volumes after remount, and an existing untyped Bolt file could
+be initialized as fresh authority. The candidate now uses durable incarnation
+markers in the destination directory and metadata, with inode comparisons only
+within an operation; only a newly created journal may establish first authority.
+Regression coverage includes recreated empty metadata, preserved-incarnation
+file reopen, and an existing untyped journal. Final validation is pending.
+
+The first broad package/command attempt failed environmental gates: the existing
+retirement permission test could not execute its uid-65534 subprocess from Go's
+private build directory, and existing command tests had no Docker socket. That
+run is not a passing full suite; its chained race test did not execute
+(`archive-enrollment-package-race.log`). The focused/race rerun is tracked
+separately. No gate, release, push or production acceptance is claimed.
+
+Interrupted import without a destination deliberately refuses explicit private
+stage reconciliation rather than creating repeated unknown copies. Automatic
+bounded stage reconciliation, retained source expiry/accounting, orchestration,
+older-writer draining and unchanged full workflow acceptance remain required.
+This candidate does not close #508 or advance another #693 child.
+
+
+The review-corrected focused package/command run passed in 48.700s and
+4.205s; race coverage of archive/tool enrollment passed in 33.715s
+(`archive-enrollment-reviewed-tests.log`). The earlier complete artifact-cache
+package then passed in 284.735s using a Go execution wrapper that makes only its
+generated temporary binary directories traversable for the existing uid-65534
+subprocess; Go owns and removes those directories. This pass predates the next
+publication reconciliation change and is not current full-suite acceptance.
+
+Primary review then found a first-Ready gap after lost import acknowledgement:
+a valid empty destination plus the historical warm receipt could be accepted.
+The new actual lost-reply/replaced-store regression failed
+(`archive-lost-ack-empty-inventory-red.log`). Initial publication reconciliation
+now verifies the retained source fingerprint, reconstructs the frozen selected
+imports, and compares every destination metadata row and archive checksum with
+the source, including sampled original receipt checksums. Later Ready admission
+permits normal retention and new uploads. Focused package/command coverage passed
+in 50.023s/2.349s and archive enrollment race coverage in 10.202s
+(`archive-publication-reconciliation-green.log`). The destination transfer lease
+now additionally spans initial verification, durable incarnation establishment
+and Ready commit, excluding maintenance between validation and admission. Final
+tests/review for that ordering change remain pending. The Bosn planner is still
+RED and production routing remains Legacy; no release or push has occurred.
+
+
+Final ordering tests passed (artifact-cache focused 35.730s, commands 3.151s,
+archive race 4.207s); primary review found no remaining concrete issue. Lint
+then rejected the verification function's cyclomatic complexity, one redundant
+conversion and two fixture taint warnings. The checksum/metadata loop was split
+without dropping comparisons, the conversion removed, and fixture I/O corrected;
+no rule was suppressed. The first extraction rerun caught an undefined err
+binding, which was corrected. Final golangci-lint on artifact-cache and commands
+reports zero issues (`archive-enrollment-lint-final.log`). Final focused tests
+passed in 44.629s/2.181s and archive race coverage in 6.422s
+(`archive-enrollment-final-validation.log`); the same primary reviewer confirmed
+all comparisons and lease ordering survived extraction. The complete package
+pass above still predates these changes. No current full gate, push, release or
+Bosn production activation is claimed. Interrupted-stage reconciliation remains
+the next required recovery change before this candidate can be shipped.
+
+
+### Bounded archive import-stage recovery continuation (2026-10-22, unmerged)
+
+The existing act2 checkout is checkpointed at `dd07afd` on
+`feat/508-archive-enrollment`; the original Bosn checkout remains on
+`feat/508-archive-routing` with its production planner regression still RED.
+No new Bosn worktree, push or release was created.
+
+A new regression committed actual `ImportStarted` intent without creating a
+stage, then requested completion. It failed with the manual-reconciliation
+refusal (`archive-intent-before-stage-red.log`). Enrollment now derives one
+private stage from its frozen random identity rather than making a new random
+stage on each retry. The stage factory takes the cohort lease and verifies its
+ownership witness before clearing partial content. Missing witness plus
+nonempty content refuses; an empty directory can finish interrupted initial
+witness creation. The root witness is preserved throughout partial cleanup.
+Traversal uses the existing no-follow descriptor walker, refuses mount
+crossings, bounds the descriptor stack, and caps each reclamation pass at
+100,000 entries. Exhaustion retains progress and retries the same stage.
+Failed imports retain that one owned stage; successful publication consumes it.
+Retained original source data and unrelated paths are never cleanup targets.
+
+The ordinary import API keeps its existing random-stage and cleanup behavior.
+A shared stage-policy boundary avoids duplicating import/checksum/publication
+logic. The tool enrollment walker has only gained a root-marker parameter;
+its original wrapper preserves the existing tool witness and behavior.
+
+The intent-before-stage regression and focused archive/tool enrollment/import
+coverage passed: artifact-cache 38.689s and commands 2.583s
+(`archive-stage-recovery-first-tests.log`). New fixtures cover partial stage
+content, preserving an external symlink target, bounded partial reclamation and
+retry, and preserving an unowned nonempty stage. The old manual-only refusal
+assertion was replaced by automatic recovery acceptance; recreated warm metadata
+is still explicitly refused. Primary review found no concrete issue in this
+continuation. Full artifact-cache, race and lint validation remain running in
+`archive-stage-full-validation.log`; no current full pass is claimed yet.
+
+This is recovery-component evidence. Production needs typed retryable contention
+results, a source-fence/older-engine-drain/complete orchestration boundary and
+current admission checks before selecting Cohort. The pinned released act2 does
+not yet contain the new command. Required dependency CI/release verification,
+Bosn rollout, pending-storage accounting/source expiry and unchanged realistic
+workflow/restart acceptance remain open; #508 and #693 remain open.
+
+
+The full stage-recovery artifact-cache suite passed in 182.225s and archive/tool
+race coverage in 29.094s. Lint required restoring the two pre-existing
+caller-selected-root path annotations at their extracted calls, then passed
+(`archive-stage-lint-final.log`). No new rule was disabled.
+
+A separate real contention regression failed because the new command did not
+return a typed retryable result (`archive-contention-status-red.log`). Enrollment
+now returns `retryable` for native lock timeouts and bounded cleanup continuation;
+policy conflicts remain nonretryable. ImportReport retains typed internal causes
+without changing the ordinary import command's JSON shape, which older Bosn
+clients parse strictly. Focused tests passed45.485s/4.193s, archive race9.002s and
+lint zero issues (`archive-recovery-contention-validation.log`).
+
+The journal-lock regression then failed at1.005s, consuming its whole one-second
+caller deadline (`archive-journal-contention-red.log`). Archive history now has a
+250ms acquisition subdeadline; expiry maps to typed contention only while the
+parent context is still live. Shared tool history behavior is unchanged. Final
+focused package/command tests passed53.105s/2.367s and archive/tool race52.273s
+(`archive-bounded-recovery-final-validation.log`). Lint caught loader complexity22;
+extracting acquisition into `openArchiveHistory` preserved the authority checks.
+Focused journal/contention/untyped-authority tests passed5.775s and lint reports
+zero issues (`archive-journal-extraction-final.log`). The same primary reviewer
+confirmed the extraction and found no remaining concrete issue. The earlier full
+suite predates retry classification; normal dependency CI remains required.
+
+
+Act2 PR #85 is open at `d1629f88dddefd8c21668e138ee5a0cf29d3e105`
+(two reviewed local commits, clean external checkout). Dependency checks/review
+remain pending. Nothing is released or activated in Bosn; original scope and
+#508/#693 stay open. The original Bosn checkout contains only the in-progress
+planner regression and living-spec updates on its feature branch.
+
+
+### Bosn archive transport and inactive coordination (2026-10-22)
+
+The typed Docker boundary validates bounded replies, exact source/cohort/
+namespace/import bound, the frozen snapshot nonce and phase lifecycle before
+returning Ready/Fenced/Retry/Refused. Only empty-output exit75 from the trusted
+wrapper is a transport retry. Require uses a shared lifetime lease; Fence and
+Complete use the exclusive nonblocking migration lease. Four focused boundary
+tests passed (`archive-transport-first-tests.log`). This is command-boundary
+coverage, not execution of released act2's new command.
+
+The shared-engine path now calls archive preparation before run preparation;
+Legacy returns immediately, so production remains unchanged and the ordinary
+planner regression is still RED. For an explicit Cohort invocation it inspects
+existing Ready state, fences new enrollment, drains other engines using the
+existing ownership/liveness protocol, then completes publication. Every phase
+verifies the lease; contention waits are async/cancellable. Unknown transport
+errors never trigger fencing. Synthetic backend replies are explicit queued
+phase results, not implicit successful enrollment.
+
+Three coordination tests initially passed and one failed after observing actual
+fake retirement because its assertion confused the fake removal log's names
+with IDs. The corrected test retains both removal-log and engine-absence checks.
+It resumes the same pinned future after an observation timeout, proving Complete
+is not issued while the old fake engine is busy. All four corrected coordination
+tests and four transport tests passed; service library/test Clippy passed24.18s
+(`archive-admission-focused-validation.log`). Sole-primary review found no new
+issue in this inactive coordination. Full immutable machine-policy agreement
+must still precede fencing and be required on Ready admission before activation.
+No real-engine claim is made by these synthetic tests.
+
+Act2 PR #85's six checks passed on `d1629f88dddefd8c21668e138ee5a0cf29d3e105`
+(run `39810469276` plus Codespell). Merge/default-branch full CI and release
+artifact verification are still required before Bosn consumes this dependency.
+
+### Archive policy admission and production candidate (2026-10-22)
+
+Act2 #85 merged at `f82a878a86ebc0790fe02cff74fd92ba18934a01` after all
+six PR checks passed. Its clean default checkout was rebased; the original
+Bosn checkout was fetched/rebased onto main immediately after that merge.
+Exact-default-commit full CI `39813540506` is running. No release or verified
+new artifact is claimed yet; Bosn still pins act2.27 while this local candidate
+is being completed, and must not be pushed in that state.
+
+Two additional transport regressions reproduced real admission gaps: Ready
+could pass with a missing machine policy, and conflicting policy could still
+contact source fencing (`archive-policy-both-regressions-red.log`). Full
+immutable machine policy now agrees before Fence and is required before
+Complete, on every Ready result, and immediately before execution. Contention
+is a typed retry and execution waits asynchronously under the original absolute
+run deadline/cancellation. Seven transport tests pass, including actual
+synthetic-process timeout and cancellation (`archive-policy-timeout-cancel.log`).
+The related machine-policy tests passed two with one explicit hardware fixture
+ignored; four coordination tests passed (`archive-policy-admission-green.log`).
+Clippy initially rejected a nested if; collapsing it passed service library/test
+Clippy in 28.50s (`archive-policy-clippy-recheck.log`). Later activation changes
+still need their final lint and whole exact-source gate.
+
+The local ordinary planner now selects Cohort, loading configuration once.
+Default archive limits are 8 GiB per repository (the existing legacy budget),
+32 GiB aggregate (four full repository budgets), 30-day maximum age, seven-day
+unused age, and five-minute maintenance. These are completed archive payload
+limits, not an allocated machine quota. Existing nonmatching immutable policy
+refuses instead of changing another daemon's contract. Explicit validated cache
+settings override defaults. Planning does not create or fence an engine.
+Synthetic normal-runtime tests use an in-memory frozen-policy/namespace phase
+model; scripted fault tests have an explicit queue whose exhaustion fails.
+Neither is evidence of Docker or act enrollment.
+
+The ignored actual workflow fixture now restores compiled C and npm package
+archives through actions/cache in the subsequent job and second fresh engine,
+verifying payload hashes and execution/content alongside completed native tools.
+That extended fixture has not yet run. Production activation is a local
+candidate only. Retained archive source disposal/accounting, all-class allocated
+ceilings, scoped builder expiry, original full-workload/concurrency/restart and
+large/many-file acceptance remain open; this does not complete #508.
+
+The first production-route CI-focused suite passed 332 tests with 21 explicit
+hardware fixtures ignored in 110.79s (`archive-production-route-first-green.log`).
+After adding configured-policy planning coverage, all four planner tests passed
+and service library/test Clippy passed58.29s
+(`archive-production-route-final-lint.log`). File-length/include-base guards and
+whitespace checks passed; sole-primary code and documentation review is clean.
+The extended Docker fixture remains unexecuted, and no full exact-source Bosn
+gate, new release pin or push is claimed by these results.
+
+Exact act2 default-branch CI `39813540506` passed all five required jobs on
+`f82a878a86ebc0790fe02cff74fd92ba18934a01`. The release guard initially refused
+because a cached jobs endpoint still reported Linux in progress despite the run
+summary being complete. A fresh job collection and the direct Linux job record
+both confirmed success (Linux completed16:34:58Z). The guard then passed clean
+master, independent remote SHA, all jobs and absent tag/release checks. Annotated
+`v0.2.89-act2.28` was pushed through the existing tag release workflow;
+release run `39816300762` is queued, not yet a successful release. Evidence:
+`/tmp/bosn-693/act2-28-release-guard.json` and `act2-28-release-run.json`.
+Future observations use a fresh query to avoid reusing that stale response.
+Bosn candidate `b7876c4e` remains local/unpushed and still requires independent
+verification of all release archives and the actual extended workflow proof
+before its dependency pin/whole-source gate can be completed.
+
+### Verified act2.28 and ordinary archive workflow (2026-10-22)
+
+Release `39816300762` completed successfully on the exact tested act2 merge
+`f82a878a86ebc0790fe02cff74fd92ba18934a01`. All eleven published archives were
+independently checked against checksum text, GitHub digest/size, executable
+headers/architectures and embedded version. Linux version/capability execution,
+annotated tag target and smoke-container cleanup passed. Linux archive SHA256
+`7c169ccd338b41b7df48a1f8be215d609b8a737f932b8ce2b2a0c4e595ad811d`;
+executable SHA256
+`cbadf22037868f2ee3c19400f0450262324a7cb3b7a56bf06234295035ee33fe`.
+Evidence: `/tmp/bosn-693/act2-28-release-provenance.json` and related verifier
+records. Bosn's unpushed candidate now pins these verified artifacts.
+
+The first extended workflow failed on its recovered run because the fixture
+omitted actions/checkout and `phase` was absent from the job workspace. The
+conditional's first-run behavior had masked this absence. This was a fixture
+failure, not evidence of an archive transport failure. The corrected workflow
+checks out the frozen source in both jobs and asserts `phase` exists before
+branching; no cache-hit, hash, executable/package-content, completed-tool or
+mode checks were relaxed. The failed trace is retained as
+`production-archive-workflow-proof-failure1.{json,log}`.
+
+The corrected ordinary-runtime fixture passed267.80s on released act2.28:
+`bosn693-archive-workflow-0e90925331a0`. Two successive identical two-job
+workflows used distinct engines
+`bosn-act-9e2755bd-2b39-44b3-9607-2949e338bb88` and
+`bosn-act-051e5878-16d1-429b-8bb7-3233f52ba94a`. Actual actions/cache restore
+preserved newly compiled C executable/source and npm package hashes/content
+between jobs and fresh engines. Native completed tools and mode751 survived
+normal retirement/post-stop recovery; unfinished installs remained excluded.
+Both claims released; all task fixture containers and host volumes were proven
+absent. Observed source-tree digest
+`0dcb69f54be80b6767565b720b743d944e3dddc458805fb36d8d35d03937c457`,
+test binary SHA256
+`e13bda4c29b54af7559dd873e776f78191e475a5bac21082b70a1681dcd809d7`.
+The harness verified the binary remained unchanged through the proof. Evidence:
+`production-archive-workflow-proof.{py,json,log}`. This is a controlled workflow
+fixture, not the original full-project/concurrency/crash/restart/large-file
+acceptance or an exact-source local gate.
+
+### Archive source reclamation and pending-publication protection candidate
+
+Act2 PR #86 (`8fa722b`) is a draft; this code is not in act2.28 and is not yet
+consumed by Bosn. Two regressions failed before implementation: Complete and
+idle cohort maintenance retained source `bolt.db` and archive payload after
+Ready (`archive-source-reclamation-red.log`). The candidate reclaims payload
+only after durable verified Ready, checking exact fence, snapshot witness and
+current destination authority. A descriptor-relative, mount-checked walk visits
+at most100,000 entries per attempt and keeps the small ownership witness.
+Interrupted cleanup resumes from idle cohort maintenance before namespace
+metadata is opened. Symlink/witness/fence/destination/pending refusals retain
+source data; bounded partial removal and cancellation remain resumable.
+
+A separate real RED demonstrated aggregate GC deleting an imported archive
+before first-publication reconciliation (`archive-pending-publication-maintenance-red.log`).
+Maintenance now refuses a pending published namespace before archive eviction;
+the corrected test requires exact retained destination archive count/bytes and
+source metadata. This safety fix must be released before the Bosn candidate is
+pushed. No closure or production safety claim is based on act2.28 alone.
+
+Focused tests passed22.025s; affected archive/aggregate/tool race tests
+passed60.896s. The initial CLI filter selected zero tests and is not validation;
+corrected archive/tool command tests passed1.976s. Windows amd64 and Darwin
+arm64 artifact-cache cross-builds passed. Gosec initially traced maintenance
+paths into existing readers; reads are now anchored with os.Root, with opened
+directory/file identity checks. No rule was disabled. Final lint reports zero
+issues, and the sole-primary read-only reviewer is clean. A full package pass
+239.740s preceded the final pending-publication guard; the whole final-candidate
+suite is running again (`archive-source-reclamation-final-full-tests.log`). PR
+and exact merged-default-branch full CI, release and all-archive verification
+remain required. Source expiry is one part of the original #508 scope; physical
+all-class/machine bounds, scoped builders and remaining original acceptance are
+still open.
+
+The final source-reclamation artifact-cache suite passed277.876s on exact act2
+`8fa722b7a80ebdd973e50afa0d613f5e302644b7`, including the pending-publication
+guard and corrected source-symlink/bounded-retry fixtures. PR #86 was marked
+ready after the final local pass. Remote checks run `39819257462` is live:
+lint/Windows/macOS passed; Linux/snapshot remain running. No merge, release or
+Bosn rollout of #86 is claimed yet. Bosn's verified .28 pin, corrected physical
+workflow and evidence update have clean sole-primary review, but remain
+unpushed pending that safety rollout and the whole exact-source Bosn gate.
+
+### Merged source safety fix and released-binary regression (2026-10-22)
+
+Act2 #86 passed all six PR checks, including run `39819257462`, and merged at
+`5a5c973960c8b0ed94db3d59fe455579a3c296dc` with no review threads. The external
+checkout switched to master/rebased; its merged tree exactly matched candidate
+`8fa722b`, and its local/remote feature branches were removed after identity
+checks. The original Bosn checkout fetched/rebased onto main immediately after
+merge. Full workflow-dispatch CI `39821118708` then passed all five jobs on the
+exact merged default-branch SHA. The clean-default-branch/independent remote
+SHA/full-CI/absent-tag-and-release guard passed. Annotated act2.29 was requested
+through its existing tag workflow; release `39823012819` is building. No verified
+.29 artifact or Bosn pin is claimed yet.
+
+The actual runtime workflow now independently checks that the old archive path
+is a refusal file and its snapshot retains only the ownership witness after
+both ordinary runs. Its first attempt incorrectly included the journal file in
+a snapshot glob and failed generically; this fixture failure is not counted as
+RED. The corrected check accepts only directories, rejects symlinks, and its
+separate contract probe verifies marker-only success, journal exclusion and
+rejection of a newline-named payload. Probe scratch was moved to trash with
+safe-rm. Evidence: `archive-source-check-contract.json` and
+`archive-source-reclamation-release28-fixture-glob-failure.{json,log}`.
+
+The corrected actual Docker regression against independently verified released
+act2.28 failed135.60s with **archive source still retains payload entries**
+after the first ordinary two-job workflow completed successfully. This is the
+expected retained-source defect, not a workflow or parser failure. Fixture
+`bosn693-archive-reclaim-red-5abf999e04d6` released all private resources; the
+harness verified cleanup and unchanged test binary. Observed source-tree digest
+`bad2bc283d0b98472380f140de53e8fecbd190269a432d5e2883dded03aa331b`.
+Evidence: `archive-source-reclamation-release28-red-proof.{py,json,log}`. The
+same assertions must pass on verified act2.29 before Bosn is pushed.
+
+Read-only audit confirms remaining gaps: the run proxy intentionally narrows
+build-cache prune to no IDs (`pkg/serve/proxy_rules.go`, scopeBuildCache), and
+Bosn's storage samples are backing-filesystem df signals (`ci/storage.rs`), not
+owned engine allocation or a machine cache quota. Those mechanisms do not
+establish scoped-builder expiry or allocated machine ceilings. These remain
+implementation work, not satisfied acceptance criteria.
+
+### Verified act2.29 rollout and physical regression pass (2026-10-22)
+
+Release `39823012819` succeeded for exact act2 master
+`5a5c973960c8b0ed94db3d59fe455579a3c296dc`. All eleven archives passed
+checksum, independent GitHub digest/size, executable-header and version checks.
+The annotated tag target and Linux version/capability execution passed, with
+smoke resources absent afterward. Bosn now pins verified act2.29: Linux archive
+`f9f811f5a248c6cac62afc2920c80d6baecf6dea2de25fe71e1967921594deb4`,
+executable `21373f9fa8e2315230ca1b708e0893b54ad4857f100c4bba9b776a0710278599`.
+Evidence: `act2-29-release-provenance.json`.
+
+The same corrected workflow and source-reclamation assertions that failed on
+released act2.28 passed on released act2.29 in231.48s. Both ordinary two-job
+workflows succeeded, archives restored with their original hashes, completed
+native tools survived retirement, unfinished tools stayed excluded, and both
+legacy archive snapshots retained only their ownership witnesses. Engines
+`bosn-act-4bf37da9-0c1e-498c-95fa-ae91276e3c85` and
+`bosn-act-1e46c879-374c-477a-b4d7-2149740cfe38` were distinct; claims were
+released and private test resources were proved absent. Fixture
+`bosn693-archive-reclaim-green-534a5eff06ad` verified an unchanged test binary
+`80fc7cf7966fa64865631a07dade8855afc7a4b1c5fa00f277bc0a1a24bb55d8`.
+Observed source-tree digest:
+`771ca45680d40ed0a307a29ff5714264a4e7d4ce88fc00c4f7742eeade64e963`.
+Evidence: `archive-source-reclamation-release29-green-proof.{py,json,log}`.
+
+This proves the controlled archive/source-reclamation regression, not the
+remaining original #508 acceptance. Physical all-class/machine ceilings,
+scoped-builder expiry, pending/retained storage bounds and realistic original
+full-project/concurrent/crash/restart acceptance remain open. The whole
+exact-source Bosn gate is still required before pushing this rollout.

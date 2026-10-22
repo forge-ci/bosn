@@ -155,7 +155,16 @@ async fn execute(
     }
     observer.note("preparing run: run scope, tool cache, frozen source");
     let generation = lease.tool_generation.as_ref();
-    let prepare = backend.prepare_run(engine, invocation, &plan.source, &plan.event, generation);
+    let prepare = async {
+        shared
+            .prepare_archives(lease, &invocation.cache_route, cancellation, &mut |why| {
+                observer.note(why)
+            })
+            .await?;
+        backend
+            .prepare_run(engine, invocation, &plan.source, &plan.event, generation)
+            .await
+    };
     match async_engine::timeout_at(deadline, async_engine::cancellable(cancellation, prepare)).await
     {
         Err(_) => return ExecutionEnd::TimedOut,

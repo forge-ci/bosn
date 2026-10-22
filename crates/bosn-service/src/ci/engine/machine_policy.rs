@@ -1,6 +1,6 @@
 //! Immutable policy agreement for participating Bosn cache users.
 //! This is not repository enrollment or exclusion of older daemon versions.
-use super::{CACHE_VOLUME, CONTROL_DEADLINE, DockerActBackend, ENGINE_CACHE};
+use super::{CACHE_VOLUME, CONTROL_DEADLINE, DockerActBackend, ENGINE_CACHE, RunOptions};
 use crate::ci::cache_policy::CachePolicy;
 
 impl DockerActBackend {
@@ -11,17 +11,27 @@ impl DockerActBackend {
         engine: &str,
         policy: CachePolicy,
     ) -> Result<(), String> {
-        let output = self
-            .checked(
-                "existing maintenance policy",
-                Self::exec(engine, &READ_POLICY.replace("/cache", ENGINE_CACHE)),
-                CONTROL_DEADLINE,
-            )
+        match self.try_require_cache_policy(engine, policy).await? {
+            PolicyAgreement::Agreed => Ok(()),
+            PolicyAgreement::Busy => Err("machine cache policy read busy".into()),
+        }
+    }
+
+    pub(super) async fn try_require_cache_policy(
+        &self,
+        engine: &str,
+        policy: CachePolicy,
+    ) -> Result<PolicyAgreement, String> {
+        let reply = self
+            .policy_command(engine, &READ_POLICY.replace("/cache", ENGINE_CACHE))
             .await?;
-        if decode_record(&output)? != Some(policy) {
+        let PolicyReply::Complete(output) = reply else {
+            return Ok(PolicyAgreement::Busy);
+        };
+        if decode_record(output.trim())? != Some(policy) {
             return Err("existing machine cache policy is absent or differs".into());
         }
-        Ok(())
+        Ok(PolicyAgreement::Agreed)
     }
 
     /// Read participating policy without bootstrapping, enrolling or changing it.
@@ -43,19 +53,53 @@ impl DockerActBackend {
         })
     }
 
-    pub(super) async fn agree_cache_policy(
+    pub(super) async fn try_agree_cache_policy(
         &self,
         engine: &str,
         policy: CachePolicy,
-    ) -> Result<(), String> {
-        self.checked(
-            "machine cache policy agreement",
-            Self::exec(engine, &agreement_script(policy)),
-            CONTROL_DEADLINE,
-        )
-        .await
-        .map(|_| ())
+    ) -> Result<PolicyAgreement, String> {
+        match self
+            .policy_command(engine, &agreement_script(policy))
+            .await?
+        {
+            PolicyReply::Busy => Ok(PolicyAgreement::Busy),
+            PolicyReply::Complete(output) if output.is_empty() => Ok(PolicyAgreement::Agreed),
+            _ => Err("machine cache policy agreement returned unexpected output".into()),
+        }
     }
+
+    async fn policy_command(&self, engine: &str, script: &str) -> Result<PolicyReply, String> {
+        let result = self
+            .run_bounded(
+                Self::exec(engine, script),
+                RunOptions::bounded(CONTROL_DEADLINE, 4096),
+            )
+            .await?;
+        if result.exit_code == 75 && result.stdout.is_empty() {
+            return Ok(PolicyReply::Busy);
+        }
+        if !result.ok() {
+            let detail: String = String::from_utf8_lossy(&result.stderr)
+                .chars()
+                .take(256)
+                .collect();
+            return Err(format!("machine cache policy command failed: {detail}"));
+        }
+        let output = String::from_utf8(result.stdout)
+            .map_err(|_| "machine cache policy reply is not UTF-8")?;
+        Ok(PolicyReply::Complete(output))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PolicyAgreement {
+    Agreed,
+    Busy,
+}
+
+enum PolicyReply {
+    Complete(String),
+    Busy,
 }
 
 /// What discovery found on the shared cache volume.

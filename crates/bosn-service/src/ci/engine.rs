@@ -49,6 +49,10 @@ pub use migration::ImportAttempt;
 mod act_capabilities;
 mod act_install;
 mod admission;
+mod archive_enrollment;
+pub use archive_enrollment::{
+    ArchiveEnrollmentPhase, ArchiveEnrollmentRequest, ArchiveEnrollmentStatus,
+};
 mod readiness;
 mod tool_enrollment;
 #[cfg(all(test, unix))]
@@ -213,6 +217,13 @@ pub trait ActEngineBackend: Send + Sync {
         _max: u64,
     ) -> BoxFuture<'a, Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>> {
         Box::pin(async { Err("backend cannot enroll native tools".into()) })
+    }
+    fn archive_enrollment<'a>(
+        &'a self,
+        request: ArchiveEnrollmentRequest<'a>,
+    ) -> BoxFuture<'a, Result<ArchiveEnrollmentStatus, String>> {
+        let _ = request;
+        Box::pin(async { Err("backend cannot enroll archive caches".into()) })
     }
     /// Protect a native lower before any slot is admitted. Unsupported
     /// backends refuse rather than acknowledge synthetic protection.
@@ -794,6 +805,13 @@ impl ActEngineBackend for DockerActBackend {
         })
     }
 
+    fn archive_enrollment<'a>(
+        &'a self,
+        request: ArchiveEnrollmentRequest<'a>,
+    ) -> BoxFuture<'a, Result<ArchiveEnrollmentStatus, String>> {
+        Box::pin(self.enroll_archives(request))
+    }
+
     fn prepare_run<'a>(
         &'a self,
         engine: &'a str,
@@ -888,11 +906,16 @@ impl ActEngineBackend for DockerActBackend {
         lines: &'a async_engine::Sender<EngineLine>,
     ) -> BoxFuture<'a, Result<ExecEnd, String>> {
         Box::pin(async move {
+            let deadline = async_engine::Deadline::after(deadline);
             if !invocation.params.ci_outputs.is_empty() {
                 self.verify_act_capabilities(engine, true).await?;
             }
-            if let super::cache_cohort::CacheRoute::Cohort { policy, .. } = invocation.cache_route {
-                self.agree_cache_policy(engine, policy).await?;
+            if let super::cache_cohort::CacheRoute::Cohort { policy, .. } = invocation.cache_route
+                && let Some(end) = self
+                    .guard_archive_execution(engine, policy, deadline, cancellation)
+                    .await?
+            {
+                return Ok(end);
             }
             let mut args = Self::act_exec(
                 engine,
@@ -940,7 +963,7 @@ impl ActEngineBackend for DockerActBackend {
             let stream = async {
                 let result = docker
                     .stream(
-                        RunOptions::streaming(deadline, RUN_OUTPUT),
+                        RunOptions::streaming(deadline.remaining(), RUN_OUTPUT),
                         Some(cancellation),
                         &events,
                     )
