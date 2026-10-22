@@ -49,6 +49,8 @@ pub struct FakeBackend {
     pub storage_probes: Mutex<(u32, u32, u32)>,
     /// Engines prepared (act and runner image), spares included.
     pub engine_preparations: Mutex<u32>,
+    /// Native bindings actually handed to run preparation.
+    pub prepared_generations: Mutex<Vec<Option<bosn_registry::act::ActToolGenerationBinding>>>,
     /// The host the fake engine reports; [`FAKE_HOST`] unless set.
     pub host: Mutex<Option<crate::ci::limits::HostResources>>,
     /// Engine IDs whose container has stopped behind the daemon's back (#556).
@@ -208,7 +210,8 @@ impl ActEngineBackend for FakeBackend {
             if f.create {
                 return Err("synthetic create failure".into());
             }
-            let labels = intent.required_labels(owner).map_err(|e| e.to_string())?;
+            let labels =
+                crate::act_engine::creation_labels(intent, owner).map_err(|e| e.to_string())?;
             let observed = self.insert(&intent.engine_name(), &intent.engine_image_digest, labels);
             if f.create_after_side_effect {
                 return Err("synthetic create failure after side effect".into());
@@ -317,13 +320,17 @@ impl ActEngineBackend for FakeBackend {
         _invocation: &'a ActInvocation,
         _source: &'a std::path::Path,
         _event: &'a std::path::Path,
-        _generation: Option<&'a bosn_registry::act::ActToolGenerationBinding>,
+        generation: Option<&'a bosn_registry::act::ActToolGenerationBinding>,
     ) -> crate::ci::engine::BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             assert!(self.live_id(engine), "prepare addresses the engine by ID");
             if self.stopped.lock().unwrap().contains(engine) {
                 return Err("Error response from daemon: container is not running".into());
             }
+            self.prepared_generations
+                .lock()
+                .unwrap()
+                .push(generation.cloned());
             if self.faults().prepare {
                 return Err("synthetic prepare failure".into());
             }

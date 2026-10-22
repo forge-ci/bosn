@@ -391,3 +391,59 @@ fn an_idle_engine_whose_maker_died_is_reclaimed_and_retired_by_another_daemon() 
         other.stop().await;
     });
 }
+
+#[test]
+fn native_runs_prepare_with_the_leased_binding_in_own_and_adopted_engines() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults::default()));
+        let maker = SharedEngine::new(registry.clone(), backend.clone());
+        let other = second_daemon(&dir);
+        let adopter = SharedEngine::new(other.registry.clone(), backend.clone());
+        let generation = bosn_registry::act::ActToolGenerationBinding {
+            id: "a".repeat(64),
+            max_payload_bytes: 1 << 30,
+            overlay_recipe_sha256: crate::ci::engine::tool_overlay_recipe_sha256(),
+        };
+        let profile = |generation| {
+            crate::act_engine::creation_profile_with_tools(
+                crate::ci::limits::size_engine(FAKE_HOST, Default::default()).unwrap(),
+                Some(test_cache().mount()),
+                Some(generation),
+            )
+            .unwrap()
+        };
+        let mut native = want(1, &dir, 8);
+        native.intent.creation_profile = Some(profile(generation.clone()));
+        let cancel = CancellationSource::new().token();
+        for (n, shared) in [(1, &maker), (2, &adopter)] {
+            // The run plan is a template, not authority over the leased engine.
+            let mut run = plan(&run_id(n), Duration::from_secs(5));
+            if n == 2 {
+                run.intent.creation_profile =
+                    Some(profile(bosn_registry::act::ActToolGenerationBinding {
+                        id: "b".repeat(64),
+                        ..generation.clone()
+                    }));
+            }
+            let report = super::super::shared::run_on_shared(
+                backend.as_ref(),
+                shared,
+                native.clone(),
+                &run,
+                &cancel,
+                &mut Collect::default(),
+            )
+            .await;
+            assert_eq!(report.execution, ExecutionEnd::Exited(0));
+            assert_eq!(backend.live(), 1, "both daemons share the same engine");
+        }
+        assert_eq!(
+            *backend.prepared_generations.lock().unwrap(),
+            vec![Some(generation.clone()), Some(generation)],
+            "preparation must use the engine's binding for both daemons",
+        );
+        adopter.close().await;
+        maker.close().await;
+        other.stop().await;
+    });
+}

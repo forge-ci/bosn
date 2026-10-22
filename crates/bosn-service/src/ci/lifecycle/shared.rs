@@ -154,11 +154,7 @@ async fn execute(
         return ExecutionEnd::EngineFailed(error);
     }
     observer.note("preparing run: run scope, tool cache, frozen source");
-    let generation = plan
-        .intent
-        .creation_profile
-        .as_ref()
-        .and_then(|profile| profile.tool_generation.as_ref());
+    let generation = lease.tool_generation.as_ref();
     let prepare = backend.prepare_run(engine, invocation, &plan.source, &plan.event, generation);
     match async_engine::timeout_at(deadline, async_engine::cancellable(cancellation, prepare)).await
     {

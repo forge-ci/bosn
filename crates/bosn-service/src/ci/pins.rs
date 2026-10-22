@@ -112,9 +112,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // large job's slow delete no longer fails green steps (#653).
             // act2.20 freezes native readiness and adds durable stopped-source
             // delta publication and read-only overlay recovery (#508).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.20/act_Linux_x86_64.tar.gz",
-            sha256: "659db39ad669f3a27773272ea0f19fff1ba54fcc1f582f75528c0e21e3fef69b",
-            binary_sha256: "6ca926480c332210b6c59159b3f9384df0c67efc2e4fd990af31760e2b6f30fe",
+            // act2.22 adds deliberate warm-cache bootstrap, excluding private
+            // legacy root stages; normal native enrollment remains separate.
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.22/act_Linux_x86_64.tar.gz",
+            sha256: "3eab8e383dcfa389eaba3adccfda6ab7fb7981b0950a063082ee5a540dd551a3",
+            binary_sha256: "bbe3f82d542ed767085b09552f480a0930a4cdd061e82c691d5afa2a8b8d9cfa",
         }),
         _ => None,
     }
