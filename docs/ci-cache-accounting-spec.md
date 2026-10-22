@@ -6358,7 +6358,42 @@ concrete finding. Python lint initially rejected two long test lines; both were
 split without changing the query or VM budget. File-length and include-base
 guards pass.
 
-This remains uncommitted source, not a shipped schema upgrade or a completed
+#### Recovery capacity correction before push
+
+The first whole gate ran on `a6afde0bf7f735b93a1da5bfeabdc8cc3a22b1a9`.
+Rust passed in 326s. Linux passed 266 tests with ten skips and failed one old
+Python import assertion expecting schema 5; the actual imported database correctly
+reported 6. The expectation now matches the new registry schema. That failed gate
+does not authorize a push.
+
+A final capacity audit found that ordinary authority at 10,000 records could
+block a fresh helper required to recover an existing engine. The former test
+covered updates to existing helpers, which did not prove new-helper admission.
+An actual typed fixture filled ordinary capacity, then tried twelve sequential
+completed recovery attempts; it failed before correction and passed afterward
+(`registry-recovery-reserve-red.log`, `registry-recovery-reserve-first-green.log`).
+
+Validated local recovery phases now have a separate finite reserve: at most eight
+retained helper attempts per engine and 90,000 total authority identities. An
+all-helper engine index bounds lookup. Only `begin_cache_helper` after exact
+existing-engine/phase validation can spend this reserve; generic events,
+maintenance and foreign finalization cannot. A ninth attempt can recycle one
+already-Removed helper with the identical frozen intent. Exact immutable-ID
+absence or the late-create absence proof is required before Removed; the parent's
+publication/release authority remains separate. Recycling advances durable replay
+protection before deleting the old audit/current rows in the same transaction.
+The system observation clock independently excludes future-dated recycling.
+Pending/uncertain attempts are never evicted: eight uncertain attempts refuse
+further admission and keep source protection intact. Existing over-cap legacy
+authority is preserved rather than dropped.
+
+The corrected registry suite passed 23 library and 65 integration tests; final
+registry/service library/tests Clippy passed in 19.70s. The reserve exhaustion
+test also rejects future-clock admission without changing the replay floor.
+The sole primary reviewer confirmed the capacity finding resolved and found no
+new concrete finding. A fresh whole exact-source gate remains required.
+
+This remains local source, not a shipped schema upgrade or a completed
 storage bound. Physical database/WAL accounting and ceilings remain unfinished.
 Deleting historical rows does not shrink old allocated SQLite files. Other event
 families retain their own unfinished storage policies. No full gate, push, PR or

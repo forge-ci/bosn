@@ -2,6 +2,7 @@
 use super::*;
 
 pub(crate) mod migration;
+mod recovery_capacity;
 mod retention;
 #[cfg(test)]
 mod tests;
@@ -19,6 +20,7 @@ CREATE INDEX IF NOT EXISTS ci_tools_pending ON ci_current(id) WHERE family=1 AND
 CREATE INDEX IF NOT EXISTS ci_source ON ci_current(source,id) WHERE family=2 AND pending=1;
 CREATE INDEX IF NOT EXISTS ci_release_owner ON ci_current(release_owner,id) WHERE family=2 AND pending=1;
 CREATE INDEX IF NOT EXISTS ci_helper_run ON ci_current(engine_run,id) WHERE family=2 AND pending=1;
+CREATE INDEX IF NOT EXISTS ci_helper_run_all ON ci_current(engine_run,id) WHERE family=2;
 CREATE INDEX IF NOT EXISTS ci_collectible ON ci_current(collect_after,family,id) WHERE collectible=1;
 CREATE TABLE IF NOT EXISTS ci_snapshot_events (
  event_id INTEGER PRIMARY KEY, family INTEGER NOT NULL, id TEXT NOT NULL);
@@ -28,6 +30,13 @@ CREATE INDEX IF NOT EXISTS ci_snapshot_tail ON ci_snapshot_events(family,id,even
 pub(crate) const ENGINE: i64 = 1;
 pub(crate) const HELPER: i64 = 2;
 const AUDIT_TAIL: i64 = 3;
+
+pub(crate) enum WriteMode {
+    Event,
+    Import(i64),
+    /// Only after exact recovery phase admission in begin_cache_helper.
+    RecoveryHelper,
+}
 
 pub(crate) struct Snapshot {
     family: i64,
@@ -216,7 +225,7 @@ pub(crate) fn append(
     at: f64,
     kind: &str,
     detail: &str,
-    imported_id: Option<i64>,
+    mode: WriteMode,
 ) -> Result<(), Error> {
     let rows = transaction.query(
         "SELECT value FROM meta WHERE key='registry_id'",
@@ -228,17 +237,21 @@ pub(crate) fn append(
     )?;
     let owner = text(rows.first().ok_or(Error::BadRow("registry_id"))?, 0)?;
     let snapshot = parse(kind, detail, &owner)?;
-    if imported_id.is_none()
+    if !matches!(mode, WriteMode::Import(_))
         && let Some(snapshot) = &snapshot
     {
-        retention::admit(transaction, snapshot)?;
+        retention::admit(
+            transaction,
+            snapshot,
+            matches!(mode, WriteMode::RecoveryHelper),
+        )?;
     }
     let mut values = vec![
         Value::Real(at),
         Value::Text(kind.into()),
         Value::Text(detail.into()),
     ];
-    let sql = if let Some(id) = imported_id {
+    let sql = if let WriteMode::Import(id) = mode {
         values.insert(0, Value::Integer(id));
         "INSERT INTO events(id,at,kind,detail) VALUES(?,?,?,?)"
     } else {

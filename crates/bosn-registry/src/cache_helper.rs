@@ -299,13 +299,27 @@ impl Immediate<'_> {
     }
 
     fn store_helper(&mut self, record: &CacheHelperRecord) -> Result<(), Error> {
+        self.write_helper(record, ci_state::WriteMode::Event)
+    }
+
+    fn write_helper(
+        &mut self,
+        record: &CacheHelperRecord,
+        mode: ci_state::WriteMode,
+    ) -> Result<(), Error> {
         let detail =
             serde_json::to_string(record).map_err(|_| Error::BadRow("cache helper JSON"))?;
         decode(&detail, &record.intent.nonce, &self.helper_owner()?)?;
         if detail.len() > RECORD_BYTES {
             return Err(Error::BadRow("cache helper snapshot size"));
         }
-        self.append_event(record.updated_at, &kind(&record.intent.nonce)?, &detail)
+        ci_state::append(
+            &mut self.transaction,
+            record.updated_at,
+            &kind(&record.intent.nonce)?,
+            &detail,
+            mode,
+        )
     }
 
     /// Commit before issuing Docker create. A nonce can never be reused, even
@@ -316,13 +330,26 @@ impl Immediate<'_> {
             return Err(Error::BadRow("cache helper nonce already used"));
         }
         self.validate_recovery_helper_admission(intent)?;
-        self.store_helper(&CacheHelperRecord {
-            schema_version: 1,
-            intent: intent.clone(),
-            state: CacheHelperState::Pending,
-            container_id: None,
-            updated_at: intent.created_at,
-        })
+        let mode = if intent
+            .role
+            .as_ref()
+            .and_then(CacheHelperRole::recovery_binding)
+            .is_some()
+        {
+            ci_state::WriteMode::RecoveryHelper
+        } else {
+            ci_state::WriteMode::Event
+        };
+        self.write_helper(
+            &CacheHelperRecord {
+                schema_version: 1,
+                intent: intent.clone(),
+                state: CacheHelperState::Pending,
+                container_id: None,
+                updated_at: intent.created_at,
+            },
+            mode,
+        )
     }
 
     /// Record the acknowledged or independently verified immutable ID before

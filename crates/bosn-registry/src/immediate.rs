@@ -585,7 +585,13 @@ impl<'a> Immediate<'a> {
         Ok(())
     }
     pub fn append_event(&mut self, at: f64, kind: &str, detail: &str) -> Result<(), Error> {
-        ci_state::append(&mut self.transaction, at, kind, detail, None)
+        ci_state::append(
+            &mut self.transaction,
+            at,
+            kind,
+            detail,
+            ci_state::WriteMode::Event,
+        )
     }
 
     pub(crate) fn put_event_with_id(&mut self, value: &Event) -> Result<(), Error> {
@@ -594,7 +600,7 @@ impl<'a> Immediate<'a> {
             value.at,
             &value.kind,
             &value.detail,
-            Some(value.id),
+            ci_state::WriteMode::Import(value.id),
         )
     }
     pub fn delete_resource(&mut self, id: &str) -> Result<(), Error> {

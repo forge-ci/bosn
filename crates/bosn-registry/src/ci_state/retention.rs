@@ -46,7 +46,11 @@ fn set_meta(transaction: &mut Transaction<'_>, key: &str, value: &str) -> Result
     Ok(())
 }
 
-pub(super) fn admit(transaction: &mut Transaction<'_>, snapshot: &Snapshot) -> Result<(), Error> {
+pub(super) fn admit(
+    transaction: &mut Transaction<'_>,
+    snapshot: &Snapshot,
+    recovery: bool,
+) -> Result<(), Error> {
     let exists = transaction.query(
         "SELECT id FROM ci_current WHERE family=? AND id=?",
         &[
@@ -65,6 +69,9 @@ pub(super) fn admit(transaction: &mut Transaction<'_>, snapshot: &Snapshot) -> R
         return Err(Error::BadRow(
             "CI intent predates retained authority; submit fresh work",
         ));
+    }
+    if recovery {
+        return recovery_capacity::admit(transaction, snapshot);
     }
     let rows = transaction.query(
         "SELECT COUNT(*) FROM (SELECT 1 FROM ci_current LIMIT ?)",
@@ -145,6 +152,16 @@ fn remove(transaction: &mut Transaction<'_>, family: i64, id: &str) -> Result<()
     Ok(())
 }
 
+/// Persist replay protection before forgetting already-terminal authority.
+pub(super) fn forget(transaction: &mut Transaction<'_>, snapshot: &Snapshot) -> Result<(), Error> {
+    let previous = floor(transaction)?;
+    let advanced = previous.map_or(snapshot.created_at, |value| value.max(snapshot.created_at));
+    if previous != Some(advanced) {
+        set_meta(transaction, FLOOR, &advanced.to_string())?;
+    }
+    remove(transaction, snapshot.family, &snapshot.id)
+}
+
 pub(super) fn maintain(
     transaction: &mut Transaction<'_>,
     now: f64,
@@ -179,7 +196,6 @@ pub(super) fn maintain(
     ];
     let rows=transaction.query("SELECT family,id,collect_after,detail FROM ci_current WHERE collectible=1 AND collect_after<? AND (collect_after,family,id)>(?,?,?) ORDER BY collect_after,family,id LIMIT ?", &values,QueryLimits{max_rows:limit,max_bytes:limit*(act::RECORD_BYTES+1024)})?;
     let owner = meta_value(transaction, "registry_id")?.ok_or(Error::BadRow("registry_id"))?;
-    let mut new_floor = floor(transaction)?;
     let mut removed = 0;
     for row in &rows {
         let family = integer(row, 0)?;
@@ -195,13 +211,7 @@ pub(super) fn maintain(
             return Err(Error::BadRow("CI retention authority mismatch"));
         }
         if !referenced(transaction, &snapshot)? {
-            let advanced =
-                new_floor.map_or(snapshot.created_at, |floor| floor.max(snapshot.created_at));
-            if new_floor != Some(advanced) {
-                set_meta(transaction, FLOOR, &advanced.to_string())?;
-            }
-            new_floor = Some(advanced);
-            remove(transaction, family, &id)?;
+            forget(transaction, &snapshot)?;
             removed += 1;
         }
     }

@@ -4,6 +4,92 @@ use bosn_registry::cache_helper::{CacheHelperIntent, CacheHelperRole};
 
 const OLD: f64 = 8.0 * 86400.0;
 
+#[test]
+fn full_ordinary_capacity_still_allows_more_than_eight_completed_recovery_attempts() {
+    let (_dir, mut registry, intent, frozen) = recovery::stopped_recovery_fixture();
+    let mut helper = CacheHelperIntent {
+        registry_id: OWNER.into(),
+        nonce: CLAIM.into(),
+        volume: frozen.cache_volume.clone(),
+        image: format!("docker.io/library/docker@{}", intent.engine_image_digest),
+        created_at: 8.0,
+        role: None,
+    };
+    let mut tx = registry.begin_immediate().unwrap();
+    for index in 0..9999 {
+        helper.nonce = format!("{index:08x}-1111-4111-8111-111111111111");
+        tx.begin_cache_helper(&helper).unwrap();
+    }
+    tx.commit().unwrap();
+    let mut first = None;
+    for index in 0..12 {
+        helper.nonce = format!("{index:08x}-2222-4222-8222-222222222222");
+        helper.created_at = 10.0 + 3.0 * f64::from(index);
+        helper.role = Some(CacheHelperRole::ToolRecoveryV1 {
+            run_id: RUN.into(),
+            intent: frozen.clone(),
+            command_sha256: Some("d".repeat(64)),
+            source_mountpoint: None,
+        });
+        first.get_or_insert_with(|| helper.clone());
+        let mut tx = registry.begin_immediate().unwrap();
+        tx.begin_cache_helper(&helper).unwrap();
+        tx.register_cache_helper(&helper.nonce, &"b".repeat(64), helper.created_at + 1.0)
+            .unwrap();
+        tx.finish_cache_helper(&helper.nonce, &"b".repeat(64), helper.created_at + 2.0)
+            .unwrap();
+        tx.commit().unwrap();
+    }
+    let first = first.unwrap();
+    assert!(registry.cache_helper(&first.nonce).unwrap().is_none());
+    let mut tx = registry.begin_immediate().unwrap();
+    assert!(
+        tx.begin_cache_helper(&first).is_err(),
+        "recycled nonce replayed"
+    );
+    tx.commit().unwrap();
+    assert!(registry.act_engine(RUN).unwrap().is_some());
+}
+
+#[test]
+fn recovery_reserve_never_recycles_uncertain_helpers_or_accepts_a_future_clock() {
+    let (_dir, mut registry, intent, frozen) = recovery::stopped_recovery_fixture();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.claim_act_tool_source_disposal(RUN, 3604.0).unwrap();
+    let mut helper = CacheHelperIntent {
+        registry_id: OWNER.into(),
+        nonce: CLAIM.into(),
+        volume: frozen.cache_volume.clone(),
+        image: format!("docker.io/library/docker@{}", intent.engine_image_digest),
+        created_at: 1e12,
+        role: Some(CacheHelperRole::ToolRecoveryDisposalV1 {
+            run_id: RUN.into(),
+            intent: frozen,
+            command_sha256: "d".repeat(64),
+        }),
+    };
+    assert!(tx.begin_cache_helper(&helper).is_err());
+    for index in 0..8 {
+        helper.nonce = format!("{index:08x}-2222-4222-8222-222222222222");
+        helper.created_at = 3605.0 + f64::from(index);
+        tx.begin_cache_helper(&helper).unwrap();
+    }
+    helper.nonce = "ffffffff-2222-4222-8222-222222222222".into();
+    helper.created_at = 3620.0;
+    assert!(tx.begin_cache_helper(&helper).is_err());
+    tx.commit().unwrap();
+    assert_eq!(
+        registry
+            .pending_cache_helpers(None, 64)
+            .unwrap()
+            .items
+            .len(),
+        8
+    );
+    assert!(registry.meta("ci.retention.floor").unwrap().is_none());
+    assert!(registry.act_engine(RUN).unwrap().is_some());
+}
+
 fn removal(intent: &ActEngineIntent, frozen: &ActToolRecoveryIntent) -> ActEngineRemovalProof {
     ActEngineRemovalProof {
         name: intent.engine_name(),
