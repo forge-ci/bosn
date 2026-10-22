@@ -114,6 +114,25 @@ async fn prepare_held(
         Ok(Ok(result)) => result?,
     }
     held.verify().await?;
+    if plan
+        .intent
+        .creation_profile
+        .as_ref()
+        .is_some_and(|profile| profile.tool_generation.is_some())
+    {
+        let window =
+            super::native_lifetime::Window::new(plan.intent.created_at, lifecycle::now_seconds())?;
+        backend
+            .reserve_native_recovery(
+                registry,
+                &plan.intent.run_id,
+                &held.token,
+                window.created,
+                window.expires,
+            )
+            .await?;
+        held.verify().await?;
+    }
     Ok(held.observed.clone())
 }
 

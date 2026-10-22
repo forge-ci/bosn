@@ -176,7 +176,9 @@ struct Mount {
     driver: Option<String>,
     #[serde(rename = "Type")]
     kind: String,
+    #[serde(default)]
     name: String,
+    source: Option<String>,
     destination: String,
     #[serde(rename = "RW")]
     rw: bool,

@@ -266,6 +266,7 @@ impl DockerActBackend {
             return Err("tool recovery claim changed before reservation".into());
         }
         self.reserve_tool_recovery(&record).await?;
+        self.ensure_native_source_context(&record).await?;
         let intent = record
             .tool_recovery
             .ok_or("tool recovery intent missing after reservation")?;

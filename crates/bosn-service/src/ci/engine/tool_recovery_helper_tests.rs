@@ -22,13 +22,14 @@ fn backend(
         bosn_core::Scope::Spec,
         &record.intent.run_id,
         &record.intent.created_at.to_string(),
-        Some(bosn_core::Retention::Warm),
+        Some(bosn_core::Retention::Pinned),
     )
     .unwrap()
     .to_map();
     let volume = |name: &str, labels| {
         serde_json::json!([{
-            "Name":name,"Driver":"local","Scope":"local","Options":null,"Labels":labels
+            "Name":name,"Driver":"local","Scope":"local","Options":null,"Labels":labels,
+            "Mountpoint":format!("/var/lib/docker/volumes/{name}/_data")
         }])
     };
     std::fs::write(
@@ -175,6 +176,7 @@ fn recovery_helper_publication_and_cleanup_preserve_durable_ordering() {
         "trailing",
         "failed-start",
         "source-changed",
+        "source-path-changed",
         "wrong-id",
         "lost-create",
         "foreign-command",
@@ -212,38 +214,14 @@ fn recovery_helper_publication_and_cleanup_preserve_durable_ordering() {
             if matches!(mode, "engine-present" | "engine-ambiguous") {
                 return;
             }
-            let nonce = commands
-                .iter()
-                .find(|a| a[0] == "create")
-                .unwrap()
-                .windows(2)
-                .find(|p| p[0] == "--label" && p[1].starts_with("io.bosn.cache.recovery="))
-                .unwrap()[1]
-                .split_once('=')
-                .unwrap()
-                .1
-                .to_owned();
-            let h = reader.cache_helper(&nonce).unwrap().unwrap();
-            let pending = matches!(
-                mode,
-                "foreign-command"
-                    | "cleanup-denied"
-                    | "lost-remove"
-                    | "cleanup-mixed"
-                    | "helper-ambiguous"
-            );
-            assert_eq!(
-                h.state == CacheHelperState::Removed,
-                !pending,
-                "{mode}: {h:?}"
-            );
-            assert_ne!(
-                h.container_id.as_deref(),
-                Some("9999999999999999999999999999999999999999999999999999999999999999")
-            );
+            assert_publication_helper_journal(&commands, &reader, mode);
             if matches!(
                 mode,
-                "source-changed" | "wrong-id" | "lost-create" | "foreign-command"
+                "source-changed"
+                    | "source-path-changed"
+                    | "wrong-id"
+                    | "lost-create"
+                    | "foreign-command"
             ) {
                 assert!(!dir.path().join("started").exists(), "{mode}");
             }
@@ -265,6 +243,38 @@ fn recovery_helper_publication_and_cleanup_preserve_durable_ordering() {
             }
         });
     }
+}
+
+fn assert_publication_helper_journal(
+    commands: &[Vec<String>],
+    reader: &bosn_registry::ReadOnlyRegistry,
+    mode: &str,
+) {
+    let nonce = commands
+        .iter()
+        .find(|a| a[0] == "create")
+        .unwrap()
+        .windows(2)
+        .find(|p| p[0] == "--label" && p[1].starts_with("io.bosn.cache.recovery="))
+        .unwrap()[1]
+        .split_once('=')
+        .unwrap()
+        .1
+        .to_owned();
+    let h = reader.cache_helper(&nonce).unwrap().unwrap();
+    let pending = matches!(
+        mode,
+        "foreign-command" | "cleanup-denied" | "lost-remove" | "cleanup-mixed" | "helper-ambiguous"
+    );
+    assert_eq!(
+        h.state == CacheHelperState::Removed,
+        !pending,
+        "{mode}: {h:?}"
+    );
+    assert_ne!(
+        h.container_id.as_deref(),
+        Some("9999999999999999999999999999999999999999999999999999999999999999")
+    );
 }
 
 #[test]
@@ -512,7 +522,8 @@ fn actual_docker_recovery_helper_persists_publication_after_pid1_teardown() {
             .unwrap();
         assert_eq!(
             publication.advanced.as_deref(),
-            Some(record.intent.run_id.as_str())
+            Some(record.intent.run_id.as_str()),
+            "{publication:?}"
         );
         assert!(publication.deferred.is_none());
         let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
@@ -606,6 +617,8 @@ elif args[:2]==['volume','inspect']:
     if release: assert args[-1]==data['cache']
     if mode=='cache-changed' and (root/'created').exists():
         row=json.loads((root/'cache.json').read_text());row[0]['Labels']={};print(json.dumps(row))
+    elif mode=='source-path-changed' and (root/'created').exists() and args[-1]==data['source']:
+        row=json.loads((root/'source.json').read_text());row[0]['Mountpoint']='/var/lib/docker/volumes/replaced/_data';print(json.dumps(row))
     elif mode=='source-changed' and (root/'created').exists() and args[-1]==data['source']:
         row=json.loads((root/'source.json').read_text());row[0]['Labels']={};print(json.dumps(row))
     else: print((root/('source.json' if args[-1]==data['source'] else 'cache.json')).read_text())
@@ -621,8 +634,11 @@ elif args[0]=='create':
     mounts=[]
     for i,a in enumerate(args):
         if a=='--mount':
-            v=dict(x.split('=',1) for x in args[i+1].split(','))
-            mounts.append(dict(Type=v['type'],Name=v['source'],Destination=v['target'],RW=True,Driver='local'))
+            v=dict((x.split('=',1)+[''])[:2] for x in args[i+1].split(','))
+            mount=dict(Type=v['type'],Destination=v['target'],RW='readonly' not in v)
+            if v['type']=='volume': mount.update(Name=v['source'],Driver='local')
+            else: mount.update(Source=v['source'])
+            mounts.append(mount)
     row=dict(Id='1'*64,Name='/'+flag('--name'),Config=dict(Image=args[-3],Labels=labels,Entrypoint=['/bin/sh'],Cmd=args[-2:]),
         HostConfig=dict(ReadonlyRootfs=True,Privileged=not release,CapDrop=['ALL'] if release else None,NetworkMode='none',Memory=536870912,NanoCpus=2000000000,
         PidsLimit=128,CpuShares=256,Tmpfs=({'/tmp':'exec,size=64m','/var/lib/docker':'ro,noexec,size=1m'} if release else {'/tmp':'exec,size=64m'}),Init=False,PidMode='',AutoRemove=True,
@@ -667,3 +683,64 @@ elif args[0]=='rm':
     if mode=='lost-remove': print('reply lost',file=sys.stderr);sys.exit(1)
 else: raise AssertionError(args)
 "#;
+
+#[test]
+fn publication_source_attachment_never_auto_creates_a_volume() {
+    with_registry(|actor, state| async move {
+        let record = seed_source(&actor, false).await;
+        let (dir, backend) = backend(&record, &state, "ok");
+        backend
+            .recover_tool_with_helper(&actor, &record.intent.run_id, OWNER)
+            .await
+            .unwrap();
+        let calls = commands(dir.path());
+        let create = calls.iter().find(|args| args[0] == "create").unwrap();
+        let frozen = record.tool_recovery.as_ref().unwrap();
+        let expected = format!(
+            "type=bind,source=/var/lib/docker/volumes/{}/_data,target=/var/lib/docker",
+            frozen.source_volume
+        );
+        assert!(
+            create.iter().any(|argument| argument == &expected),
+            "publication source can be auto-created by Docker instead of refusing absence: {create:?}"
+        );
+    });
+}
+
+#[test]
+fn publication_refuses_unsafe_mountpoints_before_journaling_or_create() {
+    for path in [
+        None,
+        Some("relative"),
+        Some("/"),
+        Some("/volumes/../private"),
+        Some("/volumes/a,b/_data"),
+        Some("/volumes//data"),
+    ] {
+        with_registry(|actor, state| async move {
+            let record = seed_source(&actor, false).await;
+            let (dir, backend) = backend(&record, &state, "ok");
+            let file = dir.path().join("source.json");
+            let mut document: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+            document[0]["Mountpoint"] = serde_json::to_value(path).unwrap();
+            std::fs::write(file, document.to_string()).unwrap();
+            assert!(
+                backend
+                    .recover_tool_with_helper(&actor, &record.intent.run_id, OWNER)
+                    .await
+                    .is_err()
+            );
+            assert!(!commands(dir.path()).iter().any(|args| args[0] == "create"));
+            let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
+            assert!(
+                reader
+                    .events(0, 64)
+                    .unwrap()
+                    .items
+                    .iter()
+                    .all(|event| !event.kind.starts_with("ci.cache-helper.v1:"))
+            );
+        });
+    }
+}

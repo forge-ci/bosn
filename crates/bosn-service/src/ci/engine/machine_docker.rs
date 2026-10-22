@@ -255,12 +255,26 @@ impl MachineEngine for DockerActBackend {
 
     fn remove_engine<'a>(&'a self, engine: &'a Foreign) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
+            let native = engine
+                .identity
+                .as_ref()
+                .is_some_and(|identity| identity.tool_generation().is_some());
+            if native {
+                // Preserve machine-visible recovery authority before removing
+                // the writer. Missing context must not turn takeover into an
+                // irreversible loss of the only source identity.
+                self.native_source_context(&engine.id)
+                    .await?
+                    .matches_engine(engine)?;
+            }
             self.removed("engine remove", owned(&["rm", "-f", &engine.id]))
                 .await?;
             if self.inspect_container(&engine.id).await?.is_some() {
                 return Err(format!("{} is still present after removal", engine.name));
             }
-            if let Some(volume) = &engine.storage_volume {
+            // Native source disposal requires the producer's durable fence;
+            // engine absence alone never authorizes removing that source.
+            if !native && let Some(volume) = &engine.storage_volume {
                 self.removed("storage volume remove", owned(&["volume", "rm", volume]))
                     .await?;
                 if self.volume_exists(volume).await? {
@@ -277,9 +291,20 @@ impl MachineEngine for DockerActBackend {
         holder: &'a Holder,
     ) -> BoxFuture<'a, Result<Leased, String>> {
         Box::pin(async move {
+            let observed = self
+                .inspect_container(engine)
+                .await?
+                .ok_or("slot engine is absent")?;
+            let identity = EngineIdentity::from_labels(&observed.labels())
+                .ok_or("slot engine identity is invalid")?;
+            let operation = if identity.tool_generation().is_some() {
+                "lease-native"
+            } else {
+                "lease"
+            };
             let max = super::MAX_SLOTS.to_string();
             let line = holder.line();
-            let mut args = vec!["lease", max.as_str()];
+            let mut args = vec![operation, max.as_str()];
             args.extend(line.split(' '));
             reply::leased(&self.slots(engine, &args).await?)
         })
@@ -298,7 +323,34 @@ impl MachineEngine for DockerActBackend {
     }
 
     fn mark_ready<'a>(&'a self, engine: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move { self.slots(engine, &["ready"]).await.map(|_| ()) })
+        Box::pin(async move {
+            let observed = self
+                .inspect_container(engine)
+                .await?
+                .ok_or("prepared engine is absent")?
+                .foreign()?;
+            let identity = observed
+                .identity
+                .as_ref()
+                .ok_or("prepared engine identity invalid")?;
+            if identity.tool_generation().is_none() {
+                return self.slots(engine, &["ready"]).await.map(|_| ());
+            }
+            let context = self.native_source_context(&observed.id).await?;
+            context.matches_engine(&observed)?;
+            let window = crate::ci::native_lifetime::Window::new(
+                observed.created as f64,
+                crate::ci::lifecycle::now_seconds(),
+            )?;
+            if context.recovery.created_at_seconds != window.created
+                || context.recovery.expires_at_seconds != window.expires
+            {
+                return Err("source context differs from immutable admission lifetime".into());
+            }
+            self.slots(engine, &["ready-native", &window.admit_until.to_string()])
+                .await
+                .map(|_| ())
+        })
     }
 
     fn request_retire<'a>(&'a self, engine: &'a str) -> BoxFuture<'a, Result<(), String>> {

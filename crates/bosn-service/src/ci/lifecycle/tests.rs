@@ -10,6 +10,7 @@ use std::{
 
 mod fake;
 mod fake_machine;
+mod native;
 mod shared;
 pub use fake::*;
 

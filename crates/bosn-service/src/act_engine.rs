@@ -64,7 +64,7 @@ mod tests;
 
 mod source_stop;
 pub(crate) use source_stop::{
-    source_retained_by_recovery, stop_source_writers, verify_retained_source,
+    retained_source_mountpoint, source_retained_by_recovery, stop_source_writers,
 };
 
 mod storage_volume;

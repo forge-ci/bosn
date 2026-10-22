@@ -5002,3 +5002,409 @@ an enforced machine quota. Evidence:
 read-only only for copying; enrollment and mutations used the owned clone.
 The source allocation was 6,463,148 KiB / 51,364 inodes, so the original
 7.7 GiB survey/full unchanged-workflow acceptance is still outstanding.
+
+
+### Native admission lifetime wiring (candidate, #508)
+
+A regression through the actual shared-engine lease path demonstrated that a
+native engine could admit its first slot with no durable recovery intent or
+acknowledgement. The unchanged baseline failed with `first native slot was
+admitted without durable lower protection` in
+`/tmp/bosn-693/native-first-admission-red.log`.
+
+The candidate now reserves through the trusted registry/act2 transport after
+engine preparation and before the shared engine becomes ready. Unsupported
+backends refuse. The initial engine creation epoch freezes retry timestamps;
+no retry extends an owner. The reference lasts at most 24 hours. Admission
+closes after eleven hours, preserving the existing twelve-hour maximum run
+budget plus a one-hour teardown/recovery margin. Invalid/future epochs and
+an already closed admission window refuse instead of creating a new lifetime.
+This is a budget margin, not proof that an arbitrarily delayed recovery queue
+will finish before expiry; bounded abandonment remains explicit.
+
+The cutoff is written once while the slot lock is held. Native leases require
+it; both native and ordinary lease operations using the new script enforce it.
+At the boundary, the script requests retirement and allocates no new slot;
+existing holders remain untouched. The native startup command includes a
+versioned admission identity so an older caller without this check cannot
+adopt it as an equivalent engine. Owner and adopter use the same fixed epoch.
+Legacy engine startup command identity and admission remain unchanged.
+
+The regression is GREEN; uncertainty after durable reservation intent still
+opens no slot. Focused admission/lifetime, physical shell slot-lock,
+shared-engine/owner/adopter, native startup and protocol-fingerprint checks
+pass: 21 tests. Service all-target Clippy with warnings denied passes after
+moving the new policy test module below its implementation. Evidence:
+`/tmp/bosn-693/native-admission-focused-clippy-final.log`. Exposing the existing
+12-hour timeout constant to its sibling policy module changes only Rust
+visibility, not any wire value/field/encoding; protocol 2 is retained and the
+source fingerprint records that explicit no-bump decision.
+
+**Not activated or complete.** Normal planning remains Legacy. Foreign engine
+takeover still has a direct source-volume removal path outside the owning
+registry's recovery guard. It must retain protected native uppers through a
+finite, verifiable handoff before production native activation. Durable machine
+enrollment/history, older-writer exclusion, selection and the remaining original
+accounting/expiry/full-workflow acceptance are also unfinished. These candidate
+tests do not prove an ordinary native workflow or cross-registry crash recovery.
+
+
+### Foreign takeover and source-disposal fencing (candidate, #508)
+
+A new regression drives the real `MachineEngine::remove_engine` with a synthetic
+Docker transport and a native foreign engine. The unchanged removal path
+removes the protected upper: `foreign takeover deleted a protected native
+upper`. Evidence: `/tmp/bosn-693/native-foreign-takeover-red.log`. An initial
+fixture borrow error was corrected before recording that behavioral RED;
+`native-foreign-takeover-test-build-error.log` is not regression evidence.
+The Bosn regression is still RED; takeover has not been fixed or enabled.
+
+A source volume's retention timestamp alone cannot authorize disposal. A helper
+may already have a durable intent in another registry but not yet have sent
+Docker create. Docker can recreate an absent named source volume. Therefore
+foreign source cleanup needs a producer-side disposal fence that excludes
+active views and refuses later source access, plus source mounting that refuses
+absence. Per-registry pending-helper checks alone do not establish that
+cross-registry exclusion. Source identity/recovery context must also remain
+discoverable after the engine and its owning daemon are gone; that handoff is
+not implemented yet.
+
+The external act2 candidate `feat/native-source-disposal` adds the first part:
+a per-owner source lease acquired before opening the recovery view and strongly
+retained with its original lower reader until namespace cleanup succeeds.
+Its regression was RED because an exclusive disposal lease could be acquired
+inside a live recovery factory, and is now GREEN. Failed opening/unmount,
+explicit pin withdrawal and forced Go GC retain the source lease; successful
+pending cleanup releases it. Missing, symlinked, hard-linked, empty and
+oversized coordination refuses before factory access and is never recreated by
+admission.
+
+Reservation initializes coordination only in a tracked private stage and links
+without replacement. File and namespace sync precede acknowledgement, including
+parent-sync reconciliation on a visible retry. The original inode is preserved.
+Coordination is capped at the existing 10,000-owner reference bound; physical
+source acknowledgement/reclamation still needs implementation before that cap
+can support continuing production churn.
+
+The full compiled artifact-cache suite, focused source-lifetime race tests and
+pinned Go lint pass. Evidence:
+`/tmp/bosn-693/act2-source-lease-{red,green}.log`,
+`act2-source-lease-focused-lint-final.log`, and
+`act2-source-lease-full-race.log` in that directory. Initial fixture attempts
+needed a preinitialized Bolt coordination inode; their errors are retained
+separately and are not counted as behavioral RED.
+
+No act2 commit, PR, release or Bosn pin change is claimed for this source-fence
+candidate. The durable disposal operation, old-runtime/store-epoch exclusion,
+noncreating source attachment, exact persistent source context, finite guarded
+cleanup and actual cross-daemon acceptance remain unfinished. Lease exclusion
+alone is not source-disposal authority. Normal Bosn routing is still Legacy,
+and all previously recorded original #508 requirements remain open.
+
+
+### Source disposal decision candidate (not enrolled or shipped)
+
+The next act2 candidate persists the full frozen recovery pin inside each
+original source-coordination Bolt inode. A focused regression reproduced a
+source reopening despite a persisted disposal bucket
+(`act2-source-disposed-red.log`). Both source admission and reservation retries
+now reject disposed/corrupt decision state; neither replaces the inode or
+repairs it by reopening the source. Exact stored identity also refuses changed
+expiry/generation intent after the live pin has been released.
+
+An internal disposal operation holds the original catalog and obtains the
+source's exclusive lock with a 100 ms timeout. It requires store epoch 3 and
+either actual expiry or an exact durable completion with the reference absent.
+It commits a disposal decision before acknowledging authority and reconciles
+file/parent sync on retries. Active readers, live references, released but
+incomplete work, older store epochs, and conflicting identities refuse.
+Failed parent-sync acknowledgement leaves admission closed. Existing epoch-3
+stores remain epoch 3 when reserving; no automatic v2 upgrade is implemented.
+Tests set epoch 3 explicitly in private fixtures, not in a live machine store.
+
+The first disposal-write test caught the generic coordination adapter's
+read-only file descriptor (`act2-source-disposal-focused-lint.log`). The new
+writer opens only an existing file without O_CREATE and verifies the opened
+inode before bbolt receives it. Focused tests and lint then passed
+(`act2-source-disposal-focused-lint-final.log`). Full-suite/race validation of
+the expanded exact candidate is tracked separately in
+`act2-source-disposal-full-race-lint.log`.
+
+This remains an internal primitive with no CLI, production enrollment, source
+attachment change, physical deletion, or global cleanup integration. Store
+upgrade must first exclude older helpers; a marker change alone cannot prove
+that no preexisting helper owns a source view. Historical v2 sources acquire
+no deletion authority. Source decision/identity reclamation and continuing
+churn bounds also remain unfinished. The Bosn foreign-takeover regression is
+still RED and normal routing remains Legacy. No PR/release or pin update is
+claimed for this unpublished candidate.
+
+
+Expanded validation is now terminal success: the compiled full artifact-cache
+suite passed, focused race tests passed (30.210s), and golangci-lint 2.11.4
+reported zero issues in `act2-source-disposal-full-race-lint.log`. The final
+test-only addition was validated separately with the race detector
+(`act2-source-disposal-real-expiry-race.log`, 4.614s): a real two-second pin
+expires while its original source reader stays open; disposal still refuses,
+then succeeds and reconciles after reader close without a completion receipt.
+A changed generation remains refused after expiry. The full-suite binary
+predates only that last test addition; production source is identical.
+The sole primary review of all eight external files is clean. These checks
+prove this internal source-fence primitive, not machine enrollment or the still
+failing Bosn takeover path. All changes remain unpublished.
+
+
+### Source store enrollment and CLI candidate
+
+[act2 PR #81](https://github.com/zackees/act2/pull/81), candidate
+`0e0205a85f574415a2b7c6cf6d07278d8d3df9f0`, exposes fresh-only epoch-3 store
+initialization before bootstrap and a closed schema-1 disposal report/CLI.
+Existing older stores are refused, never upgraded under possible older live
+helpers. Default initialization remains epoch 1. The capability is
+`tool-recovery-source-fence-v1`; non-Linux builds return explicit refusal.
+No release or Bosn pin update is claimed yet.
+
+The production CLI's missing enrollment command was RED
+(`act2-source-enroll-cli-red.log`). Round-trip enrollment/disposal tests now pass,
+including actual expiry, live refusal, explicit apply and retry. Review found
+that an aliased ancestor could create a store that bootstrap later refuses;
+`act2-source-enroll-ancestor-red.log` reproduces it. Enrollment and bootstrap now
+share the existing canonical-root validation before any path creation; the
+physical target remains absent on refusal. Initial lint failures (import group,
+unused wrapper and a test variable shadowing Go's real builtin) are retained in
+`act2-source-enroll-cli-focused-lint.log` and
+`act2-source-enroll-cli-race-lint-final.log`, and were corrected.
+
+Final focused race checks pass (CLI 4.119s, artifactcache 22.319s), and pinned
+lint reports zero issues in `act2-source-enroll-ancestor-green-lint.log`.
+The broader recovery race checks also passed (48.848s). The full compiled
+artifact-cache suite passed in `act2-source-enroll-full-artifactcache.log`; its
+binary predates only the final ancestry-validation extraction, covered by the
+focused current tests. Windows amd64 and Darwin arm64 cmd/artifactcache
+compile-only checks passed (`-exec /bin/true`; no cross-platform execution
+claim). Sole primary review of source and contract documentation is clean.
+
+This supersedes only the prior statement that no CLI/enrollment API exists.
+Bosn machine enrollment/older-writer exclusion, noncreating source attachment,
+globally discoverable exact source context, physical deletion and coordination
+reclamation remain unfinished. The foreign-takeover regression remains RED.
+Normal planning still selects Legacy; #508 and the other original acceptance
+requirements remain open.
+
+
+The executed released-binary epoch probe additionally passes:
+`act2-source-epoch3-older-reader-proof.{py,json}`. Independently SHA-verified
+released act2.23 selects and enters a baseline older store, then refuses both
+`tool-current` and `tool-exec` on a newly enrolled epoch-3 store. The candidate
+accepts both; selection and coordination identities remain unchanged and the
+private fixture is absent after cleanup. Candidate binary SHA256
+`5ff181f56503eb1edeb9072198e74a07b7776325070ea3217cdd421444af6e59` was built
+from exact PR source with `-buildvcs=false` because the read-only container mount
+cannot resolve host Git metadata. This is not a release artifact. The initial
+probe's empty warm-bootstrap source correctly refused; the final fixture uses
+a completed warm install. This does not prove in-place old-store upgrade.
+
+
+### Merged producer fence and Bosn noncreating source attachment
+
+act2 #81 merged at `971783f1355d6f1c287fb56fb9e2413971e455c5` after all
+six PR checks passed (`39726507364` plus codespell `39726507354`). The external
+checkout is clean on master, rebased; its local/remote feature branch is removed.
+The exact observer output was archived under
+`/tmp/bosn-693/act2-81-observer-owned`; no untracked observer directory remains
+in that checkout. Exact merged-source full workflow-dispatch CI is
+`39727623124`; it must pass before guarded act2.24 publication. No act2.24 tag,
+release, artifact verification or Bosn pin update is claimed at this point.
+The original Bosn branch was also fetched/rebased onto origin/main with its
+tracked edits safely autostashed/restored after the external merge.
+
+Bosn's actual helper transport regression was RED because it still attached
+its retained source with `type=volume` (`native-source-attachment-red.log`).
+The first command used --exact with an incomplete module name and selected no
+tests; `native-source-attachment-red-attempt.log` is not behavioral evidence.
+New helpers now freeze the typed, fully ownership-verified Docker-side local
+volume Mountpoint into the durable helper role, attach it with `type=bind`,
+and recheck exact path plus ownership before starting PID1. Source absence
+therefore refuses instead of implicitly creating a named volume. Existing
+field-absent helper journals retain their exact historical named-volume cleanup
+profile. Malformed/missing paths refuse before helper journaling/create; a
+changed path after create refuses before start. Profile mutation tests check
+exact source, mode, type, name and driver. This changes persisted helper metadata,
+not the daemon IPC surface.
+
+Actual Docker validation rejected the initial read-only backing bind with
+`mount recovery overlay: invalid argument`; the recovered overlay uses the
+original upper/work directories, whose backing mount must permit kernel mount
+setup. Both failed fixtures were cleaned and retained as
+`live-reference-release-bind-proof-initial-failure.{json,log}` and
+`live-reference-release-bind-proof-readonly-kernel-failure.{json,log}`. The first
+assertion omitted the worker's deferred error; its diagnostic now includes it.
+The corrected backing bind is RW, matching the producer's kernel requirements;
+the producer still mounts and independently verifies the effective recovery
+overlay as read-only. This is not a claim that the backing source mount is RO.
+
+The final actual Rust worker proof passes all five phases in
+`live-reference-release-bind-proof.{py,json,log}`: preparation, offline verified
+act2.23 archive staging, actual helper publication/teardown, expected late-bind
+refusal, and independent payload/mode/settings/newer-Node/incomplete/lower
+verification. It exercises actual twenty-second expiry, source physical removal
+and subsequent source-free reference release. A real Docker create using the
+frozen old source path after removal refuses `bind source path does not exist`,
+without recreating the volume. Exact fixture containers/volumes are absent;
+before/after test-binary SHA256 is identical:
+`1d72b2671d9bcfb838cd3882a8a8b4829b4ebf44fe0b56ff0e6e30f9c91c39c2`.
+The helper's frozen source path equals the original Docker inspection.
+This isolated fixture still uses released act2.23 on a v2 store; it does not
+prove integration with the new producer disposal fence or cross-registry GC.
+
+All-target service/registry Clippy passes on the corrected backing profile
+(`native-source-bind-backing-clippy-final.log`). The earlier comprehensive
+focused checks pass in `native-source-bind-focused-clippy-final.log` (before
+only the evidence-driven backing mode correction): helper faults, exact
+identity/historical cleanup and source stop/expiry. Corrected-profile targeted
+bind/identity tests pass in `native-source-bind-backing-mode-green-final.log`,
+followed by the executed actual Docker proof. Initial overlong test and stale
+RO profile during correction are retained in earlier Clippy/mode logs. The
+sole primary source-bind review is clean. No Bosn commit, push, PR, full gate
+or native activation is claimed. The foreign-takeover regression remains RED;
+global frozen source context, producer disposal integration, finite cleanup and
+the remaining original #508 requirements are unfinished.
+
+
+### Source context and producer release progress (2026-10-22)
+
+Act2 PR #81 merged at `971783f1355d6f1c287fb56fb9e2413971e455c5`.
+Exact default-branch full CI `39727623124` passed all five jobs. The guarded
+`v0.2.89-act2.24` release workflow `39728691570` succeeded. All eleven archives
+were independently verified against checksums, GitHub digest/size, executable
+headers/architecture and embedded version. Linux version and eight capability
+checks passed with fixture cleanup. Archive SHA256:
+`0c343b45b524caa3bccb816475ff572f6d31f84782241556ec7338a550a27503`;
+executable SHA256:
+`0410bd0bad8134f78c7fb044dc6cdf0a9f8df15b1b03747270ce25e956e7071d`.
+Evidence: `act2-24-release-provenance.json`, `act2-24-verification.json`,
+`act2-24-runtime-smoke.json` under `/tmp/bosn-693`. Released act2.23/24 epoch
+exclusion also passed: old readers refuse the enrolled v3 store, new readers
+accept it, and selection/coordination inodes stay unchanged. Evidence:
+`act2-source-epoch3-release24-older-reader-proof.json`. Bosn still pins act2.23;
+release verification does not imply pin rollout or native activation.
+
+The Bosn candidate now publishes a deterministic, machine-visible source
+context after verified reservation and before acknowledgement/readiness. It
+freezes full immutable engine intent and recovery identity in a never-started
+metadata container with no data mounts. Duplicate/lost-create reconciliation
+requires the complete canonical profile. Native readiness requires exactly one
+matching context and the full immutable 24-hour protection window. Shared
+registry validation reconstructs the exact pin without changing owner hashes.
+Focused service tests, ten registry recovery tests and all-target Clippy passed
+in `native-source-context-ready-registry-clippy.log`.
+
+The actual Docker metadata proof passed create, lookup and duplicate-create
+retry: state `created`, not running, no mounts, exact read-only/noexec 1MiB tmpfs.
+Owned containers were removed and absence verified. Test binary SHA256 before
+and after was identical:
+`5c400cb206f6c639dc1c7c800852244b2303d54abbc00900667647ff3577082b`.
+Evidence: `native-source-context-live-proof.{py,json,log}` and
+`native-source-context-live-result.json`. Earlier fixture report writes failed
+under `/tmp`; binding the report at `/context-result.json` fixed the fixture.
+Those failed reports/logs remain recorded, and all fixtures were cleaned.
+The sole primary review of this source-context prerequisite is clean.
+
+PR #682 merged at `f6b39b63ae1ee61e12c912c1dd4421782d252ae2`; the original
+checkout rebased onto it with all unfinished changes preserved. No Bosn
+worktree was created. Native foreign takeover is now being changed to require
+verified context before engine removal and retain its source for producer-fenced
+disposal. Missing context refuses before removing either engine or source;
+that focused regression and readiness refusal pass in
+`native-foreign-takeover-missing-context-green.log`. This is a safety
+prerequisite, not completed finite disposal: producer-disposal transport,
+post-engine context discovery, metadata reclamation, bounded retention and
+ordinary native activation remain unfinished. Normal routing remains Legacy.
+
+
+The positive foreign-retirement fixture now also passes: verified context permits
+engine removal while preserving source bytes and context. Evidence:
+`native-foreign-takeover-context-green-final.log` (two focused tests passed).
+The first compile attempt wrapped an already optional identity in `Some`;
+that type error and correction are retained in the preceding log. Generic
+retention inspection found that a Warm metadata object could expire after six
+hours (one hour under pressure), before its 24-hour source lifetime. Context
+metadata now uses Pinned retention, like protected native cache resources,
+so generic GC cannot destroy its authority. This pin must be removed by the
+dedicated, producer-fenced disposal lifecycle after source absence; it does not
+establish bounded reclamation by itself. Focused model coverage asserts the
+retention label. No release, full Bosn gate or activation is claimed.
+
+Latest focused context checks pass: five passed, one explicit hardware ignore;
+service/registry all-target Clippy passed in 27.68s. Evidence:
+`native-source-context-retirement-clippy.log`. The hardware proof was then
+actually rerun against the pinned profile and passed, including independent
+Pinned-label inspection, create/retry and exact fixture absence. Evidence:
+`native-source-context-pinned-live-proof.{py,json,log}`. Before/after binary
+SHA256: `4a409d53225fa4800942823ae62a4c9ac0b2837798b34c6510e8b3f1b52543df`.
+Sole primary static review of the retirement prerequisite found no issues.
+
+
+### Generic source-pressure bypass (2026-10-22)
+
+Tracing producer disposal exposed a second deletion authority: after the source
+engine is absent, the generic managed-retention planner sees an unmounted Warm
+volume and may reclaim it after the one-hour idle floor under pressure. Neither
+the recovery intent nor the producer's source lease is part of that planner.
+A real planner regression fails before the fix at two hours of age, within the
+24-hour source lifetime: `native-source-pressure-red.log` reports `pressure
+selected a protected native source` (one actual failed test, not a compile error).
+New native-generation private volumes now carry Pinned retention; ordinary
+private volumes retain Warm. Their exact ownership validator derives the same
+profile. A successful dedicated removal still requires exact ownership and
+non-forced Docker deletion; pinning generic cleanup does not complete that path.
+The initial focused validation passes all three storage tests in
+`native-source-pressure-green.log`. Coverage now also checks that pressure
+continues selecting ordinary private volumes at the same age. The recovery
+transport fixture now explicitly models the pinned native source.
+
+Producer integration must not treat the registry's historical
+`tool_recovery_source_disposal_at` as an act2 fence receipt. That timestamp only
+excludes this registry's newly admitted publication helpers. A v3 producer fence
+must be obtained and strictly verified on every deletion retry, including after
+a lost Docker reply; it must precede physical removal and remain closed after
+failure. A source-free journaled helper needs a distinct frozen operation/profile,
+not a publication/release helper with a substituted command. It must work after
+expiry without assuming a source-stop receipt (the existing expiry path skips
+that receipt), verify engine ID/name absence independently, and preserve metadata
+until exact source absence is proven. Existing v2 stores cannot be upgraded or
+used as proof of v3 closure. Pin rollout, enrollment and the source-free disposal
+helper remain unfinished; ordinary routing is still Legacy.
+
+Fresh-volume boundary: previously created native sources labeled Warm now fail
+exact ownership validation. This change does not retroactively protect or
+recover them; no silent relabeling/adoption is authorized. Native routing is
+still inactive. Enrollment/migration must explicitly drain or reconcile older
+source families before activation; never relax the retention-label check.
+
+The pinned-source actual Docker reproof passes all five phases (prepare,
+offline archive staging, actual Rust helper, expected late-bind refusal,
+independent payload verification) and exact fixture cleanup:
+`live-reference-release-pinned-bind-proof.{py,json,log}`. This proves that
+explicit owned cleanup still removes the pinned source at actual expiry and
+that source-free reference release succeeds afterward. It remains an isolated
+act2.23/v2-store proof, not v3 producer-fence or global-disposal acceptance.
+
+Final source-pressure prerequisite checks pass: 32 source tests (two explicit
+ignores), five helper tests (one explicit ignore), and all-target service/registry
+Clippy in 49.07s. Evidence: `native-source-pressure-focused-clippy.log`.
+Actual pinned-source proof used unchanged binary SHA256
+`f01455cba1f19885ac42a3f00310e8e27960e890cad69420efb9fc9f3d83305d`
+before and after. Sole primary full-candidate review covers Rust, shell and
+living documentation with no static blockers. No full gate or PR is claimed
+at this recording point.
+
+Pre-push platform audit found that the context test module imported the
+Unix-only recovery fixture without the same guard. The test module now uses
+`cfg(all(test, unix))`; production context code remains portable. The first
+full gate was intentionally interrupted before reuse (117s; no successful
+attestation), and its exact two owned CI runs were explicitly cancelled and
+verified done/cancelled: `a3d91c43-19ce-4d0b-9835-c8e8267d694b` (queued),
+`7d3a329c-cbc4-4cf4-a96c-9780505eabd2` (cleanup removed). No unrelated runs
+were touched. Evidence: `native-lifecycle-local-gate.log`. A corrected commit
+requires a fresh complete gate; the interrupted run is not a pass.

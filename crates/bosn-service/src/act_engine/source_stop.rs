@@ -35,6 +35,15 @@ pub(crate) fn verify_retained_source(
     frozen: &ActToolRecoveryIntent,
     owner: &str,
 ) -> Result<(), ActEngineError> {
+    retained_source_volume(document, intent, frozen, owner).map(|_| ())
+}
+
+fn retained_source_volume(
+    document: &[u8],
+    intent: &ActEngineIntent,
+    frozen: &ActToolRecoveryIntent,
+    owner: &str,
+) -> Result<super::storage_volume::DockerVolume, ActEngineError> {
     let expected = intent
         .storage_volume_name()
         .ok_or_else(|| ActEngineError("tool recovery needs named source storage".into()))?;
@@ -43,11 +52,26 @@ pub(crate) fn verify_retained_source(
             "recovery source volume does not match the engine intent".into(),
         ));
     }
-    super::storage_volume::verify_owned_local_volume(
+    super::storage_volume::owned_local_volume(
         document,
         &frozen.source_volume,
         &super::storage_volume::labels(intent, owner)?,
     )
+}
+
+/// Freeze a verified Docker-side source path so helper creation never asks
+/// Docker to create a missing named source volume.
+pub(crate) fn retained_source_mountpoint(
+    document: &[u8],
+    intent: &ActEngineIntent,
+    frozen: &ActToolRecoveryIntent,
+    owner: &str,
+) -> Result<String, ActEngineError> {
+    let volume = retained_source_volume(document, intent, frozen, owner)?;
+    volume
+        .mountpoint
+        .filter(|path| bosn_registry::cache_helper::valid_recovery_source_mountpoint(path))
+        .ok_or_else(|| ActEngineError("recovery source mountpoint is missing or invalid".into()))
 }
 
 /// Build the exact trusted proof from frozen identity. Engine absence is

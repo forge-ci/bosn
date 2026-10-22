@@ -25,6 +25,8 @@ mod control;
 pub use cache_usage::HelperCleanupRetry;
 #[cfg(all(test, unix))]
 mod cache_usage_transport_tests;
+#[cfg(all(test, unix))]
+mod foreign_retirement_tests;
 mod inventory;
 mod legacy_lease;
 mod machine_docker;
@@ -37,6 +39,8 @@ mod maintenance_lease;
 mod maintenance_loop;
 mod maintenance_reporting;
 mod migration;
+mod source_context;
+mod source_context_transport;
 pub use inventory::InventoryAttempt;
 pub use maintenance::MaintenanceAttempt;
 pub use maintenance_helper::{HelperPass, MaintenanceHelperAttempt};
@@ -197,6 +201,18 @@ pub trait ActEngineBackend: Send + Sync {
         engine: &'a str,
         act: ActArtifact,
     ) -> BoxFuture<'a, Result<(), String>>;
+    /// Protect a native lower before any slot is admitted. Unsupported
+    /// backends refuse rather than acknowledge synthetic protection.
+    fn reserve_native_recovery<'a>(
+        &'a self,
+        _registry: &'a RegistryActor,
+        _run: &'a str,
+        _token: &'a str,
+        _created: i64,
+        _expires: i64,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Err("backend cannot reserve native recovery".into()) })
+    }
     /// What one run needs on a prepared engine: act2 serve's preparation (the
     /// pinned runner image and the tool cache, each once per engine), the
     /// runner's stock tools (once per engine), the run's scope (#547), and
@@ -721,6 +737,17 @@ impl ActEngineBackend for DockerActBackend {
                 .await
                 .map(|_| ())
         })
+    }
+
+    fn reserve_native_recovery<'a>(
+        &'a self,
+        registry: &'a RegistryActor,
+        run: &'a str,
+        token: &'a str,
+        created: i64,
+        expires: i64,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.reserve_claimed_tool_recovery(registry, run, token, created, expires))
     }
 
     fn prepare_engine<'a>(

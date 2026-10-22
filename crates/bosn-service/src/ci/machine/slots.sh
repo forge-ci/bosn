@@ -16,9 +16,21 @@ flock 9
 op=$1
 shift
 case "$op" in
-lease)
+lease | lease-native)
   max=$1
   shift
+  if [ "$op" = lease-native ] && [ ! -e "$d/native-until" ] && [ ! -L "$d/native-until" ]; then
+    echo preparing; exit 0
+  fi
+  if [ -e "$d/native-until" ] || [ -L "$d/native-until" ]; then
+    [ -f "$d/native-until" ] && [ ! -L "$d/native-until" ] || exit 2
+    until=$(cat "$d/native-until")
+    case "$until" in *[!0-9]* | '') echo 'bad native cutoff' >&2; exit 2 ;; esac
+    if [ "$(date +%s)" -ge "$until" ]; then
+      touch "$d/requested"
+      echo retiring; exit 0
+    fi
+  fi
   if [ -e "$d/retiring" ]; then echo retiring; exit 0; fi
   if [ ! -e "$d/ready" ]; then echo preparing; exit 0; fi
   i=0
@@ -44,6 +56,19 @@ request)
   echo ok
   ;;
 ready)
+  touch "$d/ready"
+  echo ok
+  ;;
+ready-native)
+  until=$1
+  case "$until" in *[!0-9]* | '') echo 'bad native cutoff' >&2; exit 2 ;; esac
+  [ "$(date +%s)" -lt "$until" ] || { echo 'native admission expired' >&2; exit 2; }
+  if [ -e "$d/native-until" ] || [ -L "$d/native-until" ]; then
+    [ -f "$d/native-until" ] && [ ! -L "$d/native-until" ] &&
+      [ "$(cat "$d/native-until")" = "$until" ] || exit 2
+  else
+    printf '%s\n' "$until" >"$d/native-until"
+  fi
   touch "$d/ready"
   echo ok
   ;;

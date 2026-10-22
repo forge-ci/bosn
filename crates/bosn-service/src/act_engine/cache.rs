@@ -107,8 +107,15 @@ pub(super) fn engine_command_with_tools(
     }
     let act = act_artifact("amd64")
         .ok_or_else(|| ActEngineError("no pinned startup act artifact".into()))?;
+    // This native command identity excludes older callers whose slot script
+    // cannot enforce the finite recovery admission window.
+    let admission = if generation.is_some() {
+        ": bosn-native-admission-v1; "
+    } else {
+        ""
+    };
     let script = format!(
-        "set -eu; mkdir -p {ENGINE_WORK}/bin; {}; exec 9>&-; exec \"$@\"",
+        "set -eu; mkdir -p {ENGINE_WORK}/bin; {}; exec 9>&-; {admission}exec \"$@\"",
         install_act_script(act),
     );
     let mut command = vec![

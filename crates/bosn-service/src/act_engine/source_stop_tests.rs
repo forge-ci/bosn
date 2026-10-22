@@ -313,6 +313,7 @@ fn record_recovery_helper(registry: &mut Registry, record: &ActEngineRecord, cre
         ),
         created_at: 4.4,
         role: Some(CacheHelperRole::ToolRecoveryV1 {
+            source_mountpoint: None,
             command_sha256: None,
             run_id: record.intent.run_id.clone(),
             intent: frozen,
