@@ -5408,3 +5408,85 @@ verified done/cancelled: `a3d91c43-19ce-4d0b-9835-c8e8267d694b` (queued),
 `7d3a329c-cbc4-4cf4-a96c-9780505eabd2` (cleanup removed). No unrelated runs
 were touched. Evidence: `native-lifecycle-local-gate.log`. A corrected commit
 requires a fresh complete gate; the interrupted run is not a pass.
+
+
+### Producer-fenced disposal integration candidate (2026-10-22)
+
+Bosn #703 merged at `5d16c1b51bf688a8a0d050f48d4c6e969f98e21c`.
+The original checkout rebased to clean main; the owned branch/applied task stash
+were removed, user stashes/worktree preserved. Full local gate passed 480s
+(Rust476s, Linux480s including queue), tree
+`f71abdae6ba280137e76521d1005119d7e6b5f10`, stamped
+`40fff60ee9f96322da1e6b389bbd93eb627b7301`. Independent GATE-003 verification
+passed before push. Exact remote run `39733543747` succeeded with nine successful
+jobs and five configured skips. #508 remains open; normal routing is Legacy.
+
+The next behavioral RED exercises actual retirement with expired native intent
+but no producer fence transport. It previously returned `Ok(())` and removed
+the source: `native-producer-disposal-red.log`. The candidate now requires a
+producer fence after the registry admission claim and before every physical
+removal retry, including when Docker previously removed the source but lost its
+reply. A registry disposal timestamp never substitutes for producer authority.
+The missing-transport regression passes in
+`native-producer-disposal-refusal-green.log`.
+
+A new durable `ToolRecoveryDisposalV1` role freezes the complete pin and command
+hash, with a distinct helper name/ownership component. Its unprivileged profile
+mounts only the exact cache, drops all capabilities, has no network and overrides
+the image's implicit data volume with a small read-only/noexec tmpfs. It never
+mounts the source. Engine ID and deterministic name absence plus cache ownership
+are checked before creation, before start and again after proven teardown.
+A closed bounded receipt must match schema, root and every pin field, report
+`disposed=true`, and contain no partial result or error. No producer receipt is
+cached in the registry: every retry invokes act2 again. Only after helper
+absence may exact-owned, non-forced volume deletion proceed.
+
+Expired/unacknowledged recovery can request this helper only after the registry
+has committed its source-disposal admission fence. It need not have a historical
+source-stop receipt: the existing expired path deliberately skips that receipt,
+and the runtime independently proves writer absence. Missing/corrupt/un-enrolled
+producer state refuses rather than allowing deletion. Fresh epoch-3 enrollment,
+not an in-place upgrade, remains required. The candidate pins independently
+verified act2.24 using the release evidence/digests above; it is not merged yet.
+
+The complete synthetic Docker boundary passes an eighteen-mode disposal/physical
+removal fault matrix plus a lost physical-removal reply retry that proves a second
+producer helper actually ran: `native-producer-disposal-helper-green.log`.
+The expanded checks pass four disposal tests and eight source-stop tests in
+`native-producer-disposal-focused-clippy.log`; its initial Clippy run correctly
+rejected a literal-boolean assertion in the revised historical fixture. That
+assertion now checks the exact CleanupRequired state. The older source-stop
+fixture cannot serve producer fencing and now tests refusal/retryability;
+successful fenced deletion and lost replies moved to the complete helper fixture,
+not an ignored/skipped test. Actual epoch-3/released24 Docker validation and
+final Clippy remain pending at this recording point. No native activation,
+foreign-context reclamation, finite metadata cleanup or completed #508 is claimed.
+
+Actual released24 epoch-3 Docker validation passes all six phases in
+`live-source-disposal-24-proof.{py,json,log}`: the independently verified
+released CLI enrolls a fresh epoch-3 store; a matching-source fixture prepares
+metacopy state; the verified archive is staged offline; the actual Rust worker
+publishes, proves publication-helper teardown, waits real twenty-second expiry,
+executes the distinct disposal helper and proves its teardown before physical
+source deletion/finalization, then releases the reference with the source gone.
+Independent payload/mode/settings/newer-Node/incomplete/lower verification and
+late-bind refusal pass; exact containers/volumes/anonymous-fixture absence is
+verified. The result records the Removed ToolRecoveryDisposalV1 journal.
+Before/after test-binary SHA256 is identical:
+`c9340966710c8377a42d7fc5c90ca7b21e26510979af9378adc5a988ff8f9100`.
+The corrected focused checks and all-target Clippy pass (26.59s) in
+`native-producer-disposal-focused-clippy-final.log`. This isolated owned-registry
+proof does not establish foreign orphan enumeration, context reclamation,
+coordination-file expiry or global storage ceilings. Normal routing remains
+Legacy; the branch has no commit, full gate, push or PR yet.
+
+Final admission coverage passes: one registry integration test proves an
+expired unacknowledged intent without a source-stop receipt still requires a
+committed disposal claim, refuses changed identity and survives registry reopen;
+one service test refuses an unclaimed request before contacting Docker.
+All-target Clippy passes in 17.15s (`native-producer-disposal-admission-clippy.log`).
+Sole primary full-candidate Rust/docs review is clean. Only comments and removal
+of an obsolete historical fixture branch followed that validation; physical
+lost-reply coverage lives in the complete fenced transport fixture. The branch
+will require the full exact-source local gate and independent attestation
+verification before any push.

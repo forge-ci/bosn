@@ -1,4 +1,4 @@
-//! Bind a recovery helper to one stopped source before Docker can create it.
+//! Bind recovery helpers to exact source intent and phase admission authority.
 use super::*;
 
 impl Immediate<'_> {
@@ -18,8 +18,9 @@ impl Immediate<'_> {
             .act_record(binding.run_id)?
             .ok_or(Error::BadRow("recovery helper engine missing"))?;
         if record.tool_recovery.as_ref() != Some(intent)
-            || record.tool_recovery_reserved_at.is_none()
-            || record.tool_recovery_source_stopped_at.is_none()
+            || (binding.phase != RecoveryHelperPhase::Dispose
+                && (record.tool_recovery_reserved_at.is_none()
+                    || record.tool_recovery_source_stopped_at.is_none()))
             || helper.created_at < record.updated_at
             || helper.image
                 != format!(
@@ -57,6 +58,16 @@ impl Immediate<'_> {
                     return Err(Error::BadRow(
                         "recovery reference not available for release",
                     ));
+                }
+            }
+            RecoveryHelperPhase::Dispose => {
+                // This is the registry's admission fence, not the producer's
+                // receipt. Lost reservation acknowledgements may still need
+                // disposal after expiry; the producer decides eligibility.
+                if record.state != act::ActEngineState::CleanupRequired
+                    || record.tool_recovery_source_disposal_at.is_none()
+                {
+                    return Err(Error::BadRow("source disposal not claimed"));
                 }
             }
         }

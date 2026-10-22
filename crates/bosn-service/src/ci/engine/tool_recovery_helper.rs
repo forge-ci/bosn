@@ -46,6 +46,18 @@ impl DockerActBackend {
             .await
     }
 
+    /// Re-run producer exclusion on every retry, including after a lost
+    /// physical removal reply. This mounts no source and proves no deletion.
+    pub async fn fence_tool_source_with_helper(
+        &self,
+        registry: &RegistryActor,
+        run: &str,
+        owner: &str,
+    ) -> Result<(), String> {
+        self.run_tool_helper(registry, run, owner, Operation::Dispose)
+            .await
+    }
+
     async fn run_tool_helper(
         &self,
         registry: &RegistryActor,
@@ -114,6 +126,10 @@ impl DockerActBackend {
         })?;
         match outcome {
             Ok(receipt) => {
+                if operation == Operation::Dispose {
+                    self.verify_helper_storage(&record, owner, operation)
+                        .await?;
+                }
                 receipt.commit(registry, &record).await?;
                 // Keep the durable disposal fence until completion commits.
                 tracker.finish(&id).await
@@ -202,6 +218,7 @@ impl DockerActBackend {
         let program = match operation {
             Operation::Publish => recovery_program(record, act)?,
             Operation::Release => release_program(record, act)?,
+            Operation::Dispose => source_free_program(record, act, "dispose-source")?,
         };
         let arguments = vec!["-ec".into(), program.clone()];
         let intent = CacheHelperIntent {
@@ -258,6 +275,17 @@ impl DockerActBackend {
                 )
                 .await
                 .map(|_| None),
+            Operation::Dispose => {
+                let frozen = record
+                    .tool_recovery
+                    .as_ref()
+                    .ok_or("tool recovery intent missing")?;
+                self.confirm_measurement_absent(&frozen.engine_id).await?;
+                self.confirm_measurement_absent(&record.intent.engine_name())
+                    .await?;
+                self.verify_measured_volume(&frozen.cache_volume).await?;
+                Ok(None)
+            }
         }
     }
 
@@ -323,6 +351,14 @@ fn release_program(
     record: &ActEngineRecord,
     act: crate::ci::engine::ActArtifact,
 ) -> Result<String, String> {
+    source_free_program(record, act, "release")
+}
+
+fn source_free_program(
+    record: &ActEngineRecord,
+    act: crate::ci::engine::ActArtifact,
+    operation: &str,
+) -> Result<String, String> {
     let frozen = record
         .tool_recovery
         .as_ref()
@@ -330,7 +366,7 @@ fn release_program(
     let encoded = RecoveryPin::from_intent(frozen)?.encoded()?;
     let install = offline_act_script(act, &format!("{WORK}/bin"));
     Ok(format!(
-        "{install}; printf '%s' '{encoded}' >{WORK}/intent.json; exec {WORK}/bin/act --cache-server-path {ENGINE_CACHE}/toolstore-v1 cache tool-recovery release --record {WORK}/intent.json --apply"
+        "{install}; printf '%s' '{encoded}' >{WORK}/intent.json; exec {WORK}/bin/act --cache-server-path {ENGINE_CACHE}/toolstore-v1 cache tool-recovery {operation} --record {WORK}/intent.json --apply"
     ))
 }
 
@@ -386,7 +422,7 @@ fn create_args(
                     .ok_or("recovery source mountpoint missing")?
             ),
         ]),
-        Operation::Release => owned(&[
+        Operation::Release | Operation::Dispose => owned(&[
             "--cap-drop",
             "ALL",
             "--tmpfs",

@@ -16,6 +16,10 @@ pub(super) enum Profile {
         cache: String,
         command: String,
     },
+    Disposal {
+        cache: String,
+        command: String,
+    },
 }
 
 pub(in crate::ci::engine) fn command_sha256(
@@ -51,6 +55,12 @@ impl Profile {
                     command: command_sha256.clone(),
                 })
             }
+            Some(CacheHelperRole::ToolRecoveryDisposalV1 { command_sha256, .. }) => {
+                Ok(Self::Disposal {
+                    cache: intent.volume.clone(),
+                    command: command_sha256.clone(),
+                })
+            }
         }
     }
     pub(super) fn label_key(&self) -> &str {
@@ -59,6 +69,7 @@ impl Profile {
             Self::Maintenance => "io.bosn.cache.maintenance",
             Self::Recovery { .. } => "io.bosn.cache.recovery",
             Self::Release { .. } => "io.bosn.cache.recovery-release",
+            Self::Disposal { .. } => "io.bosn.cache.recovery-disposal",
         }
     }
     pub(super) fn component(&self) -> &str {
@@ -67,6 +78,7 @@ impl Profile {
             Self::Maintenance => "ci-cache-maintenance",
             Self::Recovery { .. } => "ci-cache-recovery",
             Self::Release { .. } => "ci-cache-recovery-release",
+            Self::Disposal { .. } => "ci-cache-recovery-disposal",
         }
     }
     pub(super) fn matches(&self, row: &Helper, volume: &str) -> bool {
@@ -94,7 +106,7 @@ impl Profile {
                     && recovery_isolation(&row.host_config, false)
                     && frozen_command(&row.config, command)
             }
-            Self::Release { cache, command } => {
+            Self::Release { cache, command } | Self::Disposal { cache, command } => {
                 cache == volume
                     && row.mounts.len() == 1
                     && exact_mount(&row.mounts, cache, "/bosn/cache")

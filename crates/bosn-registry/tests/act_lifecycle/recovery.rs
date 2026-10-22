@@ -331,3 +331,71 @@ fn disposal_excludes_a_delayed_preexpiry_helper_admission() {
         "a delayed helper must not be admitted after disposal has begun"
     );
 }
+
+#[test]
+fn disposal_helper_requires_a_claim_and_reconciles_unacknowledged_expiry() {
+    use bosn_registry::cache_helper::{CacheHelperIntent, CacheHelperRole};
+    let (dir, mut registry, engine) = recovery_fixture();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.begin_act_tool_recovery(RUN, CLAIM, 4, 3604).unwrap();
+    tx.request_act_execution_cleanup(RUN, CLAIM, ActRunOutcome::Interrupted, 6.0)
+        .unwrap();
+    tx.commit().unwrap();
+    let record = registry.act_engine(RUN).unwrap().unwrap();
+    assert!(record.tool_recovery_reserved_at.is_none());
+    assert!(record.tool_recovery_source_stopped_at.is_none());
+    let frozen = record.tool_recovery.unwrap();
+    let helper = CacheHelperIntent {
+        registry_id: OWNER.into(),
+        nonce: "11111111-2222-4333-8444-555555555519".into(),
+        volume: frozen.cache_volume.clone(),
+        image: format!("docker.io/library/docker@{}", engine.engine_image_digest),
+        created_at: 3605.0,
+        role: Some(CacheHelperRole::ToolRecoveryDisposalV1 {
+            run_id: RUN.into(),
+            intent: frozen.clone(),
+            command_sha256: "d".repeat(64),
+        }),
+    };
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&helper)
+            .is_err()
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.claim_act_tool_source_disposal(RUN, 3604.0).unwrap();
+    tx.commit().unwrap();
+    drop(registry);
+    let mut registry = Registry::open_writer(dir.path().join("registry.sqlite3")).unwrap();
+    let mut changed = helper.clone();
+    let Some(CacheHelperRole::ToolRecoveryDisposalV1 { intent, .. }) = changed.role.as_mut() else {
+        panic!("wrong role")
+    };
+    intent.owner = "f".repeat(64);
+    assert!(
+        registry
+            .begin_immediate()
+            .unwrap()
+            .begin_cache_helper(&changed)
+            .is_err()
+    );
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.begin_cache_helper(&helper).unwrap();
+    assert!(
+        tx.recovery_helper_for_source(&frozen.source_volume)
+            .unwrap()
+            .is_none(),
+        "source-free disposal helper never opens the source"
+    );
+    tx.commit().unwrap();
+    assert_eq!(
+        registry
+            .cache_helper(&helper.nonce)
+            .unwrap()
+            .unwrap()
+            .intent,
+        helper
+    );
+}

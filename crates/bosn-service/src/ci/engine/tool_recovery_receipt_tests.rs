@@ -84,3 +84,45 @@ fn publication_receipts_refuse_partial_foreign_and_out_of_lifetime_results() {
     assert!(require_publication(&" ".repeat(4097), &pin, "root", now, now).is_err());
     assert!(require_publication(&format!("{row}\n{row}"), &pin, "root", now, now).is_err());
 }
+
+#[test]
+fn disposal_requires_a_closed_exact_nonpartial_producer_receipt() {
+    let pin = RecoveryPin {
+        schema_version: 1,
+        owner: "a".repeat(64),
+        generation: "b".repeat(64),
+        created_at: "2026-10-21T00:00:00Z".into(),
+        expires_at: "2026-10-22T00:00:00Z".into(),
+    };
+    let row = serde_json::json!({"schema_version":1,"root":"/bosn/cache/toolstore-v1",
+        "pin":pin,"disposed":true,"partial":false});
+    let check = |value: &serde_json::Value| {
+        require_disposal(&value.to_string(), &pin, "/bosn/cache/toolstore-v1")
+    };
+    assert!(check(&row).is_ok());
+    for (field, value) in [
+        ("schema_version", serde_json::json!(2)),
+        ("root", serde_json::json!("/foreign")),
+        ("disposed", serde_json::json!(false)),
+        ("partial", serde_json::json!(true)),
+        ("error", serde_json::json!("sync failed")),
+        ("unknown", serde_json::json!(true)),
+    ] {
+        let mut altered = row.clone();
+        altered[field] = value;
+        assert!(check(&altered).is_err(), "{field}");
+    }
+    for (field, value) in [
+        ("schema_version", serde_json::json!(2)),
+        ("owner", serde_json::json!("c".repeat(64))),
+        ("generation", serde_json::json!("c".repeat(64))),
+        ("created_at", serde_json::json!("2026-10-21T00:00:01Z")),
+        ("expires_at", serde_json::json!("2026-10-22T00:00:01Z")),
+    ] {
+        let mut altered = row.clone();
+        altered["pin"][field] = value;
+        assert!(check(&altered).is_err(), "pin.{field}");
+    }
+    assert!(require_disposal(&" ".repeat(4097), &pin, "root").is_err());
+    assert!(require_disposal(&format!("{row}\n{row}"), &pin, "root").is_err());
+}

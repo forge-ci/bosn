@@ -157,7 +157,8 @@ pub(crate) async fn ensure_storage_volume(
 ///
 /// A record carrying a live unreleased recovery intent keeps its source volume.
 /// Verified publication and reference release must both be committed before
-/// early deletion; expiry permits bounded abandonment. Exact ownership and
+/// early deletion; expiry permits attempting abandonment. Neither expiry nor
+/// a registry timestamp replaces producer exclusion. Exact ownership and
 /// Docker absence are required on either path.
 pub(crate) async fn remove_storage_volume(
     registry: &RegistryActor,
@@ -188,6 +189,12 @@ pub(crate) async fn remove_storage_volume(
                 ));
             }
         }
+    }
+    if record.tool_recovery.is_some() {
+        crate::ci::engine::DockerActBackend::new(engine.clone())
+            .fence_tool_source_with_helper(registry, &record.intent.run_id, owner)
+            .await
+            .map_err(|e| ActEngineError(format!("producer source disposal: {e}")))?;
     }
     remove_private_storage(engine, &record.intent, owner).await?;
     Ok(disposal_at)

@@ -116,9 +116,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // legacy root stages; normal native enrollment remains separate.
             // act2.23 preserves closed dangling-link chains, bounds durable
             // bulk enrollment, and supports explicit cold empty generations.
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.23/act_Linux_x86_64.tar.gz",
-            sha256: "228af48050fedbd1e8983a867c5f450c6f0dd02c5afb7499430bb51f4412a654",
-            binary_sha256: "ca6b67a98e041e6ff531edda1c00df906ee59983682c99d18cc638b3d8dee5b2",
+            // act2.24 adds fresh epoch-3 enrollment and durable source-view
+            // exclusion for source disposal; existing stores are never upgraded.
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.24/act_Linux_x86_64.tar.gz",
+            sha256: "0c343b45b524caa3bccb816475ff572f6d31f84782241556ec7338a550a27503",
+            binary_sha256: "0410bd0bad8134f78c7fb044dc6cdf0a9f8df15b1b03747270ce25e956e7071d",
         }),
         _ => None,
     }

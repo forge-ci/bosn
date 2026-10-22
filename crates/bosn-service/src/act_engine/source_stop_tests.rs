@@ -27,7 +27,6 @@ elif args[:2] == ['volume', 'inspect']:
 elif args[:2] == ['volume', 'rm']:
     assert args == ['volume', 'rm', name]
     state.rename(state.with_name('removed'))
-    if mode.endswith('lost-remove-reply'): sys.exit(1)
     print(name)
 else: sys.exit(2)
 "#;
@@ -93,15 +92,15 @@ fn fixture(path: &std::path::Path, live: bool, acknowledged: bool) -> (Registry,
 }
 
 #[test]
-fn expired_recovery_retires_through_the_actual_cleanup_path() {
-    for mode in [
-        "expired",
-        "unacknowledged",
-        "absent",
-        "lost-remove-reply",
-        "released",
-        "released-lost-remove-reply",
-    ] {
+fn expiry_requires_a_producer_source_disposal_fence() {
+    check_retirement("producer-fence-unavailable");
+}
+
+#[test]
+fn expired_retirement_without_producer_fence_transport_stays_retryable() {
+    // Successful producer fencing and lost physical-removal replies are now
+    // exercised by tool_recovery_disposal_tests through the complete helper.
+    for mode in ["expired", "unacknowledged", "absent", "released"] {
         check_retirement(mode);
     }
 }
@@ -207,13 +206,10 @@ fn check_retirement(mode: &str) {
                 )
             };
             let result = retire().await;
-            let should_retire =
-                matches!(mode, "expired" | "unacknowledged" | "absent" | "released");
-            assert_eq!(result.is_ok(), should_retire, "{mode}: {result:?}");
-            if mode.ends_with("lost-remove-reply") {
-                assert!(!state.exists(), "Docker removed it before losing the reply");
-                retire().await.unwrap();
-            }
+            assert!(
+                result.is_err(),
+                "{mode}: retirement requires a producer fence"
+            );
             let ActRegistryReply::Record(Some(current)) = actor
                 .act_registry(ActRegistryCommand::Get {
                     run: record.intent.run_id.clone(),
@@ -223,18 +219,14 @@ fn check_retirement(mode: &str) {
             else {
                 panic!("record missing");
             };
-            assert_eq!(
-                current.state == ActEngineState::Terminal,
-                should_retire || mode.ends_with("lost-remove-reply"),
-                "{mode}"
-            );
-            if current.state != ActEngineState::Terminal {
+            assert_eq!(current.state, ActEngineState::CleanupRequired, "{mode}");
+            if mode != "absent" {
                 assert!(state.exists(), "{mode}: retained source vanished");
-                assert!(
-                    !std::fs::read_to_string(&log).unwrap().contains("\"rm\""),
-                    "{mode}: removal must not be attempted"
-                );
             }
+            assert!(
+                !std::fs::read_to_string(&log).unwrap().contains("\"rm\""),
+                "{mode}: removal must not be attempted without a producer fence"
+            );
             actor.stop().await;
             task.await.unwrap();
         });
@@ -244,17 +236,8 @@ fn check_retirement(mode: &str) {
             .act_engine(&record.intent.run_id)
             .unwrap()
             .unwrap()
-            .state
-            == ActEngineState::Terminal,
-        matches!(
-            mode,
-            "expired"
-                | "unacknowledged"
-                | "absent"
-                | "lost-remove-reply"
-                | "released"
-                | "released-lost-remove-reply"
-        ),
+            .state,
+        ActEngineState::CleanupRequired,
         "{mode}: cleanup receipt must survive a restart"
     );
 }
