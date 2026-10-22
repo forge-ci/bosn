@@ -11,6 +11,15 @@ use super::super::{
 };
 use super::*;
 
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod workflow_live;
+
+// Bound logical generation payload. Allocated machine storage needs its own
+// accounting/pressure policy; exceeding this bound refuses warm enrollment.
+const NATIVE_TOOL_PAYLOAD_BYTES: u64 = 64 << 30;
+
 /// The engine every intent made now would describe.
 pub(super) struct EngineSpec {
     pub(super) act: ActArtifact,
@@ -144,8 +153,9 @@ impl CiRuntime {
             } else {
                 super::super::reply::CiCpuSource::DefaultCeiling
             },
-            native_tools: None,
+            native_tools: Some(NATIVE_TOOL_PAYLOAD_BYTES),
         };
+        shared.validate_native_policy()?;
         let scope = run_scope(&record.id, &intent)?;
         Ok(EnginePlan {
             act: spec.act,

@@ -6201,3 +6201,76 @@ symlink preservation, and overflow refusal remain checked. This changes only
 the test: production measurement behavior is unchanged. Both focused accounting
 tests passed in the GNU 9.1 harness after the correction. A new full gate on the
 corrected commit is still required; the earlier failed gate is not acceptance.
+
+
+### Ordinary native execution activation and real workflow acceptance (2026-10-22)
+
+PR #706 merged at `65842457896601755eb57e29c5298374da418bc2`.
+Its corrected full local gate passed in 253s: 1,155 Rust nextests passed,
+52 configured skips; Linux passed in 174s. Stamped commit
+`0818f42a896f1e57a31056b745296f68c44e5845` independently passed
+GATE-003 verification before push. Required remote checks passed in
+`39778264520` (nine successes, five configured skips), with no outstanding
+review threads. The original checkout rebased onto main and the owned branch
+and exact watcher log were removed. No Bosn worktree was created.
+
+The next ordinary-runtime regression reproduced the remaining bypass: planning
+still set `native_tools: None`. Evidence: `production-native-planner-red.log`,
+one executed test failed at the explicit enrollment assertion. The planner now
+selects native enrollment with a 64 GiB logical generation payload bound and
+validates its backing before admission. This bound refuses an oversized warm
+source; it is not an allocated machine ceiling and does not authorize dropping
+warm data. Memory-backed plans explicitly refuse before engine creation,
+claim acquisition or source fencing. The planner tests pass.
+
+An exploratory shared-lease extension of the synthetic planner test exposed
+that FakeBackend's retirement identity check omits native-generation creation
+labels; after correcting that experimentally, the registry correctly refused
+finalization while the fake still retained its recovery source. Those temporary
+fake changes were reverted. The final planner test checks policy selection and
+absence of planning side effects; retirement acceptance uses the actual Docker
+backend below. The failed exploration remains recorded in
+`production-native-planner-cleanup-red.log`; the intermediate green run did not
+prove durable retirement and is not used as such.
+
+The actual ordinary-runtime proof passed using released act2.27:
+`production-native-workflow-proof.{py,json,log}`, fixture
+`bosn693-native-workflow-125aa6234d2e`. It used a private Docker daemon,
+the genuine machine claim and registry, the pinned runner image and verified
+archive, and unchanged two-job workflow YAML across two submissions. The first
+job preserved the enrolled legacy payload and wrote a completed tool (mode 751)
+and an unfinished install; the dependent job reused the completed tool. After
+normal engine retirement, native publication/source finalization and claim
+release, the same workflow ran on a fresh engine. Before writing again it
+required the recovered completed payload/mode and absence of the unfinished
+install. Both runs succeeded with two completed jobs each and removed run scopes:
+`b6943e4e-2f4a-4983-8a8e-11e5faafdcdb` and
+`00e34e6c-fee1-4449-85b3-41c083c4c6a1`.
+
+The two actual engines were
+`bosn-act-839e0f0a-6a27-434b-91fd-5f093966ce1e` and
+`bosn-act-1e10d4a8-99bb-4cdd-9802-9024978b145e`. Both had durable
+recovery protection and both claims were normally released. The fixture passed
+in 196.33s and the executable hash was unchanged before/after execution.
+All outer fixture containers and both host volumes were proved absent, removing
+the private daemon's inner resources. This proves the controlled real two-job
+workflow case; original full workload, concurrency, crash/restart, machine
+accounting/ceilings, bounded history and coordinated archive acceptance remain
+open. Archive routing remains Legacy. No issue closure is claimed. The candidate
+still needs Clippy, primary review and the full exact-source gate before push.
+
+
+The CI-focused service suite passed: 320 tests, 21 explicitly ignored hardware
+fixtures (the new real-runtime fixture was executed separately above).
+`production-native-ci-tests.log` records the 123.18s run. Clippy initially
+rejected `.err().expect()` in the memory-refusal regression. That assertion now
+uses an explicit typed result match; no lint was suppressed and EnginePlan's
+production traits were unchanged. The fence/drain ordering in the cache layout
+documentation was corrected during primary review. Final Clippy and the full
+gate remain pending at this recording point.
+
+
+Final service library/tests Clippy passed in 16.31s with `-D warnings`
+(`production-native-clippy-final.log`). The sole primary review found no
+remaining production finding. The full local gate is the remaining pre-push
+requirement; all broad original #508 requirements above remain in force.

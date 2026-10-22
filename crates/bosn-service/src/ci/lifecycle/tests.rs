@@ -11,7 +11,7 @@ use std::{
 mod fake;
 mod fake_machine;
 mod native;
-mod native_live;
+pub(crate) mod native_live;
 mod shared;
 pub use fake::*;
 
