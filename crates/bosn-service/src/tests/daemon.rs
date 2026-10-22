@@ -43,7 +43,7 @@ fn status_actor_serves_concurrent_typed_requests_before_clean_stop() {
         }
         while let Some(result) = requests.join_next().await {
             let status = result.unwrap().unwrap();
-            assert_eq!(status.schema_version, 5);
+            assert_eq!(status.schema_version, bosn_registry::SCHEMA_VERSION);
         }
         client.shutdown().await.unwrap();
         stopped(server).await;

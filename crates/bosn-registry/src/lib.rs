@@ -22,6 +22,7 @@ pub mod act;
 pub mod cache_helper;
 pub mod cache_maintenance;
 pub mod cache_migration;
+mod ci_state;
 mod gc_query;
 mod immediate;
 mod read_only;
@@ -33,7 +34,7 @@ pub use read_only::*;
 use registry::*;
 use rows::*;
 
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 pub const DEFAULT_PAGE_SIZE: usize = 100;
 pub const MAX_PAGE_SIZE: usize = 1_000;
 
@@ -83,6 +84,7 @@ pub enum Error {
     MigrationGuardHeld(PathBuf),
     ReplacedPath(PathBuf),
     InvalidSchema,
+    MigrationInProgress,
     ResourceIdentityConflict,
     ReservedMeta(&'static str),
     InvalidCutoverMarker,

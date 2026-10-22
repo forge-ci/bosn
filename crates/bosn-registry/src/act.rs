@@ -22,7 +22,8 @@ pub use socket::{ActEngineDockerSocket, ENGINE_DOCKER_SOCKET, ENGINE_SOCKET_DIR,
 
 mod recovery_queue;
 
-const PREFIX: &str = "act.engine.v1:";
+pub(crate) const PREFIX: &str = "act.engine.v1:";
+pub(crate) const RECORD_BYTES: usize = 32768;
 /// Frozen producer policy, not client-selected Docker options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -473,7 +474,7 @@ impl ActEngineRecord {
         Ok(())
     }
 }
-fn decode(detail: &str, run: &str) -> Result<ActEngineRecord, Error> {
+pub(crate) fn decode(detail: &str, run: &str) -> Result<ActEngineRecord, Error> {
     let record: ActEngineRecord =
         serde_json::from_str(detail).map_err(|_| Error::BadRow("act state JSON"))?;
     record.validate()?;
@@ -489,11 +490,11 @@ fn kind(run: &str) -> Result<String, Error> {
 impl Immediate<'_> {
     pub(super) fn act_record(&mut self, run: &str) -> Result<Option<ActEngineRecord>, Error> {
         let rows = self.transaction.query(
-            "SELECT detail FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
-            &[Value::Text(kind(run)?)],
+            "SELECT detail FROM ci_current WHERE family=1 AND id=?",
+            &[Value::Text(kind(run)?.strip_prefix(PREFIX).unwrap().into())],
             QueryLimits {
                 max_rows: 1,
-                max_bytes: 32768,
+                max_bytes: RECORD_BYTES + 1024,
             },
         )?;
         let record = rows
@@ -900,6 +901,7 @@ impl Immediate<'_> {
 }
 impl Registry {
     pub fn act_engine(&self, run: &str) -> Result<Option<ActEngineRecord>, Error> {
+        self.require_ci_ready()?;
         read_act_engine(&self.connection, &self.registry_id()?, run)
     }
 }
@@ -910,11 +912,11 @@ fn read_act_engine(
     run: &str,
 ) -> Result<Option<ActEngineRecord>, Error> {
     let rows = connection.query(
-        "SELECT detail FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
-        &[Value::Text(kind(run)?)],
+        "SELECT detail FROM ci_current WHERE family=1 AND id=?",
+        &[Value::Text(kind(run)?.strip_prefix(PREFIX).unwrap().into())],
         QueryLimits {
             max_rows: 1,
-            max_bytes: 32768,
+            max_bytes: RECORD_BYTES + 1024,
         },
     )?;
     let record = rows

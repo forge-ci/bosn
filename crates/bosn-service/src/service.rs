@@ -239,6 +239,7 @@ impl Service {
             }
             Err(error) => return Err(Error::Io(error)),
         };
+        let registry = ready_registry(registry).await?;
         let _run_http = run_http::start(&self.state_dir).await.map_err(Error::Io)?;
         daemon_log!("bosn run output listening on {}", _run_http.local_addr);
         let act_owner = registry.registry_id()?;
@@ -763,4 +764,21 @@ pub(crate) fn reap_orphaned_runs(runners: &runners::Runners) -> Vec<String> {
     }
     runners.clear_ledger();
     lines
+}
+
+/// Complete bounded, resumable pages off the async executor before binding IPC.
+async fn ready_registry(mut registry: Registry) -> Result<Registry, Error> {
+    loop {
+        let (returned, complete) = async_engine::launch_blocking(move || {
+            let complete = registry.migrate_ci_step();
+            (registry, complete)
+        })
+        .await
+        .map_err(|_| Error::ActorClosed)?;
+        registry = returned;
+        if complete? {
+            return Ok(registry);
+        }
+        async_engine::sleep(std::time::Duration::from_millis(1)).await;
+    }
 }

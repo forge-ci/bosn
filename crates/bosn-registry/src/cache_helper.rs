@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 mod recovery;
 
-const PREFIX: &str = "ci.cache-helper.v1:";
-const RECORD_BYTES: usize = 24_576;
+pub(crate) const PREFIX: &str = "ci.cache-helper.v1:";
+pub(crate) const RECORD_BYTES: usize = 24_576;
 pub const MAX_HELPER_PAGE: usize = 64;
 /// Docker control deadline (30 s) plus ten minutes for a late create to settle.
 pub const LATE_CREATE_WINDOW_SECS: f64 = 630.0;
@@ -240,7 +240,7 @@ fn hex_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
-fn decode(detail: &str, nonce: &str, owner: &str) -> Result<CacheHelperRecord, Error> {
+pub(crate) fn decode(detail: &str, nonce: &str, owner: &str) -> Result<CacheHelperRecord, Error> {
     let record: CacheHelperRecord =
         serde_json::from_str(detail).map_err(|_| Error::BadRow("cache helper snapshot JSON"))?;
     record.intent.validate()?;
@@ -283,11 +283,13 @@ impl Immediate<'_> {
         nonce: &str,
     ) -> Result<Option<CacheHelperRecord>, Error> {
         let rows = self.transaction.query(
-            "SELECT detail FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
-            &[Value::Text(kind(nonce)?)],
+            "SELECT detail FROM ci_current WHERE family=2 AND id=?",
+            &[Value::Text(
+                kind(nonce)?.strip_prefix(PREFIX).unwrap().into(),
+            )],
             QueryLimits {
                 max_rows: 1,
-                max_bytes: RECORD_BYTES,
+                max_bytes: RECORD_BYTES + 1024,
             },
         )?;
         let owner = self.helper_owner()?;
@@ -391,6 +393,7 @@ impl Immediate<'_> {
 
 impl Registry {
     pub fn cache_helper(&self, nonce: &str) -> Result<Option<CacheHelperRecord>, Error> {
+        self.require_ci_ready()?;
         read_helper(&self.connection, &self.registry_id()?, nonce)
     }
 
@@ -402,10 +405,14 @@ impl Registry {
         if limit == 0 || limit > MAX_HELPER_PAGE {
             return Err(Error::BadRow("cache helper page limit"));
         }
-        let after_kind = after.map(kind).transpose()?.unwrap_or_default();
-        let rows = self.connection.query("SELECT e.kind,e.detail FROM events e JOIN (SELECT MAX(id) AS id FROM events WHERE kind GLOB 'ci.cache-helper.v1:*' GROUP BY kind) latest ON latest.id=e.id WHERE e.kind>? AND (json_extract(e.detail,'$.state') IS NULL OR json_extract(e.detail,'$.state')<>'removed') ORDER BY e.kind LIMIT ?",
+        self.require_ci_ready()?;
+        let after_kind = after
+            .map(|id| kind(id).map(|_| id.to_owned()))
+            .transpose()?
+            .unwrap_or_default();
+        let rows = self.connection.query("SELECT 'ci.cache-helper.v1:'||id,detail FROM ci_current WHERE family=2 AND pending=1 AND id>? ORDER BY id LIMIT ?",
             &[Value::Text(after_kind), Value::Integer((limit + 1) as i64)],
-            QueryLimits { max_rows: limit + 1, max_bytes: (limit + 1) * RECORD_BYTES })?;
+            QueryLimits { max_rows: limit + 1, max_bytes: (limit + 1) * (RECORD_BYTES + 1024) })?;
         let owner = self.registry_id()?;
         let items = rows
             .iter()
@@ -430,11 +437,13 @@ fn read_helper(
     nonce: &str,
 ) -> Result<Option<CacheHelperRecord>, Error> {
     let rows = connection.query(
-        "SELECT detail FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
-        &[Value::Text(kind(nonce)?)],
+        "SELECT detail FROM ci_current WHERE family=2 AND id=?",
+        &[Value::Text(
+            kind(nonce)?.strip_prefix(PREFIX).unwrap().into(),
+        )],
         QueryLimits {
             max_rows: 1,
-            max_bytes: RECORD_BYTES,
+            max_bytes: RECORD_BYTES + 1024,
         },
     )?;
     rows.first()

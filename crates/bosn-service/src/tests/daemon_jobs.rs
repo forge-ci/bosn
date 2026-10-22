@@ -16,7 +16,7 @@ fn fresh_daemon_serves_typed_client_and_releases_writer() {
         let client = wait_for_client(&state).await;
         client.ping().await.unwrap();
         let before = client.status().await.unwrap();
-        assert_eq!(before.schema_version, 5);
+        assert_eq!(before.schema_version, bosn_registry::SCHEMA_VERSION);
         assert!(!before.registry_id.is_empty());
         client.shutdown().await.unwrap();
         stopped(first).await;

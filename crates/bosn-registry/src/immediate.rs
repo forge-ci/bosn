@@ -271,8 +271,14 @@ impl<'a> Immediate<'a> {
         Ok(None)
     }
     pub fn set_meta(&mut self, key: &str, value: &str) -> Result<(), Error> {
-        if matches!(key, "schema_version" | "registry_id") || key == RECONCILIATION_REQUIRED {
-            return Err(Error::ReservedMeta("schema_version or registry_id"));
+        if matches!(key, "schema_version" | "registry_id")
+            || key == RECONCILIATION_REQUIRED
+            || key.starts_with("ci.retention.")
+            || key.starts_with("ci.migration.")
+        {
+            return Err(Error::ReservedMeta(
+                "registry identity, migration or retention authority",
+            ));
         }
         self.transaction.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", &[Value::Text(key.into()), Value::Text(value.into())])?;
         Ok(())
@@ -579,27 +585,17 @@ impl<'a> Immediate<'a> {
         Ok(())
     }
     pub fn append_event(&mut self, at: f64, kind: &str, detail: &str) -> Result<(), Error> {
-        self.transaction.execute(
-            "INSERT INTO events(at,kind,detail) VALUES(?,?,?)",
-            &[
-                Value::Real(at),
-                Value::Text(kind.into()),
-                Value::Text(detail.into()),
-            ],
-        )?;
-        Ok(())
+        ci_state::append(&mut self.transaction, at, kind, detail, None)
     }
+
     pub(crate) fn put_event_with_id(&mut self, value: &Event) -> Result<(), Error> {
-        self.transaction.execute(
-            "INSERT INTO events(id,at,kind,detail) VALUES(?,?,?,?)",
-            &[
-                Value::Integer(value.id),
-                Value::Real(value.at),
-                Value::Text(value.kind.clone()),
-                Value::Text(value.detail.clone()),
-            ],
-        )?;
-        Ok(())
+        ci_state::append(
+            &mut self.transaction,
+            value.at,
+            &value.kind,
+            &value.detail,
+            Some(value.id),
+        )
     }
     pub fn delete_resource(&mut self, id: &str) -> Result<(), Error> {
         self.transaction.execute(

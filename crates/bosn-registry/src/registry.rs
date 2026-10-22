@@ -3,8 +3,9 @@
 use super::*;
 
 impl Registry {
-    /// Opens a fully initialized v5 registry for its sole writer.  The lock is
-    /// held for the Registry lifetime, including any caller-held immediate tx.
+    /// Opens the sole writer, fencing older binaries before any v5 backfill.
+    /// Complete `migrate_ci_step` before admission. The writer lock is retained
+    /// throughout migration and every caller-held immediate transaction.
     pub fn open_writer(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         // This probe is intentionally before any read-write SQLite open: SQLite's
@@ -12,14 +13,17 @@ impl Registry {
         // Fresh databases must use create_writer's explicit create-new path.
         let probe =
             Connection::open_read_only_with_busy_timeout(path, std::time::Duration::from_secs(5))?;
-        Self::validate(&probe, path)?;
+        Self::validate_for_upgrade(&probe, path)?;
         let identity = fs::path_identity(path)?;
         let writer = acquire_writer_lock(path)?;
         verify_database_identity(path, identity)?;
-        let connection =
+        let mut connection =
             Connection::open_with_busy_timeout(path, std::time::Duration::from_secs(5))?;
-        Self::validate(&connection, path)?;
+        Self::validate_for_upgrade(&connection, path)?;
         verify_database_identity(path, identity)?;
+        if meta(&connection, "schema_version")?.as_deref() == Some("5") {
+            ci_state::migration::prepare(&mut connection)?;
+        }
         Ok(Self {
             connection,
             _writer: writer,
@@ -53,7 +57,7 @@ impl Registry {
             _writer: writer,
         })
     }
-    /// Atomically reserves a new database path, initializes v5, and retains
+    /// Atomically reserves a new database path, initializes v6, and retains
     /// writer exclusion. The caller supplies the secure UUID because the
     /// kernel random facade is async and this synchronous registry must not
     /// invent an executor.
@@ -73,6 +77,7 @@ impl Registry {
         for statement in SCHEMA.split(';').map(str::trim).filter(|s| !s.is_empty()) {
             transaction.execute(statement, &[])?;
         }
+        ci_state::initialize(&mut transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES (?, ?), (?, ?)",
             &[
@@ -145,30 +150,40 @@ impl Registry {
         Ok(self.connection.integrity_check()?)
     }
     pub(crate) fn validate(connection: &Connection, path: &Path) -> Result<(), Error> {
-        Self::validate_inner(connection, path, false)
+        Self::validate_inner(connection, path, false, false)
     }
     pub(crate) fn validate_for_reconciliation(
         connection: &Connection,
         path: &Path,
     ) -> Result<(), Error> {
-        Self::validate_inner(connection, path, true)
+        Self::validate_inner(connection, path, true, false)
+    }
+    fn validate_for_upgrade(connection: &Connection, path: &Path) -> Result<(), Error> {
+        Self::validate_inner(connection, path, false, true)
     }
     #[expect(clippy::too_many_lines, reason = "baseline, ci.yml#229")]
     pub(crate) fn validate_inner(
         connection: &Connection,
         path: &Path,
         allow_reconciliation: bool,
+        allow_upgrade: bool,
     ) -> Result<(), Error> {
         let version = meta(connection, "schema_version")?
             .ok_or_else(|| Error::Uninitialized(path.to_path_buf()))?;
         let version: u32 = version
             .parse()
             .map_err(|_| Error::BadRow("schema_version"))?;
-        if version < SCHEMA_VERSION {
+        if version < SCHEMA_VERSION && !(allow_upgrade && version == 5) {
             return Err(Error::LegacyImportRequired(version));
         }
         if version > SCHEMA_VERSION {
             return Err(Error::UnsupportedSchema(version));
+        }
+        if version == SCHEMA_VERSION {
+            ci_state::validate(connection)?;
+        }
+        if !allow_upgrade && meta(connection, "ci.migration.cursor")?.is_some() {
+            return Err(Error::MigrationInProgress);
         }
         let registry_id = meta(connection, "registry_id")?.ok_or(Error::BadRow("registry_id"))?;
         if !allow_reconciliation
@@ -381,6 +396,7 @@ impl Registry {
         meta(&self.connection, key)
     }
     pub fn begin_immediate(&mut self) -> Result<Immediate<'_>, Error> {
+        self.require_ci_ready()?;
         Ok(Immediate {
             transaction: self.connection.begin_immediate()?,
         })

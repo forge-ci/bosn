@@ -281,7 +281,7 @@ fn publication_refuses_changed_identity_time_and_generation() {
 }
 
 #[test]
-fn incomplete_or_invalid_completion_snapshots_refuse_to_reopen() {
+fn incomplete_or_invalid_completion_snapshots_refuse_before_storage() {
     for change in [
         "missing-stop",
         "invalid-generation",
@@ -300,8 +300,8 @@ fn incomplete_or_invalid_completion_snapshots_refuse_to_reopen() {
         let mut tx = registry.begin_immediate().unwrap();
         tx.complete_act_tool_recovery(RUN, &proof, 8.0).unwrap();
         tx.commit().unwrap();
-        let mut snapshot =
-            serde_json::to_value(registry.act_engine(RUN).unwrap().unwrap()).unwrap();
+        let before = registry.act_engine(RUN).unwrap();
+        let mut snapshot = serde_json::to_value(before.as_ref().unwrap()).unwrap();
         match change {
             "missing-stop" => snapshot["tool_recovery_source_stopped_at"] = serde_json::Value::Null,
             "invalid-generation" => {
@@ -319,9 +319,12 @@ fn incomplete_or_invalid_completion_snapshots_refuse_to_reopen() {
             _ => snapshot["tool_recovery_completion"]["completed_at"] = 3604.into(),
         }
         let mut tx = registry.begin_immediate().unwrap();
-        tx.append_event(9.0, &format!("act.engine.v1:{RUN}"), &snapshot.to_string())
-            .unwrap();
+        assert!(
+            tx.append_event(9.0, &format!("act.engine.v1:{RUN}"), &snapshot.to_string())
+                .is_err(),
+            "{change}"
+        );
         tx.commit().unwrap();
-        assert!(registry.act_engine(RUN).is_err(), "{change}");
+        assert_eq!(registry.act_engine(RUN).unwrap(), before, "{change}");
     }
 }
