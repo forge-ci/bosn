@@ -128,9 +128,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // resumable import stages. act2.29 reclaims verified Ready sources and
             // excludes pending first publications from ordinary cohort eviction.
             // act2.30 adds bounded inode allocation across the full cache root.
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.30/act_Linux_x86_64.tar.gz",
-            sha256: "80cdc0dfd81e9a0ada8bcc9855a72b3b7accf4553cd2f0cbc2143add594f2af6",
-            binary_sha256: "0187cd478cff9c3ace3fdb200cdd321b18d30546d9649e1c0419a12e048cd54f",
+            // act2.31 bounds the engine's build cache and maintains a cohort
+            // around a pending first publication instead of stopping.
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.31/act_Linux_x86_64.tar.gz",
+            sha256: "15bda868f23582b706c10257db98f91ba23227720c950abb0450ea3f8db4d367",
+            binary_sha256: "f11007ca616a9e9ab04165444f8bcded4b9633ed2d0c0ee142c24fa3cc09819e",
         }),
         _ => None,
     }

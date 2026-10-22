@@ -18,6 +18,10 @@ pub struct CohortReport {
     pub protected_bytes: Option<u64>,
     pub budget_met: Option<bool>,
     pub namespaces: Option<Vec<NamespaceAudit>>,
+    /// act2.31: namespaces whose first publication is unfinished. The pass left
+    /// them untouched and outside the budget, so the report is partial.
+    #[serde(default)]
+    pub pending_namespaces: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -172,6 +176,17 @@ impl CohortReport {
             return Err("cohort report exceeds detail limits".into());
         }
         let mut seen = BTreeSet::new();
+        if report.pending_namespaces.len() > 64
+            || (!report.pending_namespaces.is_empty() && !report.partial)
+        {
+            return Err("pending namespaces exceed limits or claim a complete pass".into());
+        }
+        for name in &report.pending_namespaces {
+            Namespace::parse(name)?;
+            if !seen.insert(name.as_str()) {
+                return Err("pending namespace repeated".into());
+            }
+        }
         let mut remaining = 0_u64;
         for store in stores {
             // act2 audits identify a direct child by basename. The enclosing

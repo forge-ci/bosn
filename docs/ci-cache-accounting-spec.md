@@ -7220,3 +7220,24 @@ ceiling plans with `RetentionPolicy::under_disk_pressure`. All gates are
 unchanged. The shared CI cache keeps its act2-side budget, and its volume is
 included in the volume total. Engine Docker roots inside the shared engine are
 still measured only as the engine's storage volume.
+
+
+### act2.31: engine build-cache budget and pending-publication isolation
+
+act2 #88 merged as `059bd512`. Full CI 39857299927 passed all five jobs on that
+exact master SHA. Release 39858864727 published `v0.2.89-act2.31`, and all
+eleven archives were verified (checksums, GitHub digests and sizes,
+architecture headers, embedded version). The tag target and Linux
+`--version`/`--ci-capabilities` smoke also passed (`act2-31-release-provenance.json`).
+Linux archive `15bda868...d367`, executable `f11007ca...819e`.
+
+- Serve bounds the engine's BuildKit cache hourly (`--builder-budget-*`,
+  8 GiB, 7 days unused) through the upstream dockerd's `/build/prune`.
+- `MaintainCohort` no longer fails the whole pass when one namespace's first
+  publication is pending. It leaves that namespace untouched, lists it in
+  `pending_namespaces`, stays partial, and maintains the rest. Bosn's typed
+  report accepts the field, refuses it on a complete pass, and refuses a
+  pending namespace that is also listed as maintained.
+
+The act2 #88 merge also tracked one stray `pr_merge_watch` log under `.clud/`.
+It is not part of the build and is removed in a follow-up.

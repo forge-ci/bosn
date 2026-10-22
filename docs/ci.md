@@ -718,6 +718,21 @@ interrupted cleanup resumes during idle maintenance. Pending migration sources,
 incomplete state and filesystem overhead remain outside these completed-payload ceilings; they are included in the
 shared `actcache` usage sample. This is not a hard allocated machine quota.
 
+A repository whose first publication is still pending is left untouched and
+outside the budget, and is listed in the pass's `pending_namespaces` (the pass
+reports itself partial). Every other namespace is still maintained, so one
+stalled migration no longer stops eviction across the cohort.
+
+### Engine build cache (#508)
+
+Workflow `docker build`s run against the shared engine's own dockerd, so their
+BuildKit cache belongs to that engine. Run proxies refuse `/build/prune`.
+act2 serve bounds the cache itself every hour: it expires records unused for 7
+days, then trims the rest to 8 GiB, least recently used first. BuildKit never
+removes a record a running build holds. `bosn ci doctor` shows the last pass.
+The host's default builder, which setup images use, is never pruned: its cache
+is shared with the operator's own builds and carries no Bosn ownership.
+
 Before cohort enrollment, act2 serve retains the legacy per-repository budget
 (`--cache-budget-*`) on startup and hourly. That legacy pass has these gates:
 

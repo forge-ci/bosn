@@ -116,3 +116,19 @@ fn eviction_receipts_have_checked_counts_bytes_and_unique_ids() {
     invalid.reclaimed_archive_bytes = 79;
     assert!(invalid.validate(policy().repository_max_bytes).is_err());
 }
+
+#[test]
+fn pending_namespaces_are_partial_distinct_and_never_also_maintained() {
+    let mut value = report();
+    value["partial"] = true.into();
+    value["pending_namespaces"] = serde_json::json!(["fedcba9876543210"]);
+    let parsed = parse(&value).unwrap();
+    assert_eq!(parsed.pending_namespaces, ["fedcba9876543210"]);
+    value["partial"] = false.into();
+    assert!(parse(&value).unwrap_err().contains("complete pass"));
+    value["partial"] = true.into();
+    value["pending_namespaces"] = serde_json::json!(["0123456789abcdef"]);
+    assert!(parse(&value).unwrap_err().contains("identity"));
+    value["pending_namespaces"] = serde_json::json!(["not-a-namespace"]);
+    assert!(parse(&value).is_err());
+}
