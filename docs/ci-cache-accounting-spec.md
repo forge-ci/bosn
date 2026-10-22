@@ -6726,3 +6726,38 @@ Act2 PR #85 is open at `d1629f88dddefd8c21668e138ee5a0cf29d3e105`
 remain pending. Nothing is released or activated in Bosn; original scope and
 #508/#693 stay open. The original Bosn checkout contains only the in-progress
 planner regression and living-spec updates on its feature branch.
+
+
+### Bosn archive transport and inactive coordination (2026-10-22)
+
+The typed Docker boundary validates bounded replies, exact source/cohort/
+namespace/import bound, the frozen snapshot nonce and phase lifecycle before
+returning Ready/Fenced/Retry/Refused. Only empty-output exit75 from the trusted
+wrapper is a transport retry. Require uses a shared lifetime lease; Fence and
+Complete use the exclusive nonblocking migration lease. Four focused boundary
+tests passed (`archive-transport-first-tests.log`). This is command-boundary
+coverage, not execution of released act2's new command.
+
+The shared-engine path now calls archive preparation before run preparation;
+Legacy returns immediately, so production remains unchanged and the ordinary
+planner regression is still RED. For an explicit Cohort invocation it inspects
+existing Ready state, fences new enrollment, drains other engines using the
+existing ownership/liveness protocol, then completes publication. Every phase
+verifies the lease; contention waits are async/cancellable. Unknown transport
+errors never trigger fencing. Synthetic backend replies are explicit queued
+phase results, not implicit successful enrollment.
+
+Three coordination tests initially passed and one failed after observing actual
+fake retirement because its assertion confused the fake removal log's names
+with IDs. The corrected test retains both removal-log and engine-absence checks.
+It resumes the same pinned future after an observation timeout, proving Complete
+is not issued while the old fake engine is busy. All four corrected coordination
+tests and four transport tests passed; service library/test Clippy passed24.18s
+(`archive-admission-focused-validation.log`). Sole-primary review found no new
+issue in this inactive coordination. Full immutable machine-policy agreement
+must still precede fencing and be required on Ready admission before activation.
+No real-engine claim is made by these synthetic tests.
+
+Act2 PR #85's six checks passed on `d1629f88dddefd8c21668e138ee5a0cf29d3e105`
+(run `39810469276` plus Codespell). Merge/default-branch full CI and release
+artifact verification are still required before Bosn consumes this dependency.

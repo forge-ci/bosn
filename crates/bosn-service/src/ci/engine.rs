@@ -49,6 +49,10 @@ pub use migration::ImportAttempt;
 mod act_capabilities;
 mod act_install;
 mod admission;
+mod archive_enrollment;
+pub use archive_enrollment::{
+    ArchiveEnrollmentPhase, ArchiveEnrollmentRequest, ArchiveEnrollmentStatus,
+};
 mod readiness;
 mod tool_enrollment;
 #[cfg(all(test, unix))]
@@ -213,6 +217,13 @@ pub trait ActEngineBackend: Send + Sync {
         _max: u64,
     ) -> BoxFuture<'a, Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>> {
         Box::pin(async { Err("backend cannot enroll native tools".into()) })
+    }
+    fn archive_enrollment<'a>(
+        &'a self,
+        request: ArchiveEnrollmentRequest<'a>,
+    ) -> BoxFuture<'a, Result<ArchiveEnrollmentStatus, String>> {
+        let _ = request;
+        Box::pin(async { Err("backend cannot enroll archive caches".into()) })
     }
     /// Protect a native lower before any slot is admitted. Unsupported
     /// backends refuse rather than acknowledge synthetic protection.
@@ -792,6 +803,13 @@ impl ActEngineBackend for DockerActBackend {
             .await?;
             self.install_act(engine, act).await
         })
+    }
+
+    fn archive_enrollment<'a>(
+        &'a self,
+        request: ArchiveEnrollmentRequest<'a>,
+    ) -> BoxFuture<'a, Result<ArchiveEnrollmentStatus, String>> {
+        Box::pin(self.enroll_archives(request))
     }
 
     fn prepare_run<'a>(

@@ -36,11 +36,18 @@ pub struct Faults {
     pub cache_measure: bool,
 }
 
+pub type ArchiveReply = (
+    crate::ci::engine::ArchiveEnrollmentPhase,
+    Result<crate::ci::engine::ArchiveEnrollmentStatus, String>,
+);
+
 /// In-memory engine host: name -> observation. Creation and retirement
 /// drive the real registry actor through the same commands, in the same
 /// order, as the owned-engine layer does on Docker.
 #[derive(Default)]
 pub struct FakeBackend {
+    pub archive_replies: Mutex<std::collections::VecDeque<ArchiveReply>>,
+    pub archive_phases: Mutex<Vec<crate::ci::engine::ArchiveEnrollmentPhase>>,
     pub engines: Mutex<BTreeMap<String, ActEngineObservation>>,
     pub faults: Mutex<Faults>,
     pub executions: Mutex<u32>,
@@ -345,6 +352,24 @@ impl ActEngineBackend for FakeBackend {
                 },
             )
             .await
+        })
+    }
+    fn archive_enrollment<'a>(
+        &'a self,
+        request: crate::ci::engine::ArchiveEnrollmentRequest<'a>,
+    ) -> crate::ci::engine::BoxFuture<'a, Result<crate::ci::engine::ArchiveEnrollmentStatus, String>>
+    {
+        Box::pin(async move {
+            assert!(self.live_id(request.engine));
+            self.archive_phases.lock().unwrap().push(request.phase);
+            let (phase, reply) = self
+                .archive_replies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or("unexpected archive enrollment in synthetic backend")?;
+            assert_eq!(phase, request.phase);
+            reply
         })
     }
     fn enroll_native_tools<'a>(
