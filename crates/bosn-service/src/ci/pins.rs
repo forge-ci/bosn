@@ -125,10 +125,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // act2.27 reclaims the fenced legacy snapshot after durable Ready,
             // retaining its bounded ownership witness for interrupted cleanup.
             // act2.28 adds durable coordinated archive enrollment and bounded
-            // resumable import stages; source reclamation remains follow-up work.
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.28/act_Linux_x86_64.tar.gz",
-            sha256: "7c169ccd338b41b7df48a1f8be215d609b8a737f932b8ce2b2a0c4e595ad811d",
-            binary_sha256: "cbadf22037868f2ee3c19400f0450262324a7cb3b7a56bf06234295035ee33fe",
+            // resumable import stages. act2.29 reclaims verified Ready sources and
+            // excludes pending first publications from ordinary cohort eviction.
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.29/act_Linux_x86_64.tar.gz",
+            sha256: "f9f811f5a248c6cac62afc2920c80d6baecf6dea2de25fe71e1967921594deb4",
+            binary_sha256: "21373f9fa8e2315230ca1b708e0893b54ad4857f100c4bba9b776a0710278599",
         }),
         _ => None,
     }

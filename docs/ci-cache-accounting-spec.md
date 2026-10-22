@@ -6949,3 +6949,34 @@ Bosn's storage samples are backing-filesystem df signals (`ci/storage.rs`), not
 owned engine allocation or a machine cache quota. Those mechanisms do not
 establish scoped-builder expiry or allocated machine ceilings. These remain
 implementation work, not satisfied acceptance criteria.
+
+### Verified act2.29 rollout and physical regression pass (2026-10-22)
+
+Release `39823012819` succeeded for exact act2 master
+`5a5c973960c8b0ed94db3d59fe455579a3c296dc`. All eleven archives passed
+checksum, independent GitHub digest/size, executable-header and version checks.
+The annotated tag target and Linux version/capability execution passed, with
+smoke resources absent afterward. Bosn now pins verified act2.29: Linux archive
+`f9f811f5a248c6cac62afc2920c80d6baecf6dea2de25fe71e1967921594deb4`,
+executable `21373f9fa8e2315230ca1b708e0893b54ad4857f100c4bba9b776a0710278599`.
+Evidence: `act2-29-release-provenance.json`.
+
+The same corrected workflow and source-reclamation assertions that failed on
+released act2.28 passed on released act2.29 in231.48s. Both ordinary two-job
+workflows succeeded, archives restored with their original hashes, completed
+native tools survived retirement, unfinished tools stayed excluded, and both
+legacy archive snapshots retained only their ownership witnesses. Engines
+`bosn-act-4bf37da9-0c1e-498c-95fa-ae91276e3c85` and
+`bosn-act-1e46c879-374c-477a-b4d7-2149740cfe38` were distinct; claims were
+released and private test resources were proved absent. Fixture
+`bosn693-archive-reclaim-green-534a5eff06ad` verified an unchanged test binary
+`80fc7cf7966fa64865631a07dade8855afc7a4b1c5fa00f277bc0a1a24bb55d8`.
+Observed source-tree digest:
+`771ca45680d40ed0a307a29ff5714264a4e7d4ce88fc00c4f7742eeade64e963`.
+Evidence: `archive-source-reclamation-release29-green-proof.{py,json,log}`.
+
+This proves the controlled archive/source-reclamation regression, not the
+remaining original #508 acceptance. Physical all-class/machine ceilings,
+scoped-builder expiry, pending/retained storage bounds and realistic original
+full-project/concurrent/crash/restart acceptance remain open. The whole
+exact-source Bosn gate is still required before pushing this rollout.

@@ -713,8 +713,9 @@ and responds to cancellation.
 These are act2's logical archive bytes (`act cache prune --apply`, the same
 retention act2's cache server runs in-process), not filesystem blocks. A pass
 deletes only archives inside the volume, never the volume, which stays
-pinned. Retained migration snapshots, incomplete state and filesystem overhead
-remain outside these completed-payload ceilings; they are included in the
+pinned. Verified completed migration sources are reclaimed after durable Ready;
+interrupted cleanup resumes during idle maintenance. Pending migration sources,
+incomplete state and filesystem overhead remain outside these completed-payload ceilings; they are included in the
 shared `actcache` usage sample. This is not a hard allocated machine quota.
 
 Before cohort enrollment, act2 serve retains the legacy per-repository budget
