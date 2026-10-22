@@ -7129,3 +7129,14 @@ accounting, retained-source storage bounds, or full-project/concurrent/crash/
 restart acceptance. Those original #508 requirements remain open. Sole-primary
 code review is clean; the whole exact-source Bosn gate remains required before
 push.
+
+The first full gate failed after 331 seconds when the shared installed-driver
+engine was killed and removed. Linux install, lint, policy validation and unit/
+Docker tests had passed, but teardown failed; Rust ended with act exit 137.
+Docker events record explicit signal 9 at Unix1792695429 and engine removal,
+with no OOM event in the captured stream. The caller is unidentified. No lane
+pass was attested, no push occurred, and no check is bypassed. Failed logs and
+engine events are preserved under `cache-footprint-local-gate-engine-killed.log`,
+`cache-footprint-first-gate-{rust,tests}.log` and
+`cache-footprint-gate-engine-removal-summary.json`. Retry uses the ordinary gate
+and its replacement-engine lifecycle, without stopping unrelated work.
