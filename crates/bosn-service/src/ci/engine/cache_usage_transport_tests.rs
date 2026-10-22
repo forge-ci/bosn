@@ -4,40 +4,8 @@ use super::{CACHE_VOLUME, CacheVolume, DockerActBackend};
 use bosn_engine::DockerEngine;
 use kernal_api::platform::fs::TemporaryDirectory;
 
-pub(super) fn fixture(success: bool, cleanup: &str) -> (TemporaryDirectory, DockerActBackend) {
-    let dir = TemporaryDirectory::new().unwrap();
-    let cache = CacheVolume::machine("11111111-2222-4333-8444-555555555555", 1.0).unwrap();
-    let document = serde_json::json!([{
-        "Name": cache.name, "Labels": cache.labels, "Scope": "local",
-        "Driver": "local", "Options": null
-    }]);
-    std::fs::write(dir.path().join("volume.json"), document.to_string()).unwrap();
-    std::fs::write(dir.path().join("cleanup"), cleanup).unwrap();
-    let helper = serde_json::json!([{
-        "Id": format!("{:064}", 1), "Name": "/@NAME@",
-        "Config": {"Image": super::engine_image(), "Labels": {"io.bosn.cache.measurement": "@NONCE@"}},
-        "HostConfig": {"ReadonlyRootfs": true, "Privileged": false, "NetworkMode": "none"},
-        "Mounts": [{"Type": "volume", "Name": CACHE_VOLUME, "Destination": "/cache", "RW": false}]
-    }]);
-    std::fs::write(dir.path().join("helper.json"), helper.to_string()).unwrap();
-    let empty = serde_json::json!({"filesystem_device":null,"path_entries":0,"unique_inodes":0,
-        "apparent_bytes":0,"allocated_bytes":0,"unique_file_bytes":0,"referenced_file_bytes":0});
-    let mut total = empty.clone();
-    total["filesystem_device"] = serde_json::json!(1);
-    total["path_entries"] = serde_json::json!(1);
-    total["unique_inodes"] = serde_json::json!(1);
-    let report = serde_json::json!({"schema_version":1,"root":"/cache","observed_at":"2026-10-22T00:00:00Z",
-        "total":total,"components":[{"class":"tools","usage":empty},{"class":"images","usage":empty},
-        {"class":"actions","usage":empty},{"class":"toolcache","usage":empty},
-        {"class":"actcache","usage":empty},{"class":"other","usage":empty}],
-        "namespaces":null,"omitted_namespaces":0,"partial":false});
-    std::fs::write(dir.path().join("report.json"), report.to_string()).unwrap();
-    if success {
-        std::fs::write(dir.path().join("success"), "").unwrap();
-    }
-    std::fs::write(
-        dir.path().join("docker.sh"),
-        r#"
+/// A synthetic Docker CLI driven by marker files in its base directory.
+const DOCKER_SCRIPT: &str = r#"
 base=$1
 shift
 printf '%s\n' "$*" >> "$base/commands"
@@ -101,9 +69,40 @@ case "$1" in
     : > "$base/seeded" ;;
   *) exit 2 ;;
 esac
-"#,
-    )
-    .unwrap();
+"#;
+
+pub(super) fn fixture(success: bool, cleanup: &str) -> (TemporaryDirectory, DockerActBackend) {
+    let dir = TemporaryDirectory::new().unwrap();
+    let cache = CacheVolume::machine("11111111-2222-4333-8444-555555555555", 1.0).unwrap();
+    let document = serde_json::json!([{
+        "Name": cache.name, "Labels": cache.labels, "Scope": "local",
+        "Driver": "local", "Options": null
+    }]);
+    std::fs::write(dir.path().join("volume.json"), document.to_string()).unwrap();
+    std::fs::write(dir.path().join("cleanup"), cleanup).unwrap();
+    let helper = serde_json::json!([{
+        "Id": format!("{:064}", 1), "Name": "/@NAME@",
+        "Config": {"Image": super::engine_image(), "Labels": {"io.bosn.cache.measurement": "@NONCE@"}},
+        "HostConfig": {"ReadonlyRootfs": true, "Privileged": false, "NetworkMode": "none"},
+        "Mounts": [{"Type": "volume", "Name": CACHE_VOLUME, "Destination": "/cache", "RW": false}]
+    }]);
+    std::fs::write(dir.path().join("helper.json"), helper.to_string()).unwrap();
+    let empty = serde_json::json!({"filesystem_device":null,"path_entries":0,"unique_inodes":0,
+        "apparent_bytes":0,"allocated_bytes":0,"unique_file_bytes":0,"referenced_file_bytes":0});
+    let mut total = empty.clone();
+    total["filesystem_device"] = serde_json::json!(1);
+    total["path_entries"] = serde_json::json!(1);
+    total["unique_inodes"] = serde_json::json!(1);
+    let report = serde_json::json!({"schema_version":1,"root":"/cache","observed_at":"2026-10-22T00:00:00Z",
+        "total":total,"components":[{"class":"tools","usage":empty},{"class":"images","usage":empty},
+        {"class":"actions","usage":empty},{"class":"toolcache","usage":empty},
+        {"class":"actcache","usage":empty},{"class":"other","usage":empty}],
+        "namespaces":null,"omitted_namespaces":0,"partial":false});
+    std::fs::write(dir.path().join("report.json"), report.to_string()).unwrap();
+    if success {
+        std::fs::write(dir.path().join("success"), "").unwrap();
+    }
+    std::fs::write(dir.path().join("docker.sh"), DOCKER_SCRIPT).unwrap();
     let backend = DockerActBackend::new(DockerEngine::synthetic_for_test(
         "sh",
         [
