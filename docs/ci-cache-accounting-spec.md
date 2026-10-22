@@ -6398,3 +6398,151 @@ storage bound. Physical database/WAL accounting and ceilings remain unfinished.
 Deleting historical rows does not shrink old allocated SQLite files. Other event
 families retain their own unfinished storage policies. No full gate, push, PR or
 issue closure is claimed for this candidate.
+
+### Physical registry allocation and reclamation candidate (2026-10-22)
+
+PR #708 merged at `fc2ae6ad16e03b44d9cde8e48b69f403cd699fd5`.
+Its corrected whole local gate passed in 271s: Rust 1,173 passed with 53
+configured skips; Linux 267 passed with ten skips. Stamped source
+`ea6a2a61ed6ed85cee049c132be44c6266fc14cc` independently passed exact
+GATE-003 verification before push. Remote run `39792026548` passed nine checks
+with five configured skips and no unresolved review threads. The original
+checkout rebased onto clean main after merge; the owned local/remote branch and
+exact watcher log were removed. User stashes and the unrelated worktree remain.
+
+The next candidate is uncommitted on `feat/508-registry-storage-budget`.
+The real-WAL regression performs 100 actual current-authority updates, observes
+allocated WAL blocks, runs history maintenance and requires allocation to fall
+while the latest authority remains intact. It failed before implementation and
+passed afterward (`registry-wal-allocation-red.log`,
+`registry-wal-allocation-first-green.log`).
+
+New typed storage samples cover only the database, WAL and shared-memory files,
+deduplicate device/inode pairs, distinguish file length from allocation, and make
+unknown components produce unknown totals. Symlinked/nonregular files are not
+treated as owned storage. Samples read metadata only; stable-inode size/allocation
+changes use the larger before/after observations, while identity/type/read
+failures produce partial samples. Reports expose no paths or raw OS errors. The Windows facade's
+possible logical-size fallback is explicit. `bosn doctor` now includes this
+sample in its JSON/text report. This is not a cross-volume machine census.
+
+Ordinary new CI authority now checks a 1 GiB admission budget against both actual
+file allocation and separately named SQLite page-count projection plus WAL/shared-
+memory extents. The projection catches newly allocated pages before a transaction
+flushes them and accounts for the WAL alongside database growth. Existing current
+records and the previously validated local recovery-helper reserve stay admitted;
+imports and unrelated event families have separate unfinished policies. Thus this
+is admission pressure control, not a hard whole-file quota: protected progress,
+one admitted record and unrelated families can exceed the threshold. A writer's
+explicit override can only lower the default limit and is not persisted.
+
+The actual allocated-pressure regression failed before enforcement and passed
+afterward; the single-transaction regression separately proves unflushed new
+pages cannot bypass admission. The existing full-capacity fixture now also lowers
+its allocation limit and still completes twelve fresh recovery attempts, while
+retaining replay protection. Evidence: `registry-allocated-pressure-red.log`,
+`registry-allocated-pressure-green.log`, `registry-storage-suite-clippy.log`.
+
+Fresh, schema-free databases enable incremental vacuum. The first attempt set
+the pragma after the kernel's WAL setup and the test observed mode 0, not 2.
+The corrected creation path rebuilds only that newly created empty database
+before installing tables; it never runs a full VACUUM on an existing registry.
+Incremental maintenance frees at most 64 freelist pages. Existing legacy files
+without pointer maps retain their high-water allocation and must be reported
+truthfully; their safe compaction path remains unfinished. SQLite documents the
+[incremental-vacuum prerequisites and page limit](https://www.sqlite.org/pragma.html#pragma_auto_vacuum)
+and [WAL size/reset behavior](https://www.sqlite.org/pragma.html#pragma_journal_size_limit).
+
+Reader-held WAL tests prove a zero-busy checkpoint reports blockage without
+waiting, preserves the reader's old snapshot and restores the ordinary writer's
+five-second busy policy; after the reader closes, truncation succeeds. Sparse,
+hard-link, symlink and replaced-path tests pass. The corrected fresh-database
+test proves actual allocation falls while more free pages remain for later
+passes. The first physical suite passed four and failed the mode assertion;
+after correction all five passed.
+
+Primary review found that zero busy timeout alone does not bound checkpoint I/O:
+TRUNCATE can still copy/sync a large WAL on the registry actor. The actor-side
+candidate now defers checkpoints above a measured 4 MiB WAL length, reports
+`checkpoint_deferred`, and a real 5 MiB fixture verifies no false reclaim claim.
+The independent background large-WAL path was still missing at this point; the
+following correction implements it before shipping.
+
+The current isolated registry suite passes 32 library and 65 integration tests;
+registry/service library/tests Clippy passes in 36.64s. No full local gate, commit,
+push, PR or #508 closure is claimed for this uncommitted storage candidate.
+
+#### Independent checkpoint owner and controlled IPC proof
+
+The automatic-checkpoint regression failed with SQLite's default 1,000-page
+setting, then passed after disabling automatic checkpoints on both new and
+reopened writer connections. All writer constructors now finish through one
+guarded setup path. It establishes connection-before-lease drop ordering before
+any fallible secondary initialization, then opens the dedicated checkpoint
+connection while retaining the same writer fence and rechecking file identity.
+The stored path is canonical, so later working-directory changes cannot retarget
+admission or reclamation. Both connections disable automatic checkpoints.
+
+The checkpointer can be taken once through an internal actor command; there is
+no client wire operation. Its connection and shared writer-lease clone live on
+one blocking worker even between passes. An async 15-second scheduler submits
+at most one pass through a one-slot channel. PASSIVE copy and any subsequent
+zero-busy TRUNCATE run there, outside the registry request queue. Cancellation
+closes the command channel; shutdown asynchronously joins the running pass and
+connection close. The registry actor also closes its own connections on a
+blocking worker. Lease field ordering keeps writer exclusion until SQLite closes.
+Large-copy work and shutdown latency are explicitly not time-bounded; neither
+uses a synchronous wait on the async executor. Diagnostics log state transitions.
+
+The actual 5 MiB library fixture proves WAL reclamation, ordinary writer timeout
+preservation, lease retention after dropping Registry, and successful reopen only
+after checkpointer close. The first readback tried returning the whole 5 MiB
+event through the existing 1 MiB page budget and correctly failed. The corrected
+test compares the entire known payload inside SQLite and returns only a bounded
+scalar result; no result limit was widened.
+
+The full Service fixture starts with a real 5 MiB WAL held by a read-only
+snapshot. A test-only gate stalls the actual native checkpoint worker. Authenticated
+IPC status still responds; shutdown waits while the worker is held, and a second
+writer is refused. Releasing the gate allows the real checkpoint, connection
+close and lease release to finish. Reopen verifies exact payload preservation and
+zero allocated WAL bytes. Both corrected fixtures passed
+(`registry-background-checkpoint-corrected-tests.log`). This is actual SQLite/IPC
+lifecycle evidence; Docker is unavailable in that unit container and no new
+container/cache-class acceptance is claimed.
+
+The primary reviewer found no remaining Rust blocker after this correction;
+the documentation finding about the formerly missing worker and conservative
+samples is corrected here. Broad validation and the whole exact-source gate must
+still pass before push. The original #508 physical machine/cache-class scope,
+legacy offline compaction, other event-family policies and full workload acceptance
+remain open.
+
+The first broader background run passed 34 library tests and failed the original
+WAL test because it still expected row maintenance alone to shrink a now-large
+WAL. With automatic checkpoints disabled, the actor correctly deferred it. The
+test now runs row maintenance and the separate checkpoint phase, preserving its
+allocation-reduction/latest-authority assertions. The corrected broader run
+passed 35 registry library tests, 65 integration tests, all 49 daemon tests and
+registry/service Clippy in 19.60s
+(`registry-background-storage-corrected-suite-clippy.log`). The legacy test also
+proves free pages remain visible without claiming old high-water allocation was
+reclaimed or removing the unrelated retained event.
+
+A final pending-allocation regression used a real uncheckpointed database and a
+budget between its current physical allocation and projected database-plus-WAL
+footprint. It failed because only database page count was charged. Admission now
+includes sidecar extents in the separately reported `projected_bytes`; actual
+allocation stays a distinct measurement. The same regression and all twelve
+storage tests pass (`registry-pending-wal-budget-red.log`,
+`registry-pending-wal-budget-green.log`). The single-transaction test still
+requires physical allocation below the limit, actual page growth, and projection
+at the limit before refusal; no check was dropped. Final exact-source validation
+is required after this correction.
+
+Final focused validation after the projection correction passed all 36 registry
+library tests and 65 integration tests. Registry/service library-and-test Clippy
+passed in 18.34s; file-length and include-base guards passed
+(`registry-storage-final-focused-validation.log`). The previously recorded 49
+daemon tests also passed. The whole exact-source local gate remains required
+before push; these results do not close #508.

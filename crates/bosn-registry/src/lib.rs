@@ -28,11 +28,13 @@ mod immediate;
 mod read_only;
 mod registry;
 mod rows;
+mod storage;
 use gc_query::*;
 pub use immediate::*;
 pub use read_only::*;
 use registry::*;
 use rows::*;
+pub use storage::*;
 
 pub const SCHEMA_VERSION: u32 = 6;
 pub const DEFAULT_PAGE_SIZE: usize = 100;
@@ -85,6 +87,12 @@ pub enum Error {
     ReplacedPath(PathBuf),
     InvalidSchema,
     MigrationInProgress,
+    CiMetadataStoragePressure {
+        allocated_bytes: u64,
+        database_bytes: u64,
+        projected_bytes: u64,
+        limit_bytes: u64,
+    },
     ResourceIdentityConflict,
     ReservedMeta(&'static str),
     InvalidCutoverMarker,
@@ -268,7 +276,12 @@ pub struct RegistryStatus {
 
 pub struct Registry {
     connection: Connection,
-    _writer: kernal_api::platform::fs::OwnedFileLock,
+    // Both connections must close before the last writer-lease clone drops.
+    checkpoint_connection: Option<Connection>,
+    _writer: std::sync::Arc<kernal_api::platform::fs::OwnedFileLock>,
+    storage_path: PathBuf,
+    storage_identity: Option<fs::FileIdentity>,
+    ci_metadata_limit_bytes: u64,
 }
 
 /// Exclusive proof that every bridge-capable Python writer has closed its

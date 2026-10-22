@@ -17,6 +17,11 @@ pub(crate) async fn registry_actor(
     let mut act_startup_open = true;
     while let Some(command) = receiver.recv().await {
         match command {
+            DbCommand::StorageCheckpointer(reply) => {
+                if let Err(unclaimed) = reply.send(registry.take_storage_checkpointer()) {
+                    let _ = async_engine::launch_blocking(move || drop(unclaimed)).await;
+                }
+            }
             DbCommand::ActRegistry { command, reply } => {
                 let worker = async_engine::launch_blocking(move || {
                     let result =
@@ -870,8 +875,11 @@ pub(crate) async fn registry_actor(
             }
             DbCommand::Stop(reply) => {
                 let _ = reply.send(());
-                return;
+                break;
             }
         }
     }
+    // Closing the last SQLite connection may checkpoint. Keep that I/O off
+    // the executor even when the dedicated checkpointer has already stopped.
+    let _ = async_engine::launch_blocking(move || drop(registry)).await;
 }

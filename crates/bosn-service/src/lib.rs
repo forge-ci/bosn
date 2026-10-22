@@ -102,6 +102,7 @@ pub mod raw_run_log;
 mod registry_actor;
 mod registry_api;
 mod registry_records;
+mod registry_storage;
 mod run_http;
 mod run_sse;
 pub mod runners;

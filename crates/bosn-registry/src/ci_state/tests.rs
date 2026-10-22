@@ -4,6 +4,38 @@ use crate::cache_helper::{CacheHelperIntent, CacheHelperRecord, CacheHelperState
 const OWNER: &str = "11111111-2222-4333-8444-555555555555";
 const NONCE: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
+#[test]
+fn history_and_checkpoint_maintenance_reclaim_unpinned_wal_allocation() {
+    let dir = fs::TemporaryDirectory::new().unwrap();
+    let path = dir.path().join("registry.sqlite3");
+    let mut registry = Registry::create_writer(&path, OWNER).unwrap();
+    let mut checkpointer = registry.take_storage_checkpointer().unwrap();
+    for at in 1..=100 {
+        let mut tx = registry.begin_immediate().unwrap();
+        tx.append_event(
+            f64::from(at),
+            &format!("{}{}", cache_helper::PREFIX, NONCE),
+            &serde_json::to_string(&helper(f64::from(at))).unwrap(),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    let wal = path.with_file_name("registry.sqlite3-wal");
+    let allocated = |path: &Path| fs::allocated_bytes(path, &std::fs::metadata(path).unwrap());
+    let before = allocated(&wal);
+    assert!(
+        before > 64 * 1024,
+        "fixture did not allocate meaningful WAL storage"
+    );
+    registry.maintain_ci_state(1000.0, 64).unwrap();
+    checkpointer.run_pass().unwrap();
+    assert!(
+        allocated(&wal) < before,
+        "maintenance left allocated WAL untouched"
+    );
+    assert_eq!(registry.cache_helper(NONCE).unwrap(), Some(helper(100.0)));
+}
+
 fn helper(at: f64) -> CacheHelperRecord {
     CacheHelperRecord {
         schema_version: 1,

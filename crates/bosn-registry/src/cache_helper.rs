@@ -319,6 +319,7 @@ impl Immediate<'_> {
             &kind(&record.intent.nonce)?,
             &detail,
             mode,
+            &self.storage,
         )
     }
 

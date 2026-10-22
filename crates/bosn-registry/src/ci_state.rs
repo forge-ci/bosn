@@ -226,6 +226,7 @@ pub(crate) fn append(
     kind: &str,
     detail: &str,
     mode: WriteMode,
+    storage: &storage::StorageCheck,
 ) -> Result<(), Error> {
     let rows = transaction.query(
         "SELECT value FROM meta WHERE key='registry_id'",
@@ -244,6 +245,7 @@ pub(crate) fn append(
             transaction,
             snapshot,
             matches!(mode, WriteMode::RecoveryHelper),
+            storage,
         )?;
     }
     let mut values = vec![

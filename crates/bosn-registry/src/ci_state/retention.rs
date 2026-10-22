@@ -50,6 +50,7 @@ pub(super) fn admit(
     transaction: &mut Transaction<'_>,
     snapshot: &Snapshot,
     recovery: bool,
+    storage: &storage::StorageCheck,
 ) -> Result<(), Error> {
     let exists = transaction.query(
         "SELECT id FROM ci_current WHERE family=? AND id=?",
@@ -73,6 +74,7 @@ pub(super) fn admit(
     if recovery {
         return recovery_capacity::admit(transaction, snapshot);
     }
+    storage.admit(transaction)?;
     let rows = transaction.query(
         "SELECT COUNT(*) FROM (SELECT 1 FROM ci_current LIMIT ?)",
         &[Value::Integer(CAPACITY)],
@@ -244,6 +246,7 @@ impl Registry {
         let mut transaction = self.connection.begin_immediate()?;
         let removed = maintain(&mut transaction, now, limit)?;
         transaction.commit()?;
+        self.reclaim_storage()?;
         Ok(removed)
     }
 }
