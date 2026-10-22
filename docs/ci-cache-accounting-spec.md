@@ -6812,3 +6812,17 @@ and service library/test Clippy passed58.29s
 whitespace checks passed; sole-primary code and documentation review is clean.
 The extended Docker fixture remains unexecuted, and no full exact-source Bosn
 gate, new release pin or push is claimed by these results.
+
+Exact act2 default-branch CI `39813540506` passed all five required jobs on
+`f82a878a86ebc0790fe02cff74fd92ba18934a01`. The release guard initially refused
+because a cached jobs endpoint still reported Linux in progress despite the run
+summary being complete. A fresh job collection and the direct Linux job record
+both confirmed success (Linux completed16:34:58Z). The guard then passed clean
+master, independent remote SHA, all jobs and absent tag/release checks. Annotated
+`v0.2.89-act2.28` was pushed through the existing tag release workflow;
+release run `39816300762` is queued, not yet a successful release. Evidence:
+`/tmp/bosn-693/act2-28-release-guard.json` and `act2-28-release-run.json`.
+Future observations use a fresh query to avoid reusing that stale response.
+Bosn candidate `b7876c4e` remains local/unpushed and still requires independent
+verification of all release archives and the actual extended workflow proof
+before its dependency pin/whole-source gate can be completed.
