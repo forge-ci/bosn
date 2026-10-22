@@ -7297,3 +7297,18 @@ Bosn 0.1.23, which predates the aggregate cohort budget, the owned-footprint
 ceiling, the engine build-cache budget and pending-publication isolation. Those
 take effect when a release containing them ships through the pretag gate.
 Evidence: `host-cache-survey-act2-31.json`.
+
+
+### Engine-layer accounting is part of the owned footprint (correction)
+
+Earlier sections say shared-volume accounting is "not engine-layer accounting
+or a whole-machine quota". That remains true of `runners cache` alone. It is
+superseded for the machine as a whole: the shared engine's Docker data root
+(every image, layer and BuildKit record inside the engine) is the owned volume
+`bosn-act-storage-<generation>`. That volume carries `com.zackees.bosn.kind`,
+the label the managed retention pass observes, and was verified on the
+development host. Its `docker system df` size is therefore part of the owned
+footprint that #713 logs and bounds (256 GiB), together with the shared cache
+volume, setup volumes, containers and images. Whole-machine Bosn allocation is
+the owned footprint; free space under Docker's root is the separate
+disk-pressure input. Neither is a hard filesystem quota.

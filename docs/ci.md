@@ -798,8 +798,13 @@ partial while the inclusive volume total stays independent.
 The CLI shows the largest contributors. Samples can change during active
 writes. Hardlinks can cross classes, and class rows include their namespaces,
 so component rows are not additive. Control files and unfinished state also
-contribute to the volume total. These are shared-volume samples, not engine
-Docker-layer accounting or a hard machine quota.
+contribute to the volume total. These are shared-volume samples. Engine
+Docker layers are accounted for separately: the shared engine keeps its whole
+Docker data root (images, layers, BuildKit cache) in an owned
+`bosn-act-storage-*` volume, which the retention pass sizes with every other
+Bosn-labelled container, volume and image. That total, the owned footprint, is
+logged every pass and bounded by a 256 GiB ceiling. Neither is a hard
+filesystem quota.
 
 The reader uses the current pinned act archive from the cache volume, through
 a read-only cache mount, no network and a private executable tmpfs. When the
