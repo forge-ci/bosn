@@ -170,6 +170,11 @@ pub fn managed_retention_pass(
         };
     }
 
+    // #508: owned allocation has its own ceiling, separate from free disk.
+    let policy = pressure::policy_for_footprint(
+        policy,
+        bosn_core::retention::OwnedFootprint::of(&artifacts),
+    );
     let plan = plan_managed(&artifacts, our_registry.as_deref(), policy);
     let mut removed = 0_u64;
     let mut removed_bytes = 0_i128;

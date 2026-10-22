@@ -549,5 +549,8 @@ pub fn age_seconds(created: SystemTime) -> Option<f64> {
     (secs >= 0.0).then_some(secs)
 }
 
+mod footprint;
+pub use footprint::{DEFAULT_OWNED_CEILING, OwnedFootprint};
+
 #[cfg(test)]
 mod tests;
