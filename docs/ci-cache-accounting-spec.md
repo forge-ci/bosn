@@ -6980,3 +6980,210 @@ remaining original #508 acceptance. Physical all-class/machine ceilings,
 scoped-builder expiry, pending/retained storage bounds and realistic original
 full-project/concurrent/crash/restart acceptance remain open. The whole
 exact-source Bosn gate is still required before pushing this rollout.
+
+### Ordinary archive rollout merged and bounded physical inventory (2026-10-22)
+
+Bosn #710 passed the whole local gate in 428s (Linux 378s, Rust 427s;
+1,200 Rust tests passed, 53 configured skips). Full stamped SHA
+`f2e0801f30f0f471878614beeb8398632f8b8cce` passed independent GATE-003
+verification before push. All 14 remote checks were terminal (nine successes,
+five configured skips), with no unresolved review threads. Merged at
+`4940873379c2dbb34ad78d8cf5c4e1bed0fff50a`; the original checkout returned to
+clean main and rebased, exact tested/main trees matched, and task branches were
+removed after head checks. User stashes and unrelated worktree were preserved.
+Evidence: `archive-routing-local-gate{,-verify}.log`, `pr710-final-status.json`.
+
+The next act2 candidate adds bounded read-only whole-cache metadata accounting
+and shares the original native-tool inode/byte accumulator. The actual CLI
+regression failed on unavailable bounded reporting, then passed cross-class
+hardlink deduplication, sparse allocation and outside-link exclusion. Independent
+du agrees with allocated root bytes; unknown/incomplete state remains included.
+Review found final-component O_NOFOLLOW insufficient for aliased ancestors or
+trailing '/.' roots. Three additional regressions reproduced that bug; opening
+every clean root component relative to the preceding descriptor fixes it.
+Reports never follow symlinks, read payload contents or cross mount identities.
+Directory descriptors, traversal entry/depth limits and cancellation remain
+bounded; incomplete scans expose null byte totals.
+
+Actual same-filesystem bind-file and bind-directory fixtures passed in a
+private privileged container with networknone/nohostbinds; the container was
+proved absent. The first cleanup parser compared uppercase Docker absence text
+against lowercase output and failed its cleanup assertion; this harness failure
+is preserved, not counted as a production failure. Corrected proof passed in 0.42s; the final complete candidate was rebuilt and
+passed in 0.46s with cleanup verified, binary
+`233608fa71d0553376656d4033ef83680e190338e630b5e91a17c6ae9b3186cd`.
+Evidence: `cache-footprint-command-red.log`, `cache-footprint-root-alias-red.log`,
+`cache-footprint-mount-proof{,-cleanup-parser-failure}.{json,log}`.
+
+Namespace details retain only the largest 256 rows using a bounded heap; omitted
+rows still contribute to complete all-class total. A 258-namespace fixture checks
+legacy/cohort identity, hardlinks, largest selection and deterministic ties.
+Its initial expected tie ordering was wrong; the fixture now explicitly sizes
+the cohort payload and checks the defined path tie order. This inventory is a
+non-atomic sample, not a machine quota or deletion eligibility proof. No release,
+Bosn integration or complete #508 acceptance is claimed for this candidate yet.
+
+
+Final candidate `17f9d822a11f56dacab9f649f267b5a074b9d874` has clean
+sole-primary review, focused race tests (artifactcache2.924s, command1.466s),
+zero lint issues and Windows/Darwin package builds. Namespace lint initially
+reported two De Morgan simplifications; both were corrected without suppression.
+The full exact-candidate artifact-cache suite is running before push.
+
+The complete act2 candidate `17f9d822a11f56dacab9f649f267b5a074b9d874`
+passed the full artifact-cache suite in 170.954s, then opened act2 #87. Its six PR
+checks passed, including Linux job 119998604771 in run 39828652770. No dependency
+merge/release is claimed at this observation.
+
+Bosn's integration consumes a bounded typed JSON receipt and extracts only the
+digest-verified executable from a held archive descriptor into private tmpfs.
+The volume remains read-only and the helper has no network. Accounting helpers
+use 512 MiB for bounded inode maps; existing policy readers retain 128 MiB. Old du is
+now test-only independent reference sampling, with no production fallback.
+Initial focused transport tests failed seven cases because their synthetic
+Docker fixture omitted the newly required architecture lookup; adding that
+command and typed receipt preserved every cleanup/uncertain-create assertion.
+Review then caught raw output passing through trimming/lossy decoding before
+the 256 KiB parser bound. Actual transport regressions reproduced acceptance of
+leading padding, trailing padding and invalid UTF-8. Strict raw bounded capture
+fixes all three while retaining exact helper cleanup. The focused suite passed
+32 tests, with 6 explicitly ignored private-Docker tests (one newly added helper
+versus reference proof still to run). Evidence:
+`cache-footprint-bosn-focused.log`, `cache-footprint-bosn-focused-final.log`,
+`cache-footprint-raw-transport-red.log`, `cache-footprint-bosn-raw-green.log`.
+No physical helper proof, verified next pin or full Bosn gate is claimed yet.
+
+Act2 #87 merged at `cdf2cc3ae814b03ee57f0a4ddb6a0a2266bc9bfd` after all
+six checks and no unresolved threads. Both checkouts rebased; the tested/merged
+trees matched and task branches were removed after identity checks. Exact-master
+full CI 39831194698 passed all five jobs. Clean checkout, independent remote SHA,
+full-CI and absent-tag/release guards passed, then requested act2.30 through the
+existing release workflow 39832895745. Release verification remains pending.
+
+The reader now preserves the actual scanner exit: only 0/complete or 1/partial
+receipts are accepted; a failed process cannot publish known complete bytes.
+Initial exit-state testing exposed lost stderr for an empty failed reply; bounded
+diagnostic preservation fixes it while retaining the original failure assertion.
+The focused suite passed 34 tests/6 explicit private-Docker ignores in 10.04s.
+Clippy initially required simplifying an exit-condition Boolean; after that
+correction it passed in 18.50s, with no suppression. The actual helper fixture's
+101-line function was split by responsibility after its first Clippy failure.
+Sole-primary review is clean. Evidence: `cache-footprint-bosn-exit-tests.log`,
+`cache-footprint-bosn-complete-tests.log`, `cache-footprint-bosn-{exit,complete}-clippy.log`.
+The prepared physical proof uses 51,000 small files and an 8 GiB sparse file; this
+is controlled logical-size evidence, not the original 7.7 GiB allocated survey.
+
+Release39832895745 succeeded; independent all-eleven-archive verification is
+running before any Bosn pin change. The replacement parser's maximum namespace
+reply check passed:256 rows with maximum signed64-bit byte counters and a
+maximum-length volume name remain below the existing60KiB tool reply limit.
+Evidence: `cache-footprint-bosn-reply-bound.log`. The whole-source Bosn gate and
+actual helper/reference proof remain outstanding.
+
+Act2.30 is now independently verified: release39832895745 succeeded on exact
+`cdf2cc3ae814b03ee57f0a4ddb6a0a2266bc9bfd`; all eleven archives passed
+checksums, independent GitHub size/digest, architecture-header and version
+checks. Annotated tag identity, Linux version/capability execution and smoke
+cleanup passed. Linux archive:
+`80cdc0dfd81e9a0ada8bcc9855a72b3b7accf4553cd2f0cbc2143add594f2af6`;
+executable `0187cd478cff9c3ace3fdb200cdd321b18d30546d9649e1c0419a12e048cd54f`.
+Bosn's local pin now uses these verified digests. Evidence:
+`act2-30-release-provenance.json`, `act2-30-guarded-release.log`.
+
+The pinned focused suite passed35 tests with6 explicit private-Docker ignores
+in4.76s. The footprint helper's private executable tmpfs is now explicitly
+`exec,size=64m` (the verified executable is23,576,760 bytes), under its512MiB
+memory limit. Network remains disabled and the cache remains read-only. Its
+actual reference comparison is queued; no physical-helper success is claimed.
+
+### Production bounded accounting proof (2026-10-22)
+
+The actual read-only helper passed against independently verified released
+act2.30. Fixture `bosn693-physical-footprint-7c0bf2ab0ef2` used 51,000 small
+files, an 8 GiB sparse file, cross-class hardlinks, native history/snapshot data,
+and legacy/cohort directories for the same namespace. Total apparent bytes
+were **8,601,266,061**; allocated inode bytes were **220,192,768**. The total,
+every class and both namespace rows exactly matched the independent du oracle.
+Production measurement took **1,739 ms**; the Rust test finished in 3.58 seconds.
+Measurement helpers were absent afterward; all private controller containers and
+volumes were proved absent. The private Docker ID differed from the host's.
+
+The harness verified unchanged binary
+`0bcf76fd33ae89ee2a79697f16264fe8e9999b661168777f6c5980cf3cc3fcd0`.
+Observed source-tree digest:
+`920e26942d2d5b20369a042107b6fe8b91301e73fa13c0ec2e116f4df50b2d26`.
+Evidence: `cache-footprint-production-helper-proof.{py,json,log}` and
+`cache-footprint-bosn-final-build.log` (35 focused tests passed, six explicit
+private-Docker ignores, 7.08 seconds). The new physical proof was then run
+explicitly rather than counted among those configured ignores.
+
+**Bootstrap limitation:** offline measurement requires the current pinned act
+archive already present in the shared tools cache from CI preparation. Missing
+or corrupt archive data yields unknown/error, with no network or writable-cache
+fallback. Bootstrap before pressure/admission remains work; this limitation
+must not turn into a false zero or an admission/deletion authorization.
+
+This proves controlled bounded shared-volume accounting. It is not the original
+7.7 GiB allocated survey, a whole-machine quota, engine-layer/scoped-builder
+accounting, retained-source storage bounds, or full-project/concurrent/crash/
+restart acceptance. Those original #508 requirements remain open. Sole-primary
+code review is clean; the whole exact-source Bosn gate remains required before
+push.
+
+The first full gate failed after 331 seconds when the shared installed-driver
+engine was killed and removed. Linux install, lint, policy validation and unit/
+Docker tests had passed, but teardown failed; Rust ended with act exit 137.
+Docker events record explicit signal 9 at Unix1792695429 and engine removal,
+with no OOM event in the captured stream. The caller is unidentified. No lane
+pass was attested, no push occurred, and no check is bypassed. Failed logs and
+engine events are preserved under `cache-footprint-local-gate-engine-killed.log`,
+`cache-footprint-first-gate-{rust,tests}.log` and
+`cache-footprint-gate-engine-removal-summary.json`. Retry uses the ordinary gate
+and its replacement-engine lifecycle, without stopping unrelated work.
+
+
+### Whole-gate retry: discovery fixture readiness race
+
+Candidate `5ff8394e2a428b81da1d65dc3bb9fd3081f6708a` failed the Rust
+lane after 479s: 485 tests passed before fail-fast, one failed, 54 configured
+skips. `discovery_absence_and_outage_never_start_default_maintenance` observed
+the synthetic Docker log file immediately after open, cancelled its process,
+and then read an empty file instead of the expected complete inspect command.
+The observer now waits for that exact complete command before cancellation;
+the final exact command assertion and absence/outage maintenance assertions
+remain unchanged. Linux completed successfully with cleanup removed: 267 tests passed with ten
+configured skips. The whole gate failed after 570s. No passing full attestation or
+push is claimed for this failed candidate.
+
+The corrected exact-name focused test passed: one test, no failures or ignores,
+3.79s (`cache-footprint-discovery-observer-green.log`). A prior short-name
+`--exact` invocation selected zero tests and is not validation. The existing
+sole primary reviewer accepted the correction without findings. A new clean
+committed whole gate remains required before push.
+
+
+### Second external engine removal; isolated gate retry
+
+The corrected candidate `5336eec5` whole gate failed after254s without a
+passing lane. Both runs exited137 and could not close their scopes because
+shared driver engine `13583a134d252dfd6bcfb15fadd20ebde8a4bfe3e57317b35556493d4ab4f29a`
+was killed with explicit signal9 at Unix1792696520, died137 at1792696523 and
+was destroyed. Captured events do not establish an OOM cause or caller.
+Evidence: `cache-footprint-third-engine-events.jsonl` and
+`cache-footprint-local-gate-second-engine-kill.log`. Neither failed gate is
+reused as a pass. The next retry uses the same ordinary whole gate and installed
+driver with a separate state directory and a task-owned private Docker daemon;
+it does not alter the installed host daemon, driver, source checks or verifier.
+Private controller identity/cleanup evidence lives in
+`cache-footprint-private-gate.json` under `/tmp/bosn-693`.
+
+
+The first private-controller gate stopped before tests: both engine creates
+refused invalid nested cgroup domain controllers. The harness had launched
+dockerd directly. Its task-owned outer container was replaced, retaining its
+owned data volume, with the same ENGINE_INIT/private-cgroup-namespace setup
+used by earlier passing physical proofs. A real nested container now starts
+successfully and its exact absence was verified. The private and host Docker
+IDs differ. This repairs the validation harness; it changes no product source
+or gate checks. The failed pre-test runs remain recorded in
+`cache-footprint-private-runs.json` and `cache-footprint-private-local-gate.log`.

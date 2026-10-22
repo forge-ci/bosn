@@ -199,7 +199,11 @@ mod tests {
                             .unwrap()
                             .latest_cache_maintenance()
                             .unwrap();
-                            if detail == "no such volume" && log.exists()
+                            // Opening the log precedes writing it. Cancelling at
+                            // existence can kill the fixture before its write.
+                            let observed = std::fs::read_to_string(&log).unwrap_or_default();
+                            if detail == "no such volume"
+                                && observed == "volume inspect bosn-ci-cache-v1\n"
                                 || detail != "no such volume" && snapshot.is_some()
                             {
                                 return;

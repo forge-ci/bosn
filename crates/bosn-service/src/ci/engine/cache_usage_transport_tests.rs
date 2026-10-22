@@ -20,6 +20,18 @@ pub(super) fn fixture(success: bool, cleanup: &str) -> (TemporaryDirectory, Dock
         "Mounts": [{"Type": "volume", "Name": CACHE_VOLUME, "Destination": "/cache", "RW": false}]
     }]);
     std::fs::write(dir.path().join("helper.json"), helper.to_string()).unwrap();
+    let empty = serde_json::json!({"filesystem_device":null,"path_entries":0,"unique_inodes":0,
+        "apparent_bytes":0,"allocated_bytes":0,"unique_file_bytes":0,"referenced_file_bytes":0});
+    let mut total = empty.clone();
+    total["filesystem_device"] = serde_json::json!(1);
+    total["path_entries"] = serde_json::json!(1);
+    total["unique_inodes"] = serde_json::json!(1);
+    let report = serde_json::json!({"schema_version":1,"root":"/cache","observed_at":"2026-10-22T00:00:00Z",
+        "total":total,"components":[{"class":"tools","usage":empty},{"class":"images","usage":empty},
+        {"class":"actions","usage":empty},{"class":"toolcache","usage":empty},
+        {"class":"actcache","usage":empty},{"class":"other","usage":empty}],
+        "namespaces":null,"omitted_namespaces":0,"partial":false});
+    std::fs::write(dir.path().join("report.json"), report.to_string()).unwrap();
     if success {
         std::fs::write(dir.path().join("success"), "").unwrap();
     }
@@ -31,6 +43,7 @@ shift
 printf '%s\n' "$*" >> "$base/commands"
 case "$1" in
   volume) cat "$base/volume.json" ;;
+  image) printf "amd64\n" ;;
   create)
     shift
     while [ "$#" -gt 0 ]; do
@@ -50,9 +63,8 @@ case "$1" in
 
   start)
     if [ -e "$base/success" ]; then
-      for class in total tools images actions toolcache actcache; do
-        printf '%s 0 0\n' "$class"
-      done
+      cat "$base/report.json"
+      if [ -f "$base/exit-code" ]; then exit "$(cat "$base/exit-code")"; fi
     else
       echo 'read failed' >&2; exit 1
     fi ;;
@@ -227,4 +239,107 @@ exec /usr/local/bin/docker "$@"
     let report = measure(&real).unwrap();
     assert!(!report.partial, "{:?}", report.errors);
     assert!(report.allocated_bytes.is_some_and(|bytes| bytes > 0));
+}
+
+#[test]
+fn measurement_uses_bounded_offline_verified_reader() {
+    let (dir, backend) = fixture(true, "removed");
+    measure(&backend).unwrap();
+    let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+    assert!(commands.contains("cache usage --cache-server-path /cache --max-entries 1000000"));
+    assert!(commands.contains("--memory 512m"));
+    assert!(commands.contains("--tmpfs /var/lib/docker:exec,size=64m"));
+    assert!(commands.contains("--network none --read-only --cap-drop ALL"));
+    assert!(commands.contains("target=/cache,readonly"));
+    assert!(commands.contains("/proc/self/fd/9"));
+    assert!(!commands.contains("du -"));
+    assert!(!commands.contains("wget"));
+}
+
+#[test]
+fn footprint_transport_bounds_raw_bytes_and_requires_utf8() {
+    let mut accepted = Vec::new();
+    for scenario in ["leading", "trailing", "invalid-utf8"] {
+        let (dir, backend) = fixture(true, "removed");
+        let path = dir.path().join("report.json");
+        let raw = std::fs::read(&path).unwrap();
+        let reply = match scenario {
+            "leading" => [vec![b' '; 256 << 10], raw].concat(),
+            "trailing" => [raw, vec![b' '; 256 << 10]].concat(),
+            "invalid-utf8" => {
+                let mut report: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+                report["partial"] = serde_json::json!(true);
+                report["error"] = serde_json::json!("sentinel");
+                for field in [
+                    "apparent_bytes",
+                    "allocated_bytes",
+                    "unique_file_bytes",
+                    "referenced_file_bytes",
+                ] {
+                    report["total"][field] = serde_json::Value::Null;
+                    for row in report["components"].as_array_mut().unwrap() {
+                        row["usage"][field] = serde_json::Value::Null;
+                    }
+                }
+                let text = report.to_string();
+                let (before, after) = text.split_once("sentinel").unwrap();
+                [before.as_bytes(), &[0xff], after.as_bytes()].concat()
+            }
+            _ => unreachable!(),
+        };
+        std::fs::write(path, reply).unwrap();
+        if scenario == "invalid-utf8" {
+            std::fs::write(dir.path().join("exit-code"), "1").unwrap();
+        }
+        if measure(&backend).is_ok() {
+            accepted.push(scenario);
+        }
+        let commands = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+        assert!(
+            commands.contains(&format!("rm -f -v {:064}", 1)),
+            "invalid receipt must still reap its exact helper"
+        );
+    }
+    assert!(
+        accepted.is_empty(),
+        "raw boundary accepted malformed receipts: {accepted:?}"
+    );
+}
+
+#[test]
+fn footprint_transport_preserves_partial_exit_and_refuses_complete_failed_process() {
+    for (partial, exit_code, accepted) in [(false, 1, false), (true, 1, true), (true, 0, false)] {
+        let (dir, backend) = fixture(true, "removed");
+        let path = dir.path().join("report.json");
+        if partial {
+            let mut report: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            report["partial"] = serde_json::json!(true);
+            report["error"] = serde_json::json!("entry bound exceeded");
+            for field in [
+                "apparent_bytes",
+                "allocated_bytes",
+                "unique_file_bytes",
+                "referenced_file_bytes",
+            ] {
+                report["total"][field] = serde_json::Value::Null;
+                for row in report["components"].as_array_mut().unwrap() {
+                    row["usage"][field] = serde_json::Value::Null;
+                }
+            }
+            std::fs::write(path, report.to_string()).unwrap();
+        }
+        std::fs::write(dir.path().join("exit-code"), exit_code.to_string()).unwrap();
+        let result = measure(&backend);
+        assert_eq!(
+            result.is_ok(),
+            accepted,
+            "partial={partial} exit={exit_code}: {result:?}"
+        );
+        if let Ok(report) = result {
+            assert!(report.partial);
+            assert_eq!(report.allocated_bytes, None);
+            assert_eq!(report.bytes, None);
+        }
+    }
 }
