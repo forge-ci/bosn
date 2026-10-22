@@ -120,9 +120,13 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // exclusion for source disposal; existing stores are never upgraded.
             // act2.25 reconciles retained source publication/release/fencing
             // without the original registry; source deletion stays in Bosn.
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.25/act_Linux_x86_64.tar.gz",
-            sha256: "8855c9fb840309b0eed71f85e17e8105aaecfebd4fef39ce28a8eab2f6a58e21",
-            binary_sha256: "f4784de9dd2ebbf6a8682decf855ca3a1a69d32dd458fc6847023585a7a7fb5a",
+            // act2.26 adds durable ordinary enrollment and phased legacy-source
+            // writer exclusion; Ready selection never silently cold-bootstraps.
+            // act2.27 reclaims the fenced legacy snapshot after durable Ready,
+            // retaining its bounded ownership witness for interrupted cleanup.
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.27/act_Linux_x86_64.tar.gz",
+            sha256: "c00daa74122f652f0fcbc6612c0711fe9007523c417bb84894180091dde27b1a",
+            binary_sha256: "ddee7bc657330634332f3bc1e70d44e7254ba32d09632997938facf046a2a739",
         }),
         _ => None,
     }

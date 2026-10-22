@@ -36,6 +36,75 @@ pub struct SparePlan {
     pub cache: CacheVolume,
     /// How its immutable CPU cap was chosen.
     pub cpu_source: super::reply::CiCpuSource,
+    /// Select/enroll the machine's native tools under its claim before creation.
+    /// The payload bound is logical bytes, not a whole-machine storage ceiling.
+    pub native_tools: Option<u64>,
+}
+
+impl SparePlan {
+    pub(super) fn validate_native_policy(&self) -> Result<(), String> {
+        if let Some(max) = self.native_tools {
+            if max == 0 || max > i64::MAX as u64 {
+                return Err("invalid native payload bound".into());
+            }
+            if self
+                .intent
+                .creation_profile
+                .as_ref()
+                .is_some_and(|profile| profile.docker_socket.is_some())
+            {
+                return Err("native enrollment refuses historical Docker socket layout".into());
+            }
+        }
+        if self.native_tools.is_some()
+            && crate::act_engine::frozen_limits(&self.intent)
+                .map_err(|e| e.to_string())?
+                .storage
+                != crate::act_engine::EngineStorage::Disk
+        {
+            return Err("native tool enrollment requires disk-backed engine storage".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn accepts(&self, identity: &super::machine::EngineIdentity) -> bool {
+        let Some(max) = self.native_tools else {
+            return super::machine::EngineIdentity::of(&self.intent).as_ref() == Some(identity);
+        };
+        let Some(binding) = identity.tool_generation() else {
+            return false;
+        };
+        if binding.max_payload_bytes != max {
+            return false;
+        }
+        self.with_generation(binding.clone())
+            .ok()
+            .and_then(|plan| super::machine::EngineIdentity::of(&plan.intent))
+            .as_ref()
+            == Some(identity)
+    }
+
+    pub(super) fn with_generation(
+        &self,
+        binding: bosn_registry::act::ActToolGenerationBinding,
+    ) -> Result<Self, String> {
+        binding.validate().map_err(|e| e.to_string())?;
+        let mut plan = self.clone();
+        let limits = crate::act_engine::frozen_limits(&plan.intent).map_err(|e| e.to_string())?;
+        if limits.storage != crate::act_engine::EngineStorage::Disk {
+            return Err("native tool enrollment requires disk-backed engine storage".into());
+        }
+        plan.intent.creation_profile = Some(
+            crate::act_engine::creation_profile_with_tools(
+                limits,
+                Some(plan.cache.mount()),
+                Some(binding),
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        plan.native_tools = None;
+        Ok(plan)
+    }
 }
 
 /// Create, claim and prepare the engine. Any failure removes what was
@@ -122,15 +191,25 @@ async fn prepare_held(
     {
         let window =
             super::native_lifetime::Window::new(plan.intent.created_at, lifecycle::now_seconds())?;
-        backend
-            .reserve_native_recovery(
-                registry,
-                &plan.intent.run_id,
-                &held.token,
-                window.created,
-                window.expires,
-            )
-            .await?;
+        let reserved = async_engine::timeout(
+            PREPARE_DEADLINE,
+            async_engine::cancellable(
+                cancellation,
+                backend.reserve_native_recovery(
+                    registry,
+                    &plan.intent.run_id,
+                    &held.token,
+                    window.created,
+                    window.expires,
+                ),
+            ),
+        )
+        .await;
+        match reserved {
+            Err(_) => return Err("native source preparation timed out".into()),
+            Ok(Err(_)) => return Err("native source preparation was cancelled".into()),
+            Ok(Ok(result)) => result?,
+        }
         held.verify().await?;
     }
     Ok(held.observed.clone())

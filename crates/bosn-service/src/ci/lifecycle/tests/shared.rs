@@ -448,3 +448,39 @@ fn native_runs_prepare_with_the_leased_binding_in_own_and_adopted_engines() {
         other.stop().await;
     });
 }
+
+#[test]
+fn interrupted_preparation_keeps_claim_until_engine_removal() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            prepare_delay: Duration::from_secs(60),
+            remove: true,
+            ..Faults::default()
+        }));
+        let shared = SharedEngine::new(registry.clone(), backend.clone());
+        let cancel = CancellationSource::new().token();
+        let result = async_engine::timeout(
+            Duration::from_millis(150),
+            shared.lease(&run_id(991), want(991, &dir, 8), &cancel, &mut |_| {}),
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(*backend.engine_preparations.lock().unwrap(), 1);
+        async_engine::sleep(Duration::from_millis(150)).await;
+        assert_eq!(backend.live(), 1, "failed removal retains engine");
+        assert!(
+            backend.machine.claim.lock().unwrap().is_some(),
+            "claim fences surviving preparation"
+        );
+        *backend.faults.lock().unwrap() = Faults::default();
+        let next = lease(&shared, 992, want(992, &dir, 8)).await.unwrap();
+        assert_eq!(
+            backend.live(),
+            1,
+            "retry removes abandoned engine before replacement"
+        );
+        shared.release(next).await;
+        assert!(shared.retire_idle(Duration::ZERO).await);
+        assert!(backend.machine.claim.lock().unwrap().is_none());
+    });
+}

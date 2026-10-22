@@ -11,6 +11,7 @@ use std::{
 mod fake;
 mod fake_machine;
 mod native;
+mod native_live;
 mod shared;
 pub use fake::*;
 
@@ -92,6 +93,7 @@ pub fn shared_plan(run: &str) -> super::super::spare::SparePlan {
         act: super::super::engine::act_artifact("x86_64").unwrap(),
         cache: test_cache(),
         cpu_source: super::super::reply::CiCpuSource::DefaultCeiling,
+        native_tools: None,
     }
 }
 pub fn test_cache() -> CacheVolume {

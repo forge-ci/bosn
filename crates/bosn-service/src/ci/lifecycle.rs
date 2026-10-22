@@ -225,7 +225,10 @@ async fn commit(registry: &RegistryActor, command: ActRegistryCommand) -> Result
 }
 
 /// The run's latest durable record, if its intent ever committed.
-async fn record(registry: &RegistryActor, run: &str) -> Result<Option<ActEngineRecord>, String> {
+pub(super) async fn record(
+    registry: &RegistryActor,
+    run: &str,
+) -> Result<Option<ActEngineRecord>, String> {
     match registry
         .act_registry(ActRegistryCommand::Get { run: run.into() })
         .await

@@ -13,6 +13,8 @@ use crate::ci::{CacheClass, CacheComponent, CacheUsage};
 mod durability_tests;
 pub(super) mod helper;
 pub(super) mod journal;
+#[cfg(all(test, target_os = "linux"))]
+mod native_accounting_tests;
 mod retry;
 pub use retry::HelperCleanupRetry;
 

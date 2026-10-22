@@ -15,6 +15,9 @@ pub struct Faults {
     /// Create the container, then report failure (partial creation).
     pub create_after_side_effect: bool,
     pub prepare: bool,
+    pub prepare_delay: Duration,
+    pub enrollment_phase: Option<crate::ci::engine::EnrollmentPhase>,
+    pub enrollment_delay: Duration,
     /// The external native reservation fails after its intent commits.
     pub reserve: bool,
     pub exit_code: i32,
@@ -51,6 +54,7 @@ pub struct FakeBackend {
     pub storage_probes: Mutex<(u32, u32, u32)>,
     /// Engines prepared (act and runner image), spares included.
     pub engine_preparations: Mutex<u32>,
+    pub enrollment_phases: Mutex<Vec<crate::ci::engine::EnrollmentPhase>>,
     /// Native bindings actually handed to run preparation.
     pub prepared_generations: Mutex<Vec<Option<bosn_registry::act::ActToolGenerationBinding>>>,
     /// The host the fake engine reports; [`FAKE_HOST`] unless set.
@@ -343,6 +347,58 @@ impl ActEngineBackend for FakeBackend {
             .await
         })
     }
+    fn enroll_native_tools<'a>(
+        &'a self,
+        engine: &'a str,
+        phase: crate::ci::engine::EnrollmentPhase,
+        max: u64,
+    ) -> crate::ci::engine::BoxFuture<
+        'a,
+        Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>,
+    > {
+        Box::pin(async move {
+            assert!(self.live_id(engine));
+            let claim = self
+                .machine
+                .claim
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("enrollment has genuine claim");
+            {
+                let engines = self.engines.lock().unwrap();
+                assert!(
+                    engines
+                        .values()
+                        .any(|value| value.engine_id == engine && value.name == claim.engine)
+                );
+            }
+            self.enrollment_phases.lock().unwrap().push(phase);
+            let faults = self.faults();
+            if faults.enrollment_phase == Some(phase) {
+                async_engine::sleep(faults.enrollment_delay).await;
+            }
+            assert!(
+                !self
+                    .machine
+                    .tables
+                    .lock()
+                    .unwrap()
+                    .get(engine)
+                    .is_some_and(|table| table.ready)
+            );
+            Ok(match phase {
+                crate::ci::engine::EnrollmentPhase::Fence => None,
+                crate::ci::engine::EnrollmentPhase::Complete => {
+                    Some(bosn_registry::act::ActToolGenerationBinding {
+                        id: "a".repeat(64),
+                        max_payload_bytes: max,
+                        overlay_recipe_sha256: crate::ci::engine::tool_overlay_recipe_sha256(),
+                    })
+                }
+            })
+        })
+    }
     fn prepare_engine<'a>(
         &'a self,
         engine: &'a str,
@@ -351,6 +407,7 @@ impl ActEngineBackend for FakeBackend {
         Box::pin(async move {
             assert!(self.live_id(engine), "prepare addresses the engine by ID");
             *self.engine_preparations.lock().unwrap() += 1;
+            async_engine::sleep(self.faults().prepare_delay).await;
             if self.faults().prepare {
                 return Err("synthetic prepare failure".into());
             }

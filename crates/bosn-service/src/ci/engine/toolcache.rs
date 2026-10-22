@@ -16,7 +16,19 @@ pub(super) const TOOLCACHE_VOLUME: &str = "act-toolcache";
 /// engine's store and target (`serve.OverlayRecipe`). A generation is frozen
 /// for it; serve refuses to mount a generation frozen for another recipe.
 pub(super) const OVERLAY_RECIPE_SHA256: &str =
-    "fa1d1738cdd1cc9efb8a7ba10c6ca580de21d2e18ea3a75a79492201ab1e9af9";
+    "f6f345602dcd3a4651d99c771dc5ee918979717bc74511c2225adfcc87669818";
+
+/// Historical explicit fixtures used the job's path rather than serve's
+/// engine-local volume mount. Preserve their exact recovery recipe only.
+pub(super) fn recovery_target(recipe: &str) -> Result<&'static str, String> {
+    match recipe {
+        OVERLAY_RECIPE_SHA256 => Ok("/var/lib/docker/volumes/act-toolcache/_data"),
+        "fa1d1738cdd1cc9efb8a7ba10c6ca580de21d2e18ea3a75a79492201ab1e9af9" => {
+            Ok("/opt/hostedtoolcache")
+        }
+        _ => Err("tool recovery producer recipe differs".into()),
+    }
+}
 
 /// The `tool_generation` of serve's prepare request, if the engine has one.
 pub(super) fn generation_request(
