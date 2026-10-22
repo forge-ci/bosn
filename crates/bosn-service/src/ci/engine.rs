@@ -50,8 +50,13 @@ mod act_capabilities;
 mod act_install;
 mod admission;
 mod readiness;
+mod tool_enrollment;
+#[cfg(all(test, unix))]
+mod tool_enrollment_transport_tests;
+mod tool_native_preparation;
 mod tool_recovery;
 pub(crate) use act_install::install_act_script;
+pub use tool_enrollment::EnrollmentPhase;
 mod invocation;
 pub use invocation::{ActInvocation, LOCAL_RUNNER_LABELS};
 mod lines;
@@ -201,6 +206,14 @@ pub trait ActEngineBackend: Send + Sync {
         engine: &'a str,
         act: ActArtifact,
     ) -> BoxFuture<'a, Result<(), String>>;
+    fn enroll_native_tools<'a>(
+        &'a self,
+        _engine: &'a str,
+        _phase: EnrollmentPhase,
+        _max: u64,
+    ) -> BoxFuture<'a, Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>> {
+        Box::pin(async { Err("backend cannot enroll native tools".into()) })
+    }
     /// Protect a native lower before any slot is admitted. Unsupported
     /// backends refuse rather than acknowledge synthetic protection.
     fn reserve_native_recovery<'a>(
@@ -742,6 +755,15 @@ impl ActEngineBackend for DockerActBackend {
                 .await
                 .map(|_| ())
         })
+    }
+
+    fn enroll_native_tools<'a>(
+        &'a self,
+        engine: &'a str,
+        phase: EnrollmentPhase,
+        max: u64,
+    ) -> BoxFuture<'a, Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>> {
+        Box::pin(self.enroll_tools(engine, phase, max))
     }
 
     fn reserve_native_recovery<'a>(

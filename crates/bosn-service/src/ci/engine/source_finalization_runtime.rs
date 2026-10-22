@@ -200,15 +200,15 @@ fn finalization_program(
         .cache_volume
         .as_ref()
         .is_none_or(|v| v.target != ENGINE_CACHE)
-        || generation.overlay_recipe_sha256 != crate::ci::engine::toolcache::OVERLAY_RECIPE_SHA256
     {
         return Err("source finalizer producer binding differs".into());
     }
+    let target = crate::ci::engine::toolcache::recovery_target(&generation.overlay_recipe_sha256)?;
     let pin = RecoveryPin::from_intent(&context.recovery)?.encoded()?;
     let install = offline_act_script(act, &format!("{WORK}/bin"));
     let source = if mount_source {
         format!(
-            " --source-root /var/lib/docker --toolcache-target /opt/hostedtoolcache --overlay-recipe-sha256 {}",
+            " --source-root /var/lib/docker --toolcache-target {target} --overlay-recipe-sha256 {}",
             generation.overlay_recipe_sha256
         )
     } else {

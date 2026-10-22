@@ -5647,3 +5647,557 @@ ensure/task tests pass with the ordinary dev-profile runtime in the Docker
 Rust harness. A fresh full gate, including installed-wheel daemon startup,
 is still required before push. This failure and correction do not complete
 #508 or authorize ordinary native routing.
+
+
+### Ordinary native enrollment: active implementation (2026-10-22, #508)
+
+Retained-context PR #705 merged at
+`90fde723ab373c1ae60ccb6fafc821d54646f94d`. Its corrected full gate passed
+391s (Rust391s, Linux373s), stamped
+`3a110a233b799f1c0262013fb373bcb2b6fa3d2c`, tree
+`48e68b32ed9e16cef566430ff4d256866ba688b2`; independent GATE-003 verification
+passed before push. Rust passed 1,145 tests with49 configured skips; Linux
+passed264 with10 configured skips, including both prior startup failures.
+Remote run39750419031 completed success with9 successful jobs and5 configured
+skips. Wheel placeholders are not artifact validation. The original checkout
+returned to clean main and rebased after merge, and the owned local/remote
+branch and exact observer file were removed. #508 remains open.
+
+The next real production boundary is ordinary native enrollment, rather than
+another manually bound recovery fixture. A behavioral Bosn RED demonstrates
+that an ordinary template requesting native tools is still admitted as Legacy:
+`native-enrollment-template-red.log`. The original checkout now holds this
+uncommitted RED plus a typed optional policy field on
+`feat/508-native-enrollment`; production policy remains unset. No native route
+has been activated or represented as passing.
+
+The external act2 checkout on `feat/tool-enrollment-history` contains an
+uncommitted producer API/CLI for enrollment. Its first behavioral RED proved
+that directly reusing explicit Bootstrap recreates a missing warm selection
+(`tool-enrollment-history-red.log`). A fixed sibling Bolt history now distinguishes
+Pending and Ready across registry loss and whole native-store loss. The history
+contains a random256-bit store identity, mirrored and synced in a fixed native
+root marker; it never persists VM-specific device/inode numbers as incarnation
+authority. Ready only reads the exact epoch3/token and bounded current-generation
+metadata. It does not hash payload during planning or invoke bootstrap/initialize;
+the original tool-exec reader remains responsible for payload verification.
+Corrupt payload is refused there even when the planning hint succeeds.
+
+Early review found and independently reproduced epoch1 initialization, existing
+empty-history acceptance and a source/history path collision. Epoch3 is now
+enrolled after durable Pending and before payload publication, existing empty or
+unidentified histories refuse, fresh creation is exclusive, aliases/special files
+and mount/size boundaries refuse, and reserved path collisions refuse before I/O.
+Ready marker downgrades and a replacement valid epoch3 empty tree also reproduced
+unsafe acceptance; exact epoch/token requirements now refuse both. Evidence:
+`tool-enrollment-epoch-red.log`, `tool-enrollment-history-alias-red.log`,
+`tool-enrollment-ready-identity-red.log` and subsequent focused green logs.
+
+A machine claim alone cannot exclude legacy writers after a daemon crash while
+an external enrollment operation remains alive. The producer therefore has two
+explicit phases. Fence-only records Pending, creates source-store epoch3 and its
+identity, and atomically exchanges a legacy directory with a regular refusal
+file using renameat2(RENAME_EXCHANGE). An absent cold source uses NOREPLACE.
+There is no copy/ordinary-rename fallback. A frozen private snapshot retains the
+old directory with its own bounded token marker; both namespace entries share
+one parent that is synced before acknowledgment. Fence-only admits no generation
+and makes no quiescence claim. Ready hints always require the original source
+refusal file, without repairing it.
+
+Existing directory descriptors survive exchange. Bosn must re-inventory and
+drain every other old engine/helper after fencing and before the explicit
+require-fenced completion. That completion never creates missing history or
+exchanges/repairs the original source path. A test actually holds a directory FD
+across cutover, finishes an install through it, closes the writer and verifies
+that completion preserves its late payload. A second RED showed an initially
+empty source permanently refusing that completed late install; Pending now
+makes a durable one-way cold-to-warm transition after drain and before publishing.
+An absent source that gained a directory before fencing also reproduced a
+liveness refusal; Pending durably freezes that newly arrived directory before
+exchange, preserving its completed install. Ready never takes either path.
+The first transition attempt had a stale report Mode despite its updated journal;
+that report was corrected before the final focused pass. Evidence:
+`tool-enrollment-legacy-fence-red.log`,
+`tool-enrollment-late-cold-writer-red.log`,
+`tool-enrollment-source-appeared-red.log` and
+`tool-enrollment-late-writer-green-final.log`.
+
+Focused artifactcache/CLI/capability tests pass (30.480s/1.792s), lint0issues.
+An initial test WriteFile permission was corrected to0600. The actual embedded
+seed/save scripts refuse the source file at mkdir, before any Docker call or cold
+volume creation; their bytes match release act2.25 exactly, with hashes in
+`tool-enrollment-old-recipe-provenance.json`. This is an embedded-recipe proof,
+not execution of an old full workflow. Gosec rejected a test's dynamic shell
+string; the proof now executes the two fixed repository script paths directly,
+without relaxing the linter. Complexity21 was split into a pending-transition
+function, preserving the limit20. The earlier full artifactcache race and CLI
+suite passed before the physical fence changes; the fresh phased full race/CLI
+suite is running at this recording point and is required before publication.
+
+Bosn integration must give enrollment the physical lifetime of its claimed,
+ordinary tracked temporary engine. It must never open workflow slots in that
+engine. Cancellation, uncertain/late create and takeover must prove its ID and
+canonical name absent before releasing its claim; failed/background cleanup
+keeps the claim. The own-claim shortcut must not release a claim while its
+preparing engine exists. After source fencing, post-cutover writer drain and
+publication, retire that engine and create the actual native engine under a new
+genuine daemon claim with a frozen generation binding. Native template matching
+must validate the exact pinned init/recipe/payload bound while reusing an engine's
+frozen generation. Do not make fake process identities, start the claim container,
+or create another cache-helper protocol to avoid this lifecycle.
+
+This is WIP, not a new merged fix. No act2 release or Bosn pin has changed after
+verified25. Native enrollment, real-engine orchestration, cancellation/restart/
+whole-workflow/large-cache proof and the remaining original all-class accounting,
+finite metadata/history, archive migration, memory handling and scoped GC remain
+unfinished. The retained legacy snapshot is not yet reclaimed; its finite removal
+and accounting remain part of the original contract. No other #693 child started.
+
+
+### Ordinary enrollment continuation: preparation cancellation boundary
+
+The phased act2 artifactcache race binary and focused command suite completed
+successfully (`/tmp/bosn-693/tool-enrollment-phased-full-race-cli.log`, session
+53267 exit 0). This proves the tested producer implementation, not released
+Bosn routing or the remaining whole-machine acceptance requirements.
+
+Bosn preparation now retains its genuine machine claim until normal durable
+engine cleanup succeeds and inspection proves the canonical engine name absent.
+The cancellation guard reads the committed execution claim from the registry,
+including when the original caller never received that token. Cleanup failure
+or runtime shutdown retains the machine claim. A subsequent lease retries that
+same durable cleanup before releasing the claim; it cannot simply discard an
+own-daemon claim whose engine may still exist. Native policy also disables the
+legacy-drain ten-minute fallback that would create beside old writers.
+
+Focused evidence: `enrollment-preparation-guard.log` passed the cancellation /
+failed-removal check; `enrollment-preparation-shared.log` passed all 11 shared
+engine tests, including retry after the fault clears, replacement, and normal
+retirement. The existing primary reviewer found no static release-order hole;
+late/unacknowledged-create behavior still relies on the existing durable
+cleanup grace model and needs integration-level coverage before activation.
+No PR or release was made for this continuation. Production native policy
+remains unset; the ordinary-template regression remains intentionally RED until
+the enrollment controller and actual producer transport are connected.
+
+
+### Ordinary enrollment controller: template regression GREEN, production still gated
+
+The native policy template is now connected to shared-engine creation. Under a
+real daemon-owned machine claim, an ordinary tracked preparation engine installs
+the pinned act binary but never calls serve preparation, marks Ready or opens a
+workflow slot. The typed `tool-enroll` Fence receipt acknowledges no generation.
+Bosn re-inventories and drains every other legacy engine after that physical
+source cutover, with cancellation and no timed fallback beside old writers, then
+requires a closed Complete receipt. A validated binding freezes the selected
+generation, logical payload bound and current overlay recipe. The preparation
+engine is normally retired and its canonical name proved absent before its
+claim is released. A new UUID and genuine claim create the actual native engine;
+existing recovery reservation runs before its first slot opens. The legacy
+source refusal file spans that claim gap. Cancellation retains the guard and
+normal durable cleanup. No fake daemon identity or running claim is introduced.
+
+Policy matching recomputes the complete expected identity using the held or
+foreign engine's frozen generation; ordinary reuse need not force retirement
+when selection later advances. Unsupported memory-backed policy and historical
+socket layouts refuse before source mutation, at lease entry and creation.
+The production planner still sets `native_tools: None`: actual release transport,
+retained-snapshot reclamation and real acceptance remain prerequisites to
+activation. Existing archive routing is still Legacy. The prior ordinary-template
+RED status above is superseded by this tested controller implementation.
+
+Evidence:
+- `enrollment-controller-first.log`: original ordinary-template regression GREEN.
+- `enrollment-controller-ci-tests.log`: 311 passed, 17 configured ignored hardware/
+  large-fixture tests; includes strict closed receipts, ordinary selection and
+  frozen-generation reuse. This run precedes the final validation helper split.
+- `enrollment-controller-native-final.log`: three native checks passed; the new
+  memory-refusal test initially constructed invalid limits and failed at fixture
+  setup. It was corrected to use the real memory-policy sizing boundary.
+- `enrollment-controller-native-green.log`: all four native checks passed after
+  that fixture correction and helper split. Covers initial protection, uncertain
+  reservation refusal, ordinary selection/reuse and explicit memory refusal.
+- `enrollment-controller-clippy.log`: latest source passes service library/tests
+  Clippy with `-D warnings`; function/file limits were preserved.
+- Sole primary reviewer found no remaining high/critical controller finding;
+  policy validation was also moved to lease entry following their consistency
+  observation. These checks are not actual Docker or full-workflow acceptance.
+
+Act2 dependency candidate `6c113bf5b806ef3a6090bce64270126ba5a5170c` is published
+for review as https://github.com/zackees/act2/pull/83. Full PR checks are still
+running; no merge, dependency release, Bosn pin update or Bosn PR has occurred
+in this continuation. Full exact merged default-branch CI and independent asset
+verification remain mandatory before using a new released pin.
+
+
+### Enrollment transport correction and dependency merge
+
+A real transport inspection found that the initial enrollment call used PATH
+`act`, although installation verifies the private executable under
+`ENGINE_WORK/bin`. The new synthetic-Docker behavioral regression failed with
+`unverified PATH binary refused` (`enrollment-private-binary-red.log`) and passed
+after the call was corrected to the absolute verified installation
+(`enrollment-private-binary-green.log`). Closed receipt validation plus this
+transport check passed (`enrollment-transport-preflight.log`: two passed, one
+explicit live-fixture ignore). The live transport harness remains unexecuted.
+It requires independently verified release provenance, preserves warm bytes and
+mode, checks inherited original-reader device/inode and legacy refusal, records
+candidate/build/binary provenance, and cleans exact private Docker resources.
+
+Act2 #83 merged normally at `83564159344ccbceaf0f348531967cba4fa21642` after all
+six PR checks passed on head `6c113bf5b806ef3a6090bce64270126ba5a5170c`, with no
+reviews or unresolved review threads. External checkout is clean on master,
+rebased to origin/master, and the merged feature branch was removed after tree
+equality. Bosn was fetched and rebased onto current origin/main using a successful
+autostash; all three prior user stashes remain unchanged. Exact merged default
+full CI is run https://github.com/zackees/act2/actions/runs/39762337638 on the
+merge SHA. It is still running; no act2.26 tag or release has been made and Bosn
+still pins verified act2.25. Guard and independent eleven-archive/runtime
+verification scripts are prepared for act2.26, not executed.
+
+A second explicit hardware fixture now exercises genuine SharedEngine native
+admission, protection acknowledgement before first slot, retirement, and another
+fresh engine selecting the same warm generation. It positive-matches the
+isolated Docker daemon ID and the compiled act version to a typed fixture.
+Its harness provisions a private outer Docker daemon, mounts only that daemon's
+control volume into the Rust runner, seeds the exact released archive and one
+completed legacy install, independently checks payload/mode/source fence and
+removes the exact outer containers and volumes. It does not use the production
+Docker socket in the runner and makes no workflow-execution claim. The fixture
+has compiled but is explicitly ignored until provisioned; latest Clippy passed
+with warnings denied (`enrollment-live-controller-clippy.log`). Rebuild against
+the verified new pin before executing it; no hardware success is claimed here.
+The enrollment controller branch is boxed at the ordinary make boundary to
+avoid enlarging the ordinary daemon future; four focused admission checks pass
+(`enrollment-boxed-controller-green.log`). Production policy remains unset.
+
+
+### Exact dependency gate and interrupted-claim liveness
+
+Default-branch full act2 CI 39762337638 completed successfully on exact merged
+SHA `83564159344ccbceaf0f348531967cba4fa21642`; all five jobs (lint, Linux,
+Windows, macOS, snapshot) passed. The act2.26 release guard passed first without
+publishing, then revalidated clean master, exact remote SHA, full CI and absent
+tag/release before pushing annotated tag `v0.2.89-act2.26`. Existing tag-triggered
+release run https://github.com/zackees/act2/actions/runs/39764326180 is in progress.
+No release artifact has yet been accepted or Bosn pin changed in this step.
+
+Cancellation fault tests now enter Fence and Complete separately, cancel the
+following request, and prove prompt refusal, no Ready/slot, and retention of
+engine plus machine claim when physical cleanup fails. Initial test compilation
+needed an explicit closure lifetime and owned run string; the corrected test
+passed (`enrollment-phase-cancellation-green.log`). Extending it to clear the
+fault and run normal maintenance exposed an actual liveness defect: own live
+claims were never retried by tend_machine (`enrollment-claim-reaper-red.log`).
+The reaper now uses the existing strict durable preparation cleanup when the
+claim is ours and the held-engine mutex is empty; active preparation holds that
+mutex and cannot be retired. Failed cleanup preserves its claim. A new ordinary
+request waits with a bounded reason instead of failing immediately while
+recovery remains pending. No source protection or absence proof was weakened.
+The same regression is GREEN (`enrollment-claim-reaper-green.log`), and the
+subsequent lifecycle group passes 20 tests with one explicit hardware ignore
+(`enrollment-claim-cleanup-lifecycle.log`). The primary reviewer found no
+remaining high/critical static issue in these changes.
+
+The isolated controller fixture was corrected to start the actual production
+recovery/cohort supervisors and wait boundedly for normal reaper cleanup after
+retirement. Native source retention is expected until producer recovery and
+release are durable; immediate claim disappearance was an invalid fixture
+assumption. It does not bypass that retention, fabricate source completion or
+force-delete the claim. The real Docker run remains pending independently
+verified release artifacts and a rebuild against that pin. All other #508
+acceptance gaps remain open, and no later #693 child has started.
+
+
+### Verified act2.26 and actual controller RED → GREEN
+
+This section supersedes the pending release/artifact/controller statements above.
+The release workflow 39764326180 succeeded on exact
+`83564159344ccbceaf0f348531967cba4fa21642`, after all five full default CI jobs
+39762337638 passed. Annotated tag `v0.2.89-act2.26` peels to that SHA. All eleven
+archives match release checksums, independent GitHub digests/sizes, executable
+architecture/header and embedded version. Linux runtime version and all required
+capabilities, including `tool-enrollment-v1`, passed with exact smoke cleanup.
+Archive SHA256: `a2e1facf5faa0d9493561a38a85aa63dbef2bc66f1c429db8c31496f2ed44553`.
+Executable SHA256: `f9086369b440d07ecc3ad8a12d50e7537754940ead8fb30070c932524c836a01`.
+Evidence: `act2-26-{release-guard,verification,runtime-smoke,release-provenance}.json`.
+The candidate now pins these verified bytes in core ACT_VERSION and service pins;
+this is unpushed Bosn work, not a Bosn rollout.
+
+The actual Rust enrollment transport passed against released act2.26. Independent
+checks confirmed warm bytes and mode, regular-file legacy refusal, and the child
+inheriting the original generation reader device/inode. All exact Docker fixture
+resources were removed. Evidence: `enrollment-release26-transport-proof.{log,json}`.
+
+The first full-controller harness stopped before admission because its private
+outer Docker daemon lacked delegated cgroup controllers. It was corrected to run
+Bosn's exact private ENGINE_INIT rather than changing host cgroups. Cleanup was
+verified before retry; see `enrollment-release26-controller-proof-initial-cgroup-failure.json`.
+The corrected real controller admitted a protected native engine but failed its
+bounded retirement wait: no workflow had yet initialized the recovery overlay.
+Producer recovery correctly refused missing source paths. Evidence:
+`enrollment-release26-controller-missing-source-red.json`. The source reservation
+path now calls existing act2 serve prepare with only the frozen tool generation
+(no image, stock tools or workflow) before committing ToolRecoveryBegin. The
+original PID1 reader protects the lower during this producer-owned preparation.
+Its exact closed receipt must name the frozen generation. Failure/cancellation
+before reservation has admitted no work; normal exact-owned preparation cleanup
+remains valid. Reservation/source preparation is now cancellable and bounded.
+
+This actual producer call then exposed a second real integration mismatch:
+`fa1d1738…` described the manually exercised job path `/opt/hostedtoolcache`,
+whereas serve mounts the volume at
+`/var/lib/docker/volumes/act-toolcache/_data`. The guard correctly refused it;
+see `enrollment-release26-controller-recipe-red.json`. New bindings use exact
+recipe SHA256 `f6f345602dcd3a4651d99c771dc5ee918979717bc74511c2225adfcc87669818`,
+computed from the unchanged pinned producer script and actual serve target.
+Recomputing the historical target reproduces the old digest. Recovery/finalization
+use a strict known-recipe-to-target map so historical protected sources retain
+their exact old recipe; unknown recipes still refuse. Evidence:
+`native-serve-recipe-correction.json`.
+
+The same actual controller proof is now GREEN. It created and protected the first
+native engine, retired it through production recovery/cleanup, admitted a fresh
+engine with the identical warm generation, retired that engine and released its
+claim normally. Independent checks preserved original tool bytes/mode and the
+legacy refusal file. Exact private outer containers and volumes, including every
+inner Docker object, were removed. Evidence:
+`enrollment-release26-controller-warm-green.json` and
+`enrollment-release26-controller-recipe-corrected.log`. This proves real ordinary
+policy/controller admission and empty-update retirement, not unchanged workflow
+execution, new completed updates or whole-machine/class storage acceptance.
+
+The reviewer found a raw transport bound issue in the new preparation receipt:
+checked() trimmed whitespace before parsing. A real synthetic-Docker response with
+5,000 whitespace bytes demonstrated RED; raw bounded capture, UTF-8 validation
+and closed parsing now reject both oversized leading and trailing whitespace,
+while accepting the ordinary receipt. Two focused tests pass; see
+`enrollment-source-receipt-bound-{red,green}.log`. This hardening followed the real
+controller success and preserves its valid receipt contract. Sole primary code
+review is clean; the complete exact-source Bosn gate is still required before
+any push. Production planner native policy remains unset pending retained-source
+reclamation and the remaining original acceptance requirements. #508 stays open;
+no other #693 child has started.
+
+### Retained enrollment snapshot reclamation candidate
+
+The next regression demonstrated that successful enrollment retained the entire
+legacy payload and unfinished private stages: the snapshot still contained five
+root entries rather than just its ownership marker. The unpublished act2 branch
+`feat/enrollment-snapshot-reclamation` now reclaims that payload only after Ready
+is committed, the native selection metadata validates, and the original legacy
+refusal fence remains intact. Fence-only admission never reclaims source data.
+
+Deletion traverses no-follow directory descriptors, refuses directory mount
+boundaries, checks cancellation for each entry, bounds the descriptor stack,
+and processes at most 4,096 entries per traversal pass under the existing
+15-minute enrollment deadline. Interrupted passes resume using the original
+root identity marker; the small marker directory remains as the ownership
+witness. Symlinks are removed without following their targets. Successful
+completion waits for directory synchronization; failure is a partial enrollment
+response, not proof of reclamation. This does not complete allocated accounting
+or machine-wide pressure policy.
+
+Review caught a liveness defect in the initial depth refusal: legacy private
+stages can be deeper than bootstrap's public payload validation. An 80-directory
+private-stage regression reproduced permanent admission failure. The correction
+lifts a verified deep subtree to a unique sibling inside the same owned snapshot
+using no-replace rename, then restarts traversal from the root. This preserves
+bounded descriptors without rejecting accepted private depths or placing data
+outside the ownership witness. Evidence:
+`enrollment-snapshot-deep-{red,green}.log`; the final expanded test additionally
+requires only the ownership marker to remain.
+
+The retention regression is GREEN. All focused `TestToolEnrollment` tests pass,
+including external-target preservation, native reader validation, refusal before
+durable Ready, a three-entry work budget, cancellation without further deletion,
+and resumed deletion. Full repository lint reports zero issues, cache/tool/CI
+command tests pass, and the final standalone full artifact-cache race suite
+passed without excluding the unprivileged recovery tests. Sole-primary review
+is clean. No new dependency release,
+Bosn pin change, production activation or issue closure is claimed for this slice.
+
+The first full race invocation failed in existing UID-switch tests because Go's
+private `/tmp/go-build…` directory prevented executing its test binary as the
+unprivileged test user (`permission denied`). That failure is retained in
+`enrollment-snapshot-reclamation-race.log`. The final candidate passed
+as a standalone race binary with mode 0755 from the artifact-cache package
+directory, preserving the same suite and its old-recipe relative fixture paths;
+see `enrollment-snapshot-reclamation-race-standalone.log`. Latest package lint
+still reports zero issues after the deep-tree and completion-check changes.
+
+The reviewed candidate is committed at
+`769632ff535f8f2fa6d346d8bd728b5e17eb139b` in
+[act2 #84](https://github.com/zackees/act2/pull/84). Required remote checks are
+running; merge and exact-default-commit release verification remain outstanding.
+Source and validation-log hashes are recorded in
+`enrollment-snapshot-reclamation-evidence.json`. Bosn remains unpushed on its
+existing integration branch and continues to pin verified act2.26.
+PR checks run `39769650975` is currently in progress on that exact head;
+Codespell run `39769650981` passed. The normal PR watcher is running with
+evidence in `enrollment-snapshot-reclamation-pr-watch.log`; an observation
+timeout must not cause duplicate workflow dispatch or a replacement watcher.
+
+An additional actual Docker nested-volume proof passed on the committed,
+unreleased act2 candidate. After phase-zero cutover, a separate task-owned volume
+was mounted inside a private unfinished snapshot subtree. Complete refused the
+mount boundary with a partial response; it did not claim enrollment success.
+After removing that helper/mount, the same durable history completed reclamation.
+Independent checks confirmed only the original ownership marker remained,
+`preserved-tool` bytes and mode 0751 survived in the selected native generation,
+and the separate volume still contained `unrelated-volume`. Both owned volumes
+and every helper container were proved absent after cleanup. Evidence:
+`enrollment-reclamation-mount-proof.{py,json,log}`, fixture
+`bosn693-reclaim-mount-d4368ce30310`, candidate binary SHA256
+`519fa68d7feec57e6e2335cde5a21297e2d3945a0e5eec832171a0235b918aa3`.
+The first candidate build refused the read-only checkout's VCS stamp; the
+explicit `-buildvcs=false` rebuild is recorded separately. Candidate source SHA
+and executable hash are evidence for this fixture, not a released artifact claim.
+
+The normal PR watcher reached its 300-second observation timeout (exit 4).
+Authoritative GitHub state still shows the same checks run `39769650975` live:
+Linux tests and snapshot build are in progress; lint, Windows and macOS passed,
+as did Codespell. No workflow or watcher was restarted. Issue #508's latest
+execution status now records these published prerequisites and unfinished scope.
+
+### Ordinary retirement with a controlled completed update
+
+The real-controller fixture now has a second opt-in case. After genuine native
+admission/protection, it writes one completed mode-0751 tool and one unfinished
+install into the producer-mounted writable overlay. Normal production retirement,
+publication, source disposal and claim release must finish before a fresh engine
+can be admitted. That engine must have a different generation, preserve the
+completed bytes/mode, exclude the unfinished install and acquire its own durable
+protection. The original unchanged-data fixture remains separate.
+
+This is explicitly a controlled source fixture, not full workflow execution.
+Its companion independently checks original and updated tool payloads in the
+replacement generation
+and removes all resources in its private Docker daemon. Initial compile passed;
+Clippy caught a 118-line helper. Extracting isolated-backend validation restored
+the existing 100-line gate without suppressions. Final compile passed in 17.18s,
+and service library/tests Clippy passed in 15.11s. Evidence:
+`enrollment-completed-update-{build,clippy}{,-final}.log`.
+The actual released-act2.26 controller execution passed; see
+`enrollment-release26-completed-update-proof.{py,log,json}`. Fixture
+`bosn693-native-controller-8475c14802f8` normally retired both engines, completed
+production publication/disposal/reference release and released both claims.
+The frozen generation changed from `b0f186f8…b6a5f` to `15f4976e…921b3`.
+The fresh engine and independent read-only helper preserved the completed update
+and mode 0751, excluded the unfinished install, and preserved original warm tool
+bytes/mode. The Rust executable hash was unchanged before/after
+(`f8116218cad1c7729c378d8a9a83c7aceb0e09d554dac48983df715ee8c63860`).
+Every private outer container and both host volumes were proved absent, removing
+all inner Docker resources. This proves controlled new-update recovery through
+the real controller, not unchanged workflow execution or whole-machine limits.
+
+Act2 #84 subsequently passed all six required checks and merged normally at
+`aa39a347042a90bf37e5c558725d62c88748bd80`. There were no review threads.
+The external checkout is clean on rebased `master`; its reviewed and merged trees
+match, and its feature branch was deleted locally/remotely. The original Bosn
+checkout fetched/rebased `origin/main` with its WIP autostash applied successfully;
+the three pre-existing stashes remain unchanged. Exact default-branch full CI
+[39771550138](https://github.com/zackees/act2/actions/runs/39771550138) is running
+on that merge SHA. Act2.27 guard/verifier/runtime-smoke scripts are prepared, but
+no tag or release has been created and Bosn still pins verified act2.26.
+
+### Native tool accounting coverage and act2.27 publication
+
+Exact default-branch full CI `39771550138` passed all five jobs on
+`aa39a347042a90bf37e5c558725d62c88748bd80`. The act2.27 guard dry run and
+revalidated publish run passed clean-default-checkout, exact CI coverage and
+absent tag/release checks. Annotated `v0.2.89-act2.27` was pushed through the
+existing release workflow. Release run `39773009042` is in progress; no artifact
+verification or Bosn pin update is claimed yet.
+
+A new accounting regression found that the toolcache component reported only
+the 14-byte legacy refusal file, omitting native toolstore data, enrollment
+history and retained snapshot data. The actual RED test expected 1,065,002 bytes
+from an independent `(device,inode)` inventory. An earlier short-name `--exact`
+attempt ran zero tests and is not counted as RED. Evidence:
+`native-tool-accounting-red{,-attempt}.log`.
+
+The existing toolcache class now samples legacy/native roots, fixed enrollment
+history and canonical enrollment snapshot names in one du invocation per metric,
+deduplicating hard links across those roots. No wire enum changed. More than 32
+snapshot roots reports unknown class usage and a partial sample; it never reports
+zero or a knowingly truncated class total. The separate volume total is not
+constructed by adding class samples. Shell glob expansion and filesystem walks
+are not newly bounded by this argument cap; machine-wide cross-class union,
+traversal limits and pressure policy remain unfinished.
+
+The regression is GREEN; cache-usage tests passed 29 with five explicit hardware
+fixtures ignored. The 33-snapshot overflow test passes. Review caught that direct
+Linux-shell fixtures must not execute against macOS/BSD du; the new fixture
+module is Linux-only, matching the Docker helper's execution platform. An actual
+pinned-engine shell/du proof independently counted seven unique inodes and
+exactly matched 274,465 apparent and 282,624 allocated tool-class bytes. The
+external volume was preserved and all task containers/volumes were proved absent.
+Evidence: `native-tool-accounting-docker-proof.{py,json,log}`, fixture
+`bosn693-native-accounting-5ec7a0934ee1`, script SHA256
+`d79b9c859bf0de5187538bb4a013b1ae8b26129ad08721697fa44e0bb3f443f5`.
+Sole-primary static review is clean; final service library/tests Clippy passed in
+20.75s (`native-tool-accounting-clippy.log`). This class-coverage
+fix is not a claim of completing whole-machine accounting or issue #508.
+
+Act2.27 release `39773009042` completed successfully. All eleven archives match
+checksums, independent GitHub digests/sizes, executable architecture/header and
+embedded version. Linux version/capability execution passed with exact helper
+cleanup, and the annotated tag was verified to peel to the tested merge SHA.
+Evidence: `act2-27-{release-guard,verification,runtime-smoke,release-provenance}.json`.
+The Linux archive SHA256 is
+`c00daa74122f652f0fcbc6612c0711fe9007523c417bb84894180091dde27b1a`;
+the extracted executable SHA256 is
+`ddee7bc657330634332f3bc1e70d44e7254ba32d09632997938facf046a2a739`.
+The Bosn candidate now pins verified act2.27. Its focused rebuild passed in
+17.28s with all six pin tests passing. Final Clippy and an actual released27
+completed-update/controller/accounting proof are next; no Bosn push, production
+activation, full exact-source gate or issue closure is claimed yet. The exact
+owned PR84 watcher file was preserved in task evidence and removed with safe-rm.
+
+The final tracked-accounting proof initially tripped the existing 100-line
+Clippy gate at 101 lines. Update writing and verification were separated into
+focused fixture helpers; no limit was raised. The final rebuild/pin tests passed
+(six tests), and service library/tests Clippy passed in 13.61s. Evidence:
+`enrollment-release27-controller-build-final.log` and
+`enrollment-release27-clippy{,-final}.log`.
+
+The actual released-act2.27 combined proof passed with exact cleanup:
+`enrollment-release27-completed-update-proof.{py,json,log}`, fixture
+`bosn693-native-controller-ed4adc2d47b1`. It exercised genuine migration,
+completed-update publication, fresh-engine recovery/protection, normal retirement
+and claim release, then Bosn's actual journaled cache measurement helper. Its
+toolcache class exactly matched an independent read-only inventory of 45 unique
+`(device,inode)` pairs: 250,217 apparent bytes and 270,336 allocated bytes.
+The original and completed tool payloads/modes survived, unfinished data was
+excluded, and only the original legacy snapshot ownership marker remained.
+The test executable hash was unchanged before/after
+(`838ff407a1856332cc13946d298f1c02739d587a44b6b6657696631e246e4c0d`).
+Every outer fixture container and both host volumes were proved absent, removing
+all inner resources. This remains a controlled-update/tool-class proof; production
+native activation, full workflow acceptance and whole-machine policy are pending.
+
+
+### Full local gate: apparent-size portability correction (2026-10-22)
+
+The first full gate on `e85cc6ebf94266fe17e3772a1e7c1b6a49b96ec7`
+failed: Rust run `af361760-4ef8-40a4-9e61-f45cc39dc8ae` passed 420
+nextests and failed the new native accounting inode test. Linux run
+`ea8ecb53-8578-4273-85b4-ffbe2bfc5d89` passed. The apparent-byte
+expectation exceeded the sample by exactly three directory lengths (12,288
+bytes); no push was made.
+
+An isolated, read-only-root probe of the exact runner image `4f2d5083a9d1`
+confirmed GNU coreutils 9.4: a directory with `stat` length 60 containing one
+three-byte file reports three apparent bytes through `du -sbc`, and 4 KiB
+allocated through `du -skc`. The local build harness uses GNU coreutils 9.1,
+and the pinned engine uses BusyBox; both include directory lengths in apparent
+bytes. The probe container `bosn693-du-semantics-probe` was automatically removed.
+
+The independent inode oracle now records directory lengths separately and
+accepts exactly either complete apparent-byte convention. File and symlink
+lengths, cross-root hard-link deduplication, exact allocated bytes, external
+symlink preservation, and overflow refusal remain checked. This changes only
+the test: production measurement behavior is unchanged. Both focused accounting
+tests passed in the GNU 9.1 harness after the correction. A new full gate on the
+corrected commit is still required; the earlier failed gate is not acceptance.

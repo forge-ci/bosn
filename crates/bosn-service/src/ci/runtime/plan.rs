@@ -144,6 +144,7 @@ impl CiRuntime {
             } else {
                 super::super::reply::CiCpuSource::DefaultCeiling
             },
+            native_tools: None,
         };
         let scope = run_scope(&record.id, &intent)?;
         Ok(EnginePlan {

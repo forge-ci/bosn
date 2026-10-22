@@ -40,7 +40,9 @@ use super::{
 };
 use crate::RegistryActor;
 
+mod enrollment;
 mod machine_ops;
+mod preparation;
 
 /// How long an engine with no run is kept before it is retired.
 pub const DEFAULT_IDLE_RETIRE: Duration = Duration::from_secs(600);
@@ -171,6 +173,7 @@ impl SharedEngine {
         cancellation: &CancellationToken,
         note: &mut (dyn FnMut(&str) + Send),
     ) -> Result<Lease, String> {
+        want.validate_native_policy()?;
         self.state().wanted = true;
         let identity =
             EngineIdentity::of(&want.intent).ok_or("the shared engine has no creation profile")?;
@@ -207,7 +210,7 @@ impl SharedEngine {
         let machine = self.machine()?;
         let mut held = self.held.lock().await;
         if let Some(current) = held.take() {
-            if self.usable(&current, identity).await {
+            if self.usable(&current, want).await {
                 *held = Some(current);
             } else if let Some(wait) = self.replace(current, &mut held).await {
                 return Ok(Step::Wait(wait));
@@ -246,8 +249,8 @@ impl SharedEngine {
     }
 
     /// Whether runs can still use the engine this daemon holds.
-    async fn usable(&self, current: &Held, identity: &EngineIdentity) -> bool {
-        if current.identity != *identity || !self.backend.engine_running(&current.id).await {
+    async fn usable(&self, current: &Held, want: &SparePlan) -> bool {
+        if !want.accepts(&current.identity) || !self.backend.engine_running(&current.id).await {
             return false;
         }
         match &current.kind {

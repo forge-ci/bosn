@@ -12,7 +12,7 @@ use crate::{
         act_install::offline_act_script,
         cache_usage::{helper, journal},
         engine_image, owned,
-        toolcache::OVERLAY_RECIPE_SHA256,
+        toolcache::recovery_target,
     },
 };
 use bosn_registry::cache_helper::{CacheHelperIntent, CacheHelperRole};
@@ -336,13 +336,12 @@ fn recovery_program(
         .tool_generation
         .as_ref()
         .ok_or("tool recovery generation missing")?;
-    if generation.overlay_recipe_sha256 != OVERLAY_RECIPE_SHA256 {
-        return Err("tool recovery producer recipe differs".into());
-    }
+    let target = recovery_target(&generation.overlay_recipe_sha256)?;
+    let recipe = &generation.overlay_recipe_sha256;
     let encoded = RecoveryPin::from_intent(frozen)?.encoded()?;
     let install = offline_act_script(act, &format!("{WORK}/bin"));
     Ok(format!(
-        "{install}; printf '%s' '{encoded}' >{WORK}/intent.json; exec {WORK}/bin/act --cache-server-path {ENGINE_CACHE}/toolstore-v1 cache tool-recovery recover --record {WORK}/intent.json --source-root /var/lib/docker --toolcache-target /opt/hostedtoolcache --overlay-recipe-sha256 {OVERLAY_RECIPE_SHA256} --max-bytes {} --source-quiescent --apply",
+        "{install}; printf '%s' '{encoded}' >{WORK}/intent.json; exec {WORK}/bin/act --cache-server-path {ENGINE_CACHE}/toolstore-v1 cache tool-recovery recover --record {WORK}/intent.json --source-root /var/lib/docker --toolcache-target {target} --overlay-recipe-sha256 {recipe} --max-bytes {} --source-quiescent --apply",
         generation.max_payload_bytes
     ))
 }

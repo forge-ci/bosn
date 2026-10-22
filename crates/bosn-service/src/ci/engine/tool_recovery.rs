@@ -287,6 +287,13 @@ impl DockerActBackend {
         expires: i64,
     ) -> Result<(), String> {
         use crate::act_registry::{ActRegistryCommand, ActRegistryReply};
+        let before = crate::ci::lifecycle::record(registry, run)
+            .await?
+            .ok_or("native preparation record missing")?;
+        if before.execution_claim.as_deref() != Some(token) || before.execution.is_some() {
+            return Err("tool recovery claim changed before source preparation".into());
+        }
+        self.prepare_native_source(&before).await?;
         registry
             .act_registry(ActRegistryCommand::ToolRecoveryBegin {
                 run: run.into(),

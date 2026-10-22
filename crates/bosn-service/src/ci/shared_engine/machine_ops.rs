@@ -4,11 +4,11 @@
 
 use std::{sync::Arc, time::Duration};
 
-use kernal_api::async_engine::{self, CancellationToken};
+use kernal_api::async_engine::CancellationToken;
 
 use super::{
     super::{
-        engine::{ActEngineBackend, RunLimits, RunScope},
+        engine::{RunLimits, RunScope},
         limits::{reserved_engine_memory, room_for_engine},
         machine::{
             CLAIM_PREPARE_LIMIT, Daemon, EngineClaim, EngineIdentity, Foreign, LEGACY_GRACE,
@@ -17,42 +17,13 @@ use super::{
         spare::{self, SparePlan},
     },
     Held, Kind, LEGACY_DRAIN_WAIT, SharedEngine, Step,
+    preparation::PreparationGuard,
 };
 
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs())
-}
-
-/// Removes a claim this daemon made unless disarmed: a lease cancelled
-/// while its engine is prepared must not leave other daemons waiting.
-struct ClaimGuard {
-    backend: Arc<dyn ActEngineBackend>,
-    id: Option<String>,
-}
-
-impl ClaimGuard {
-    fn disarm(mut self) -> String {
-        self.id.take().unwrap_or_default()
-    }
-}
-
-impl Drop for ClaimGuard {
-    fn drop(&mut self) {
-        let Some(id) = self.id.take() else {
-            return;
-        };
-        let backend = Arc::clone(&self.backend);
-        async_engine::launch(async move {
-            if let Some(machine) = backend.machine()
-                && let Err(error) = machine.remove_claim(&id).await
-            {
-                daemon_log!("bosn ci: engine claim not removed: {error}");
-            }
-        })
-        .detach();
-    }
 }
 
 /// Holders whose daemon is still alive.
@@ -70,7 +41,7 @@ impl SharedEngine {
     pub(super) async fn find_or_make(
         &self,
         want: &SparePlan,
-        identity: &EngineIdentity,
+        _identity: &EngineIdentity,
         cancellation: &CancellationToken,
     ) -> Result<Result<Held, Step>, String> {
         let machine = self.machine()?;
@@ -78,28 +49,38 @@ impl SharedEngine {
         match machine.claim().await? {
             None => self.make(machine, want, &owner, cancellation).await,
             Some(claim) if claim.ours(&owner) => {
-                // A claim this daemon kept after its engine went.
-                machine.remove_claim(&claim.id).await?;
-                Ok(Err(Step::Again))
+                // Retry the durable cleanup, including uncertain creates, before
+                // another preparation can hold the machine's claim.
+                match super::preparation::resume(&self.registry, self.backend.as_ref(), &claim)
+                    .await
+                {
+                    Ok(()) => Ok(Err(Step::Again)),
+                    Err(error) => Ok(Err(Step::Wait(format!(
+                        "waiting for interrupted engine {} cleanup: {}",
+                        claim.engine,
+                        error.chars().take(512).collect::<String>()
+                    )))),
+                }
             }
-            Some(claim) => self.adopt(machine, claim, identity).await,
+            Some(claim) => self.adopt(machine, claim, want).await,
         }
     }
 
-    async fn make(
+    pub(super) async fn make(
         &self,
         machine: &dyn MachineEngine,
         want: &SparePlan,
         owner: &str,
         cancellation: &CancellationToken,
     ) -> Result<Result<Held, Step>, String> {
+        want.validate_native_policy()?;
         let busy = self.drain_legacy(machine, None).await?;
         if !busy.is_empty() {
             let since = *self
                 .state()
                 .legacy_since
                 .get_or_insert_with(std::time::Instant::now);
-            if since.elapsed() < LEGACY_DRAIN_WAIT {
+            if want.native_tools.is_some() || since.elapsed() < LEGACY_DRAIN_WAIT {
                 return Ok(Err(Step::Wait(format!(
                     "waiting for {} legacy engine(s) to finish their runs: {}",
                     busy.len(),
@@ -114,24 +95,8 @@ impl SharedEngine {
             );
         }
         self.state().legacy_since = None;
-        // Recheck immediately before creation: another daemon may have made
-        // a legacy engine after this run's immutable profile was planned.
-        let host = self.backend.host_resources().await?;
-        let reserved = reserved_engine_memory(&machine.engines().await?, None, host.total_memory);
-        let wanted_memory = want
-            .intent
-            .creation_profile
-            .as_ref()
-            .ok_or("shared engine has no creation profile")?
-            .memory_bytes;
-        if !room_for_engine(host.total_memory, reserved, wanted_memory) {
-            return Ok(Err(Step::Wait(format!(
-                "other Bosn engines reserve {} GiB of {} GiB; waiting for memory before \
-                 creating a {} GiB shared engine",
-                reserved / (1 << 30),
-                host.total_memory / (1 << 30),
-                wanted_memory / (1 << 30),
-            ))));
+        if let Some(wait) = self.preparation_room(machine, want).await? {
+            return Ok(Err(wait));
         }
         let claim = EngineClaim {
             id: String::new(),
@@ -151,10 +116,12 @@ impl SharedEngine {
             .filter(|found| found.engine == claim.engine)
             .map(|found| found.id)
             .ok_or("the engine claim vanished after it was made")?;
-        let guard = ClaimGuard {
-            backend: Arc::clone(&self.backend),
-            id: Some(id),
-        };
+        let guard = PreparationGuard::new(
+            self.registry.clone(),
+            Arc::clone(&self.backend),
+            want.intent.clone(),
+            id,
+        );
         let engine = spare::prepare(
             &self.registry,
             self.backend.as_ref(),
@@ -162,6 +129,9 @@ impl SharedEngine {
             cancellation,
         )
         .await?;
+        if let Some(max) = want.native_tools {
+            return Box::pin(self.enroll_prepared(want, engine, guard, max, cancellation)).await;
+        }
         // Runs of other daemons wait until now: the engine is prepared.
         if let Err(error) = machine.mark_ready(&engine.observed.engine_id).await {
             let _ = spare::retire(&self.registry, self.backend.as_ref(), &engine).await;
@@ -188,16 +158,46 @@ impl SharedEngine {
         }))
     }
 
+    async fn preparation_room(
+        &self,
+        machine: &dyn MachineEngine,
+        want: &SparePlan,
+    ) -> Result<Option<Step>, String> {
+        // Recheck immediately before creation: another daemon may have made
+        // a legacy engine after this run's immutable profile was planned.
+        let host = self.backend.host_resources().await?;
+        let reserved = reserved_engine_memory(&machine.engines().await?, None, host.total_memory);
+        let wanted_memory = want
+            .intent
+            .creation_profile
+            .as_ref()
+            .ok_or("shared engine has no creation profile")?
+            .memory_bytes;
+        if !room_for_engine(host.total_memory, reserved, wanted_memory) {
+            return Ok(Some(Step::Wait(format!(
+                "other Bosn engines reserve {} GiB of {} GiB; waiting for memory before \
+                 creating a {} GiB shared engine",
+                reserved / (1 << 30),
+                host.total_memory / (1 << 30),
+                wanted_memory / (1 << 30),
+            ))));
+        }
+        Ok(None)
+    }
+
     async fn adopt(
         &self,
         machine: &dyn MachineEngine,
         claim: EngineClaim,
-        identity: &EngineIdentity,
+        want: &SparePlan,
     ) -> Result<Result<Held, Step>, String> {
         let engine = machine.inspect(&claim.engine).await?;
         let running = engine.as_ref().filter(|engine| engine.running);
         if let Some(engine) = running
-            && engine.identity.as_ref() == Some(identity)
+            && engine
+                .identity
+                .as_ref()
+                .is_some_and(|identity| want.accepts(identity))
             && engine.registry == claim.registry
             && claim.release.as_deref() == Some(self.release.as_str())
         {
@@ -354,6 +354,9 @@ impl SharedEngine {
                 return;
             }
         };
+        if let Some(claim) = &claim {
+            self.retry_owned_preparation(claim).await;
+        }
         if let Some(claim) = &claim
             && !claim.daemon.alive()
             && let Err(error) = self.retire_abandoned(machine, claim, ttl).await
@@ -363,6 +366,31 @@ impl SharedEngine {
         let keep = claim.as_ref().map(|claim| claim.engine.as_str());
         if let Err(error) = self.drain_legacy(machine, keep).await {
             daemon_log!("bosn ci: legacy engines: {error}");
+        }
+    }
+
+    /// An owned engine may already be gone while its protected source waits
+    /// for the recovery supervisor. Retry normal cleanup, then release its claim.
+    async fn retry_owned_preparation(&self, claim: &EngineClaim) {
+        let Ok(owner) = super::super::lifecycle::registry_owner(&self.registry).await else {
+            return;
+        };
+        if !claim.ours(&owner) {
+            return;
+        }
+        // Preparation itself holds this mutex, so no active creator is retired.
+        let held = self.held.lock().await;
+        if held.is_some() {
+            return;
+        }
+        if let Err(error) =
+            super::preparation::resume(&self.registry, self.backend.as_ref(), claim).await
+        {
+            daemon_log!(
+                "bosn ci: interrupted engine {} cleanup deferred: {}",
+                claim.engine,
+                error.chars().take(512).collect::<String>()
+            );
         }
     }
 
