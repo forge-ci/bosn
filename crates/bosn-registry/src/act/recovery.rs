@@ -23,12 +23,30 @@ impl ActToolRecoveryIntent {
     }
 
     fn from_record(record: &ActEngineRecord, created: i64, expires: i64) -> Result<Self, Error> {
+        Self::from_engine_intent(
+            &record.registry_id,
+            &record.intent,
+            record
+                .engine_id
+                .as_deref()
+                .ok_or(Error::BadRow("tool recovery engine identity"))?,
+            created,
+            expires,
+        )
+    }
+
+    fn from_engine_intent(
+        registry_id: &str,
+        intent: &ActEngineIntent,
+        engine: &str,
+        created: i64,
+        expires: i64,
+    ) -> Result<Self, Error> {
         if created < 0 || expires <= created || expires - created > 86400 || expires > (1_i64 << 53)
         {
             return Err(Error::BadRow("tool recovery finite lifetime"));
         }
-        let profile = record
-            .intent
+        let profile = intent
             .creation_profile
             .as_ref()
             .ok_or(Error::BadRow("tool recovery profile"))?;
@@ -40,33 +58,52 @@ impl ActToolRecoveryIntent {
             .cache_volume
             .as_ref()
             .ok_or(Error::BadRow("tool recovery cache volume"))?;
-        let source = record.intent.storage_volume_name().ok_or(Error::BadRow(
+        let source = intent.storage_volume_name().ok_or(Error::BadRow(
             "tool recovery needs persistent named source storage",
         ))?;
-        let engine = record
-            .engine_id
-            .as_ref()
-            .ok_or(Error::BadRow("tool recovery engine identity"))?;
         let mut identity = b"bosn.act.tool-recovery-owner.v1\0".to_vec();
         identity.extend(
-            serde_json::to_vec(&(
-                &record.registry_id,
-                &record.intent.run_id,
-                engine,
-                profile.digest()?,
-            ))
-            .map_err(|_| Error::BadRow("tool recovery owner encoding"))?,
+            serde_json::to_vec(&(registry_id, &intent.run_id, engine, profile.digest()?))
+                .map_err(|_| Error::BadRow("tool recovery owner encoding"))?,
         );
         Ok(Self {
             schema_version: 1,
             owner: kernal_api::hash::sha256_bytes(&identity).to_hex(),
-            engine_id: engine.clone(),
+            engine_id: engine.into(),
             source_volume: source,
             cache_volume: cache.name.clone(),
             generation: generation.id.clone(),
             created_at_seconds: created,
             expires_at_seconds: expires,
         })
+    }
+
+    /// Validate the immutable source identity without opening its owning
+    /// registry. Machine-visible context stores exactly this frozen intent.
+    pub fn validate_engine_intent(
+        &self,
+        registry_id: &str,
+        intent: &ActEngineIntent,
+    ) -> Result<(), Error> {
+        intent.validate()?;
+        if *self
+            != Self::from_engine_intent(
+                registry_id,
+                intent,
+                &self.engine_id,
+                self.created_at_seconds,
+                self.expires_at_seconds,
+            )?
+            || !self
+                .engine_id
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || self.engine_id.len() != 64
+            || (self.created_at_seconds as f64) < intent.created_at.floor()
+        {
+            return Err(Error::BadRow("tool recovery frozen engine intent"));
+        }
+        Ok(())
     }
 
     /// Recheck the frozen identity against its containing durable engine record.

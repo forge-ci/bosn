@@ -1,5 +1,7 @@
 use super::*;
 
+const SLOTS: &str = include_str!("slots.sh");
+
 fn holder(run: &str, pid: u32) -> Holder {
     Holder {
         run: run.into(),
@@ -99,8 +101,7 @@ fn the_slot_script_leases_and_retires_under_one_lock() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let script = include_str!("slots.sh")
-        .replace("d=/run/bosn-slots", &format!("d={}", dir.path().display()));
+    let script = SLOTS.replace("d=/run/bosn-slots", &format!("d={}", dir.path().display()));
     let run = |args: &[&str]| {
         let out = std::process::Command::new("sh")
             .arg("-ec")
@@ -133,6 +134,47 @@ fn the_slot_script_leases_and_retires_under_one_lock() {
     let survey = reply::survey(&run(&["retire"])).unwrap();
     assert!(survey.held.is_empty() && survey.retiring && survey.requested);
     assert_eq!(reply::leased(&run(&args)), Ok(Leased::Retiring));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn native_slot_cutoff_is_checked_under_the_lock_without_stopping_holders() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = SLOTS.replace("d=/run/bosn-slots", &format!("d={}", dir.path().display()));
+    let run = |now: u64, args: &[&str]| {
+        std::process::Command::new("sh")
+            .args([
+                "-ec",
+                &script.replace("date +%s", &format!("printf '{now}'")),
+                "sh",
+            ])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let text = |output: std::process::Output| {
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    text(run(100, &["ready"]));
+    assert_eq!(
+        text(run(100, &["lease-native", "2", "holder"])),
+        "preparing\n"
+    );
+    assert_eq!(text(run(100, &["ready-native", "200"])), "ok\n");
+    assert_eq!(text(run(100, &["ready-native", "200"])), "ok\n");
+    assert!(!run(100, &["ready-native", "201"]).status.success());
+    assert_eq!(text(run(100, &["lease-native", "2", "holder"])), "slot 0\n");
+    for operation in ["lease-native", "lease"] {
+        assert_eq!(text(run(200, &[operation, "2", "late"])), "retiring\n");
+    }
+    assert!(dir.path().join("requested").is_file());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("0/holder")).unwrap(),
+        "holder\n"
+    );
+    assert!(!dir.path().join("1").exists(), "no late slot was allocated");
+    assert!(!run(200, &["ready-native", "200"]).status.success());
 }
 
 #[test]

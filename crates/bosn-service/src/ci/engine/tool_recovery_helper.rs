@@ -85,9 +85,7 @@ impl DockerActBackend {
             .await?;
         let outcome = async {
             tracker.register(&id).await?;
-            // Docker may recreate a missing named volume during create.
-            // Check exact ownership and both source identities again before start.
-            self.verify_helper_storage(&record, owner, operation)
+            self.verify_prepared_helper_storage(&record, owner, operation, &intent)
                 .await?;
             let output = self
                 .run(owned(&["start", "--attach", &id]), RECOVERY_DEADLINE)
@@ -185,7 +183,7 @@ impl DockerActBackend {
         {
             return Err("tool recovery cache target differs from frozen store".into());
         }
-        self.verify_helper_storage(record, owner, operation).await?;
+        let source_mountpoint = self.verify_helper_storage(record, owner, operation).await?;
         self.ensure_engine_image().await?;
         let arch = self
             .checked(
@@ -216,9 +214,30 @@ impl DockerActBackend {
                 operation,
                 record,
                 helper::command_sha256(&["/bin/sh".into()], &arguments)?,
+                source_mountpoint,
             )?),
         };
         Ok((intent, program))
+    }
+
+    async fn verify_prepared_helper_storage(
+        &self,
+        record: &ActEngineRecord,
+        owner: &str,
+        operation: Operation,
+        intent: &CacheHelperIntent,
+    ) -> Result<(), String> {
+        // Revalidate exact source ownership and frozen path before starting PID1.
+        let observed = self.verify_helper_storage(record, owner, operation).await?;
+        let expected = intent
+            .role
+            .as_ref()
+            .and_then(CacheHelperRole::recovery_binding)
+            .and_then(|binding| binding.source_mountpoint);
+        if observed.as_deref() != expected {
+            return Err("recovery source mountpoint changed before start".into());
+        }
+        Ok(())
     }
 
     async fn verify_helper_storage(
@@ -226,11 +245,11 @@ impl DockerActBackend {
         record: &ActEngineRecord,
         owner: &str,
         operation: Operation,
-    ) -> Result<(), String> {
+    ) -> Result<Option<String>, String> {
         match operation {
-            Operation::Publish => self.verify_recovery_source(record, owner).await,
-            Operation::Release => {
-                self.verify_measured_volume(
+            Operation::Publish => self.verify_recovery_source(record, owner).await.map(Some),
+            Operation::Release => self
+                .verify_measured_volume(
                     &record
                         .tool_recovery
                         .as_ref()
@@ -238,7 +257,7 @@ impl DockerActBackend {
                         .cache_volume,
                 )
                 .await
-            }
+                .map(|_| None),
         }
     }
 
@@ -246,7 +265,7 @@ impl DockerActBackend {
         &self,
         record: &ActEngineRecord,
         owner: &str,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let frozen = record
             .tool_recovery
             .as_ref()
@@ -262,7 +281,7 @@ impl DockerActBackend {
                 CONTROL_DEADLINE,
             )
             .await?;
-        crate::act_engine::verify_retained_source(
+        crate::act_engine::retained_source_mountpoint(
             document.as_bytes(),
             &record.intent,
             frozen,
@@ -361,8 +380,10 @@ fn create_args(
             "--privileged",
             "--mount",
             &format!(
-                "type=volume,source={},target=/var/lib/docker",
-                binding.intent.source_volume
+                "type=bind,source={},target=/var/lib/docker",
+                binding
+                    .source_mountpoint
+                    .ok_or("recovery source mountpoint missing")?
             ),
         ]),
         Operation::Release => owned(&[

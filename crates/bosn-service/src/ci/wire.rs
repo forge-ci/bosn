@@ -20,7 +20,7 @@ pub const MAX_LOG_PAGE_BYTES: usize = 256 * 1024;
 pub const DEFAULT_LOG_PAGE_BYTES: usize = 48 * 1024;
 pub const DEFAULT_REPORT_TAIL: usize = 40;
 pub const DEFAULT_RUN_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
-const MAX_RUN_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
+pub(super) const MAX_RUN_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 
 vocabulary!(
     /// Where a run is in its life.

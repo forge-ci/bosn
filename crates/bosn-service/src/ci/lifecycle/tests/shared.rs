@@ -413,6 +413,7 @@ fn native_runs_prepare_with_the_leased_binding_in_own_and_adopted_engines() {
             .unwrap()
         };
         let mut native = want(1, &dir, 8);
+        native.intent.created_at = now_seconds();
         native.intent.creation_profile = Some(profile(generation.clone()));
         let cancel = CancellationSource::new().token();
         for (n, shared) in [(1, &maker), (2, &adopter)] {

@@ -15,6 +15,8 @@ pub struct Faults {
     /// Create the container, then report failure (partial creation).
     pub create_after_side_effect: bool,
     pub prepare: bool,
+    /// The external native reservation fails after its intent commits.
+    pub reserve: bool,
     pub exit_code: i32,
     pub hang: bool,
     pub remove: bool,
@@ -114,6 +116,47 @@ pub(super) fn later(record: &ActEngineRecord) -> f64 {
     now_seconds().max(record.updated_at)
 }
 impl ActEngineBackend for FakeBackend {
+    fn reserve_native_recovery<'a>(
+        &'a self,
+        registry: &'a RegistryActor,
+        run: &'a str,
+        token: &'a str,
+        created: i64,
+        expires: i64,
+    ) -> crate::ci::engine::BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            registry
+                .act_registry(ActRegistryCommand::ToolRecoveryBegin {
+                    run: run.into(),
+                    token: token.into(),
+                    created,
+                    expires,
+                })
+                .await
+                .map_err(|error| error.to_string())?;
+            if self.faults().reserve {
+                return Err("synthetic native reservation failure".into());
+            }
+            let record = match registry
+                .act_registry(ActRegistryCommand::Get { run: run.into() })
+                .await
+                .map_err(|error| error.to_string())?
+            {
+                ActRegistryReply::Record(Some(record)) => record,
+                _ => return Err("native reservation record missing".into()),
+            };
+            registry
+                .act_registry(ActRegistryCommand::ToolRecoveryReserved {
+                    run: run.into(),
+                    token: token.into(),
+                    intent: record.tool_recovery.ok_or("native intent missing")?,
+                    at: now_seconds(),
+                })
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+    }
     fn machine(&self) -> Option<&dyn crate::ci::machine::MachineEngine> {
         Some(self)
     }

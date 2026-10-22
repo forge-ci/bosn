@@ -9,6 +9,18 @@ pub(super) fn labels(
     intent: &ActEngineIntent,
     owner: &str,
 ) -> Result<BTreeMap<String, String>, ActEngineError> {
+    // A native source can be unmounted while a recovering reader still has
+    // authority to open it. Generic pressure/age GC lacks that authority's
+    // producer fence, so only the dedicated lifecycle may remove this source.
+    let retention = if intent
+        .creation_profile
+        .as_ref()
+        .is_some_and(|profile| profile.tool_generation.is_some())
+    {
+        Retention::Pinned
+    } else {
+        Retention::Warm
+    };
     Ok(ResourceLabels::new(
         owner,
         ResourceKind::Volume,
@@ -17,7 +29,7 @@ pub(super) fn labels(
         Scope::Spec,
         &intent.run_id,
         &intent.created_at.to_string(),
-        Some(Retention::Warm),
+        Some(retention),
     )
     .map_err(|_| ActEngineError("invalid private storage labels".into()))?
     .to_map()
@@ -34,6 +46,7 @@ pub(super) struct DockerVolume {
     pub(super) scope: String,
     pub(super) options: Option<BTreeMap<String, String>>,
     pub(super) labels: Option<BTreeMap<String, String>>,
+    pub(super) mountpoint: Option<String>,
 }
 
 /// The one predicate that decides whether an observed volume is the private
@@ -45,11 +58,22 @@ pub(super) fn verify_owned_local_volume(
     expected_name: &str,
     expected_labels: &BTreeMap<String, String>,
 ) -> Result<(), ActEngineError> {
-    let volumes: Vec<DockerVolume> =
+    owned_local_volume(document, expected_name, expected_labels).map(|_| ())
+}
+
+pub(super) fn owned_local_volume(
+    document: &[u8],
+    expected_name: &str,
+    expected_labels: &BTreeMap<String, String>,
+) -> Result<DockerVolume, ActEngineError> {
+    let mut volumes: Vec<DockerVolume> =
         serde_json::from_slice(document).map_err(|e| ActEngineError(e.to_string()))?;
-    let [volume] = volumes.as_slice() else {
+    if volumes.len() != 1 {
         return Err(ActEngineError("ambiguous private storage volume".into()));
-    };
+    }
+    let volume = volumes
+        .pop()
+        .ok_or_else(|| ActEngineError("missing private storage volume".into()))?;
     if volume.name != expected_name
         || volume.driver != "local"
         || volume.scope != "local"
@@ -63,7 +87,7 @@ pub(super) fn verify_owned_local_volume(
             "private storage volume ownership does not match".into(),
         ));
     }
-    Ok(())
+    Ok(volume)
 }
 
 fn verify(document: &[u8], intent: &ActEngineIntent, owner: &str) -> Result<(), ActEngineError> {
@@ -207,6 +231,46 @@ async fn remove_private_storage(
 mod tests {
     use super::*;
     use crate::act_engine::tests::{OWNER, disk_intent};
+    #[test]
+    fn disk_pressure_cannot_reclaim_a_native_recovery_source() {
+        use bosn_core::retention::{RetentionPolicy, plan_managed};
+        let mut intent = disk_intent();
+        intent.creation_profile.as_mut().unwrap().tool_generation =
+            Some(bosn_registry::act::ActToolGenerationBinding {
+                id: "a".repeat(64),
+                max_payload_bytes: 1 << 30,
+                overlay_recipe_sha256: crate::ci::engine::tool_overlay_recipe_sha256(),
+            });
+        let mut artifact = bosn_core::ObservedArtifact {
+            id: intent.storage_volume_name().unwrap(),
+            kind: ResourceKind::Volume,
+            labels: labels(&intent, OWNER).unwrap(),
+            signals: bosn_core::Signals::default(),
+            bytes: Some(1 << 30),
+            age_seconds: Some(7200.0),
+        };
+        let plan = plan_managed(
+            &[artifact.clone()],
+            Some(OWNER),
+            RetentionPolicy::default().under_disk_pressure(),
+        );
+        assert!(
+            plan.candidates.is_empty(),
+            "pressure selected a protected native source"
+        );
+        intent.creation_profile.as_mut().unwrap().tool_generation = None;
+        artifact.labels = labels(&intent, OWNER).unwrap();
+        let legacy = plan_managed(
+            &[artifact],
+            Some(OWNER),
+            RetentionPolicy::default().under_disk_pressure(),
+        );
+        assert_eq!(
+            legacy.candidates.len(),
+            1,
+            "ordinary private storage still expires"
+        );
+    }
     #[test]
     fn private_storage_rejects_foreign_retention_and_options() {
         let intent = disk_intent();

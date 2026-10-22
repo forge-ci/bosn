@@ -9,6 +9,7 @@ pub(super) enum Profile {
     Recovery {
         cache: String,
         source: String,
+        source_mountpoint: Option<String>,
         command: String,
     },
     Release {
@@ -34,10 +35,12 @@ impl Profile {
             Some(CacheHelperRole::ToolRecoveryV1 {
                 intent: frozen,
                 command_sha256,
+                source_mountpoint,
                 ..
             }) => Ok(Self::Recovery {
                 cache: intent.volume.clone(),
                 source: frozen.source_volume.clone(),
+                source_mountpoint: source_mountpoint.clone(),
                 command: command_sha256
                     .clone()
                     .ok_or("recovery helper command binding missing")?,
@@ -77,12 +80,16 @@ impl Profile {
             Self::Recovery {
                 cache,
                 source,
+                source_mountpoint,
                 command,
             } => {
                 cache == volume
                     && row.mounts.len() == 2
                     && exact_mount(&row.mounts, cache, "/bosn/cache")
-                    && exact_mount(&row.mounts, source, "/var/lib/docker")
+                    && match source_mountpoint {
+                        Some(path) => exact_source_bind(&row.mounts, path),
+                        None => exact_mount(&row.mounts, source, "/var/lib/docker"),
+                    }
                     && row.host_config.privileged
                     && recovery_isolation(&row.host_config, false)
                     && frozen_command(&row.config, command)
@@ -150,4 +157,21 @@ fn recovery_isolation(host: &HostConfig, release: bool) -> bool {
             .restart_policy
             .as_ref()
             .is_some_and(|policy| policy.name == "no" && policy.maximum_retry_count == 0)
+}
+
+// The kernel needs writable backing upper/work for mounting; the producer
+// separately verifies its recovered overlay view is read-only.
+fn exact_source_bind(mounts: &[Mount], source: &str) -> bool {
+    mounts
+        .iter()
+        .filter(|mount| {
+            mount.kind == "bind"
+                && mount.name.is_empty()
+                && mount.source.as_deref() == Some(source)
+                && mount.destination == "/var/lib/docker"
+                && mount.rw
+                && mount.driver.is_none()
+        })
+        .count()
+        == 1
 }

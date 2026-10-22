@@ -23,6 +23,9 @@ pub enum CacheHelperRole {
         /// Absent only in pre-transport recovery intents; never adopt their process.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         command_sha256: Option<String>,
+        /// Frozen Docker-side local volume path; absent only in older helpers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_mountpoint: Option<String>,
     },
     ToolRecoveryReleaseV1 {
         run_id: String,
@@ -42,6 +45,7 @@ pub struct RecoveryHelperBinding<'a> {
     pub intent: &'a act::ActToolRecoveryIntent,
     pub command_sha256: Option<&'a str>,
     pub phase: RecoveryHelperPhase,
+    pub source_mountpoint: Option<&'a str>,
 }
 
 impl CacheHelperRole {
@@ -52,11 +56,13 @@ impl CacheHelperRole {
                 run_id,
                 intent,
                 command_sha256,
+                source_mountpoint,
             } => Some(RecoveryHelperBinding {
                 run_id,
                 intent,
                 command_sha256: command_sha256.as_deref(),
                 phase: RecoveryHelperPhase::Publish,
+                source_mountpoint: source_mountpoint.as_deref(),
             }),
             Self::ToolRecoveryReleaseV1 {
                 run_id,
@@ -67,6 +73,7 @@ impl CacheHelperRole {
                 intent,
                 command_sha256: Some(command_sha256),
                 phase: RecoveryHelperPhase::Release,
+                source_mountpoint: None,
             }),
         }
     }
@@ -111,7 +118,10 @@ impl CacheHelperIntent {
             .and_then(CacheHelperRole::recovery_binding)
         {
             let intent = binding.intent;
-            if binding.command_sha256.is_some_and(|hash| !hex_id(hash))
+            if binding
+                .source_mountpoint
+                .is_some_and(|path| !valid_recovery_source_mountpoint(path))
+                || binding.command_sha256.is_some_and(|hash| !hex_id(hash))
                 || !is_uuid(binding.run_id)
                 || intent.schema_version != 1
                 || !hex_id(&intent.owner)
@@ -388,3 +398,18 @@ impl ReadOnlyRegistry {
 
 #[cfg(test)]
 mod tests;
+
+/// Docker-side POSIX path, independent of the daemon client's host platform.
+/// Commas/quotes would alter --mount CSV parsing; no normalization is inferred.
+pub fn valid_recovery_source_mountpoint(path: &str) -> bool {
+    path.len() <= 4096
+        && path.starts_with('/')
+        && path != "/"
+        && !path
+            .chars()
+            .any(|c| c.is_control() || matches!(c, ',' | '"' | '\\'))
+        && path
+            .split('/')
+            .skip(1)
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+}

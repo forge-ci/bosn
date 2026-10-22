@@ -62,6 +62,7 @@ fn release_identity_is_source_free_and_drops_every_capability() {
         run_id,
         intent: frozen,
         command_sha256,
+        ..
     }) = intent.role.take()
     else {
         panic!("recovery role missing");
@@ -247,4 +248,40 @@ fn actual_docker_recovery_profile_matches_its_frozen_intent() {
             .unwrap()
             .trim()
     );
+}
+
+#[test]
+fn recovery_bind_identity_requires_exact_source_path_and_mount_mode() {
+    use bosn_registry::cache_helper::CacheHelperRole;
+    let (mut intent, mut document) = fixture();
+    let path = "/var/lib/docker/volumes/bosn-source/_data";
+    let Some(CacheHelperRole::ToolRecoveryV1 {
+        source_mountpoint, ..
+    }) = &mut intent.role
+    else {
+        panic!("recovery role missing");
+    };
+    *source_mountpoint = Some(path.into());
+    document["Mounts"][1] = serde_json::json!({
+        "Type":"bind", "Source":path, "Destination":"/var/lib/docker", "RW":true
+    });
+    let identity = Identity::from_intent(&intent).unwrap();
+    assert!(identity.verify(&inspect(&document), &intent.volume).is_ok());
+    for (field, value) in [
+        (
+            "Source",
+            serde_json::json!("/var/lib/docker/volumes/foreign/_data"),
+        ),
+        ("RW", serde_json::json!(false)),
+        ("Type", serde_json::json!("volume")),
+        ("Name", serde_json::json!("bosn-source")),
+        ("Driver", serde_json::json!("local")),
+    ] {
+        let mut changed = document.clone();
+        changed["Mounts"][1][field] = value;
+        assert!(
+            identity.verify(&inspect(&changed), &intent.volume).is_err(),
+            "{field}"
+        );
+    }
 }

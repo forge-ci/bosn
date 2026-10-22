@@ -70,6 +70,7 @@ pub(super) fn role(
     operation: Operation,
     record: &ActEngineRecord,
     command: String,
+    source_mountpoint: Option<String>,
 ) -> Result<CacheHelperRole, String> {
     let run_id = record.intent.run_id.clone();
     let intent = record
@@ -81,6 +82,7 @@ pub(super) fn role(
             run_id,
             intent,
             command_sha256: Some(command),
+            source_mountpoint,
         },
         Operation::Release => CacheHelperRole::ToolRecoveryReleaseV1 {
             run_id,

@@ -72,6 +72,7 @@ pub mod maintenance_status;
 pub mod matrix_runner;
 pub mod mcp;
 pub mod model;
+pub(crate) mod native_lifetime;
 pub mod pages;
 pub mod params;
 pub mod pins;

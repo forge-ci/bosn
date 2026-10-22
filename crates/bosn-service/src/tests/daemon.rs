@@ -930,9 +930,11 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // #675 adds optional cancel_requested_at to run records and status events.
 // Older peers ignore the additive field; running stays the wire state until
 // teardown completes, so no protocol bump is required.
+// #508 exposes the existing 12-hour timeout constant to sibling policy code.
+// Only Rust visibility changed; wire fields, values and encoding are identical.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "86a0486fc5ff67ead8b7e336f8fff18f618128d269608ded0242fa920fd3ed82",
+    "f3c608e02e1816312c02113dce489e1a44ba4f86a0d356173300e854bda1e63d",
 );
 
 #[test]

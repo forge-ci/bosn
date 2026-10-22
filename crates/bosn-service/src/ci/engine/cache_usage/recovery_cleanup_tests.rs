@@ -149,6 +149,7 @@ async fn seed(actor: &RegistryActor, old: bool, binding: bool) -> CacheHelperInt
     let command_sha256 =
         binding.then(|| "ae0ec6002965a1ecfc7799157a635844850854c81b71571d6443ee1e692daf34".into());
     helper.role = Some(CacheHelperRole::ToolRecoveryV1 {
+        source_mountpoint: None,
         run_id: RUN.into(),
         intent: frozen,
         command_sha256,

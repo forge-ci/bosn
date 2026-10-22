@@ -12,6 +12,7 @@ use crate::ci::{
 #[derive(Default)]
 pub struct Table {
     pub ready: bool,
+    pub admit_until: Option<i64>,
     pub held: BTreeMap<u16, Holder>,
     pub requested: bool,
     pub retiring: bool,
@@ -119,6 +120,13 @@ impl MachineEngine for FakeBackend {
         Box::pin(async move {
             let mut tables = self.machine.tables.lock().unwrap();
             let table = tables.entry(engine.into()).or_default();
+            if table
+                .admit_until
+                .is_some_and(|until| now_seconds() >= until as f64)
+            {
+                table.requested = true;
+                return Ok(Leased::Retiring);
+            }
             if table.retiring {
                 return Ok(Leased::Retiring);
             }
@@ -158,8 +166,30 @@ impl MachineEngine for FakeBackend {
     }
     fn mark_ready<'a>(&'a self, engine: &'a str) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
+            let observed = self
+                .engines
+                .lock()
+                .unwrap()
+                .values()
+                .find(|observed| observed.engine_id == engine)
+                .cloned()
+                .ok_or("prepared engine absent")?;
+            let foreign = self.foreign(&observed);
+            let admit_until = if foreign
+                .identity
+                .is_some_and(|identity| identity.tool_generation().is_some())
+            {
+                Some(
+                    crate::ci::native_lifetime::Window::new(foreign.created as f64, now_seconds())?
+                        .admit_until,
+                )
+            } else {
+                None
+            };
             let mut tables = self.machine.tables.lock().unwrap();
-            tables.entry(engine.into()).or_default().ready = true;
+            let table = tables.entry(engine.into()).or_default();
+            table.admit_until = admit_until;
+            table.ready = true;
             Ok(())
         })
     }
