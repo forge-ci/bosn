@@ -836,7 +836,9 @@ fn a_run_whose_client_went_away_still_ends_and_is_cleaned() {
         let staging = new_uuid().await.unwrap();
         staged(&runtime, &staging);
         let mut submission = request(&staging, 'd');
-        submission.timeout_secs = Some(1);
+        // Long enough that the timeout cannot land in preparation on a loaded
+        // host (the run must time out mid-execution, owning a scope to close).
+        submission.timeout_secs = Some(5);
         let run = call::<SubmitReply>(
             &runtime,
             CiRequest::Submit {
@@ -850,7 +852,9 @@ fn a_run_whose_client_went_away_still_ends_and_is_cleaned() {
             let (runtime, run) = (runtime.clone(), run.clone());
             async_engine::launch(async move { wait_done(&runtime, &run).await })
         };
-        async_engine::sleep(Duration::from_millis(100)).await;
+        while *backend.executions.lock().unwrap() == 0 {
+            async_engine::sleep(Duration::from_millis(20)).await;
+        }
         drop(waiter);
         let record = wait_done(&runtime, &run).await;
         assert_eq!(record.conclusion, Some(Conclusion::TimedOut));
