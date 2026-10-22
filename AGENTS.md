@@ -549,6 +549,14 @@ service (`managed_retention/pressure.rs`); the planner only gets the policy. A
 root the daemon cannot stat is no pressure, logged once. The pass logs
 `bosn retention: disk pressure (X GiB free, Y%); idle volume budget 0`.
 
+**Owned footprint ceiling** (decided 2026-10-22, #508). Free disk is not owned
+allocation. Every pass sums the Bosn-labelled containers, volumes and images it
+observed (`OwnedFootprint`), logs the total by kind with the unmeasured count, and
+past `DEFAULT_OWNED_CEILING` (256 GiB) uses the same `under_disk_pressure` policy.
+Every ownership, liveness and pin gate, the volume floor and the re-check are
+unchanged. Sizes come from Docker's own reports; an unmeasured object is counted,
+never guessed.
+
 ## CI late-create cleanup (#676)
 
 An unacknowledged Docker create keeps its durable helper or engine intent while

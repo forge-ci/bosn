@@ -7207,3 +7207,16 @@ helper then measures once more. A second exit 3 or a failed seed is an
 error. The measurement helper itself is unchanged: read-only and no network.
 Synthetic transport tests failed (RED) without the retry and pass (GREEN) with
 it. Remaining #508 items 1-3 and 5 are unchanged.
+
+
+### Owned footprint ceiling (#508 item 1)
+
+Disk-pressure handling had only one input: free space under Docker's data root
+(#658). This change adds a ceiling on owned allocation. The managed retention
+pass sums the measured sizes of the Bosn-labelled containers (writable layers),
+volumes and images it observed, logs `owned footprint X GiB of 256 GiB ceiling
+(containers, volumes, images; N unmeasured)` on every pass, and above the
+ceiling plans with `RetentionPolicy::under_disk_pressure`. All gates are
+unchanged. The shared CI cache keeps its act2-side budget, and its volume is
+included in the volume total. Engine Docker roots inside the shared engine are
+still measured only as the engine's storage volume.
