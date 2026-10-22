@@ -33,6 +33,7 @@ fn ready_route_does_not_attempt_an_exclusive_cutover() {
             .archive_replies
             .lock()
             .unwrap()
+            .get_or_insert_default()
             .push_back((Phase::Require, Ok(Status::Ready)));
         let shared = SharedEngine::new(registry, backend.clone());
         let lease = leased(&shared).await;
@@ -55,11 +56,16 @@ fn ready_route_does_not_attempt_an_exclusive_cutover() {
 fn completion_waits_until_fenced_old_writers_are_gone() {
     with_registry(|registry, _| async move {
         let backend = Arc::new(FakeBackend::default());
-        backend.archive_replies.lock().unwrap().extend([
-            (Phase::Require, Ok(Status::Refused("not enrolled".into()))),
-            (Phase::Fence, Ok(Status::Fenced)),
-            (Phase::Complete, Ok(Status::Ready)),
-        ]);
+        backend
+            .archive_replies
+            .lock()
+            .unwrap()
+            .get_or_insert_default()
+            .extend([
+                (Phase::Require, Ok(Status::Refused("not enrolled".into()))),
+                (Phase::Fence, Ok(Status::Fenced)),
+                (Phase::Complete, Ok(Status::Ready)),
+            ]);
         let shared = SharedEngine::new(registry, backend.clone());
         let lease = leased(&shared).await;
         let old = backend.insert("legacy-archive-writer", "sha256:old", BTreeMap::new());
@@ -93,14 +99,7 @@ fn completion_waits_until_fenced_old_writers_are_gone() {
                 .unwrap()
                 .unwrap();
         }
-        assert!(
-            backend
-                .machine
-                .removed
-                .lock()
-                .unwrap()
-                .contains(&old.name)
-        );
+        assert!(backend.machine.removed.lock().unwrap().contains(&old.name));
         assert!(!backend.engines.lock().unwrap().contains_key(&old.name));
         assert_eq!(
             *backend.archive_phases.lock().unwrap(),
@@ -119,6 +118,7 @@ fn unknown_transport_failure_never_falls_back_to_fencing() {
             .archive_replies
             .lock()
             .unwrap()
+            .get_or_insert_default()
             .push_back((Phase::Require, Err("lost Docker reply".into())));
         let shared = SharedEngine::new(registry, backend.clone());
         let lease = leased(&shared).await;
@@ -146,6 +146,7 @@ fn contention_wait_is_async_and_cancellable() {
             .archive_replies
             .lock()
             .unwrap()
+            .get_or_insert_default()
             .push_back((Phase::Require, Ok(Status::Retry)));
         let shared = SharedEngine::new(registry, backend.clone());
         let lease = leased(&shared).await;

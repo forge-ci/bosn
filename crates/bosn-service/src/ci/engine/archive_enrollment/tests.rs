@@ -4,6 +4,57 @@ fn policy() -> CachePolicy {
     toml::from_str("repository_max_bytes=100\naggregate_max_bytes=200\nmax_age_secs=3600\nunused_age_secs=1800\nmaintenance_interval_secs=60\n").unwrap()
 }
 
+#[cfg(unix)]
+#[test]
+fn execution_policy_contention_obeys_deadline_and_cancellation() {
+    use bosn_engine::DockerEngine;
+    use kernal_api::{async_engine::RuntimeBuilder, platform::fs::TemporaryDirectory};
+    let directory = TemporaryDirectory::new().unwrap();
+    let script = directory.path().join("busy.py");
+    std::fs::write(&script, "import sys\nsys.exit(75)\n").unwrap();
+    let backend = DockerActBackend::new(DockerEngine::synthetic_for_test(
+        "python3",
+        [script.into_os_string()],
+    ));
+    RuntimeBuilder::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(async {
+            let stop = async_engine::CancellationSource::new();
+            let result = backend
+                .guard_archive_execution(
+                    "engine",
+                    policy(),
+                    async_engine::Deadline::after(Duration::from_millis(100)),
+                    &stop.token(),
+                )
+                .await
+                .unwrap();
+            assert!(matches!(result, Some(super::super::ExecEnd::TimedOut)));
+            let cancellation = stop.token();
+            let cancel = async_engine::launch(async move {
+                async_engine::sleep(Duration::from_millis(100)).await;
+                stop.cancel();
+            });
+            let result = async_engine::timeout(
+                Duration::from_secs(2),
+                backend.guard_archive_execution(
+                    "engine",
+                    policy(),
+                    async_engine::Deadline::after(Duration::from_secs(30)),
+                    &cancellation,
+                ),
+            )
+            .await
+            .expect("policy contention must release execution on cancellation")
+            .unwrap();
+            assert!(matches!(result, Some(super::super::ExecEnd::Cancelled)));
+            let _ = cancel.await;
+        });
+}
+
 fn report(namespace: &Namespace) -> serde_json::Value {
     serde_json::json!({
         "schema_version":1, "source":namespace.legacy_path(),
@@ -153,7 +204,7 @@ fn only_empty_wrapper_contention_is_a_transport_retry() {
     use kernal_api::{async_engine::RuntimeBuilder, platform::fs::TemporaryDirectory};
     let directory = TemporaryDirectory::new().unwrap();
     let script = directory.path().join("docker.py");
-    std::fs::write(&script,"import sys\nassert sys.argv[3:5] == ['exec','engine']\nsys.stdout.write(sys.argv[1])\nsys.exit(int(sys.argv[2]))\n").unwrap();
+    std::fs::write(&script,"import sys\nassert sys.argv[3:5] == ['exec','engine']\nif any('.bosn-cohort-policy-v1' in arg for arg in sys.argv[3:]): sys.exit(0)\nsys.stdout.write(sys.argv[1])\nsys.exit(int(sys.argv[2]))\n").unwrap();
     let namespace = Namespace::parse("0123456789abcdef").unwrap();
     for (output, code, retry) in [("", 75, true), ("malformed", 75, false), ("", 125, false)] {
         let backend = DockerActBackend::new(DockerEngine::synthetic_for_test(
@@ -181,4 +232,75 @@ fn only_empty_wrapper_contention_is_a_transport_retry() {
             assert!(result.is_err())
         }
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn ready_archive_receipt_cannot_bootstrap_missing_machine_policy() {
+    use bosn_engine::DockerEngine;
+    use kernal_api::{async_engine::RuntimeBuilder, platform::fs::TemporaryDirectory};
+    let directory = TemporaryDirectory::new().unwrap();
+    let script = directory.path().join("docker.py");
+    std::fs::write(&script,"import sys\nargs=sys.argv[2:]\nif any('.bosn-cohort-policy-v1' in arg for arg in args):\n print('absent')\nelse:\n print(sys.argv[1])\n").unwrap();
+    let namespace = Namespace::parse("0123456789abcdef").unwrap();
+    let mut ready = report(&namespace);
+    ready["ready"] = serde_json::json!(true);
+    let backend = DockerActBackend::new(DockerEngine::synthetic_for_test(
+        "python3",
+        [script.into_os_string(), ready.to_string().into()],
+    ));
+    let result = RuntimeBuilder::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(backend.enroll_archives(ArchiveEnrollmentRequest {
+            engine: "engine",
+            namespace: &namespace,
+            policy: policy(),
+            phase: ArchiveEnrollmentPhase::Require,
+        }));
+    assert!(
+        result.is_err(),
+        "a ready receipt cannot replace missing immutable policy agreement"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn conflicting_machine_policy_refuses_before_source_fencing() {
+    use bosn_engine::DockerEngine;
+    use kernal_api::{async_engine::RuntimeBuilder, platform::fs::TemporaryDirectory};
+    let directory = TemporaryDirectory::new().unwrap();
+    let script = directory.path().join("docker.py");
+    let contacted = directory.path().join("source-contacted");
+    std::fs::write(&script,"import pathlib,sys\nargs=sys.argv[3:]\nif any('.bosn-cohort-policy-v1' in arg for arg in args):\n print('machine cache policy conflict',file=sys.stderr)\n sys.exit(78)\npathlib.Path(sys.argv[2]).write_text('contacted')\nprint(sys.argv[1])\n").unwrap();
+    let namespace = Namespace::parse("0123456789abcdef").unwrap();
+    let backend = DockerActBackend::new(DockerEngine::synthetic_for_test(
+        "python3",
+        [
+            script.into_os_string(),
+            report(&namespace).to_string().into(),
+            contacted.clone().into_os_string(),
+        ],
+    ));
+    let result = RuntimeBuilder::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(backend.enroll_archives(ArchiveEnrollmentRequest {
+            engine: "engine",
+            namespace: &namespace,
+            policy: policy(),
+            phase: ArchiveEnrollmentPhase::Fence,
+        }));
+    assert!(
+        result.is_err(),
+        "full machine-policy conflict must refuse cutover"
+    );
+    assert!(
+        !contacted.exists(),
+        "no source operation may precede agreement"
+    );
 }

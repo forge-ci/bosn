@@ -9,12 +9,38 @@ use crate::ci::{
     },
 };
 
-const WORKFLOW: &str = r#"name: native tools acceptance
+const WORKFLOW: &str = r#"name: native tools and archives acceptance
 on: push
 jobs:
   install:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/cache@v4
+        id: archives
+        with:
+          path: .acceptance-cache
+          key: bosn-508-workflow-archives-v1
+      - name: Compile and package new state or verify its restored provenance
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.archives.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [ "$(cat phase)" = recovered ]; then
+            test "$CACHE_HIT" = true
+            (cd .acceptance-cache && sha256sum -c provenance.sha256)
+          else
+            test "$CACHE_HIT" != true
+            mkdir -p .acceptance-cache/package
+            printf '#include <stdio.h>\nint main(void){puts("compiled-by-workflow-508");}\n' >.acceptance-cache/source.c
+            gcc .acceptance-cache/source.c -o .acceptance-cache/compiled
+            printf '{"name":"bosn-508-acceptance","version":"1.0.0"}\n' >.acceptance-cache/package/package.json
+            printf workflow-package-508 >.acceptance-cache/package/payload
+            (cd .acceptance-cache/package && npm pack --ignore-scripts)
+            (cd .acceptance-cache && sha256sum source.c compiled package/*.tgz >provenance.sha256)
+          fi
+          test "$(.acceptance-cache/compiled)" = compiled-by-workflow-508
+          test "$(tar -xOf .acceptance-cache/package/*.tgz package/payload)" = workflow-package-508
       - name: Preserve warm state and install completed tool
         shell: bash
         run: |
@@ -34,6 +60,21 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/cache@v4
+        id: archives
+        with:
+          path: .acceptance-cache
+          key: bosn-508-workflow-archives-v1
+      - name: Verify archive bytes saved by the preceding job
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.archives.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          test "$CACHE_HIT" = true
+          (cd .acceptance-cache && sha256sum -c provenance.sha256)
+          test "$(.acceptance-cache/compiled)" = compiled-by-workflow-508
+          test "$(tar -xOf .acceptance-cache/package/*.tgz package/payload)" = workflow-package-508
       - name: Reuse tool from preceding job
         shell: bash
         run: |
@@ -63,7 +104,23 @@ async fn workflow_run(runtime: &CiRuntime, phase: &str, sha: char) -> RunRecord 
         loop {
             let record = runtime.record(&submitted.run).unwrap();
             if record.state == RunState::Done {
-                assert_eq!(record.conclusion, Some(Conclusion::Success), "{record:?}");
+                assert_eq!(
+                    record.conclusion,
+                    Some(Conclusion::Success),
+                    "{record:?}\n{}",
+                    serde_json::to_string(
+                        &runtime
+                            .logs(
+                                &record.id,
+                                Default::default(),
+                                record.log_records.saturating_sub(200),
+                                200,
+                                128 << 10,
+                            )
+                            .unwrap()
+                    )
+                    .unwrap(),
+                );
                 let view = RunView::of(record.clone(), true);
                 assert_eq!(view.jobs.total, 2);
                 assert_eq!(view.jobs.completed, 2);

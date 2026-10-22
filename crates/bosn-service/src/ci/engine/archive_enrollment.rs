@@ -1,6 +1,8 @@
 //! Typed forwarding of act2's persistent archive enrollment protocol.
+use super::machine_policy::PolicyAgreement;
 use super::{DockerActBackend, ENGINE_CACHE, RunOptions, legacy_lease, owned};
 use crate::ci::{cache_cohort::Namespace, cache_policy::CachePolicy};
+use kernal_api::async_engine::{self, CancellationToken};
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -125,6 +127,20 @@ impl DockerActBackend {
         &self,
         request: ArchiveEnrollmentRequest<'_>,
     ) -> Result<ArchiveEnrollmentStatus, String> {
+        let agreement = match request.phase {
+            ArchiveEnrollmentPhase::Fence => Some(
+                self.try_agree_cache_policy(request.engine, request.policy)
+                    .await?,
+            ),
+            ArchiveEnrollmentPhase::Complete => Some(
+                self.try_require_cache_policy(request.engine, request.policy)
+                    .await?,
+            ),
+            ArchiveEnrollmentPhase::Require => None,
+        };
+        if agreement == Some(PolicyAgreement::Busy) {
+            return Ok(ArchiveEnrollmentStatus::Retry);
+        }
         let result = self
             .run_bounded(
                 request.args(),
@@ -136,7 +152,41 @@ impl DockerActBackend {
         if result.exit_code == 75 && result.stdout.is_empty() {
             return Ok(ArchiveEnrollmentStatus::Retry);
         }
-        request.parse(&result.stdout, result.ok())
+        let status = request.parse(&result.stdout, result.ok())?;
+        if status == ArchiveEnrollmentStatus::Ready
+            && self
+                .try_require_cache_policy(request.engine, request.policy)
+                .await?
+                == PolicyAgreement::Busy
+        {
+            return Ok(ArchiveEnrollmentStatus::Retry);
+        }
+        Ok(status)
+    }
+    /// Return a terminal execution result only if policy waiting ends the run.
+    /// Missing or changed agreement is an error, never permission to recreate it.
+    pub(super) async fn guard_archive_execution(
+        &self,
+        engine: &str,
+        policy: CachePolicy,
+        deadline: async_engine::Deadline,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<super::ExecEnd>, String> {
+        let wait = async {
+            loop {
+                match self.try_require_cache_policy(engine, policy).await? {
+                    PolicyAgreement::Agreed => return Ok(()),
+                    PolicyAgreement::Busy => async_engine::sleep(Duration::from_millis(250)).await,
+                }
+            }
+        };
+        match async_engine::timeout_at(deadline, async_engine::cancellable(cancellation, wait))
+            .await
+        {
+            Err(_) => Ok(Some(super::ExecEnd::TimedOut)),
+            Ok(Err(_)) => Ok(Some(super::ExecEnd::Cancelled)),
+            Ok(Ok(result)) => result.map(|()| None),
+        }
     }
 }
 

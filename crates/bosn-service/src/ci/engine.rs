@@ -906,11 +906,16 @@ impl ActEngineBackend for DockerActBackend {
         lines: &'a async_engine::Sender<EngineLine>,
     ) -> BoxFuture<'a, Result<ExecEnd, String>> {
         Box::pin(async move {
+            let deadline = async_engine::Deadline::after(deadline);
             if !invocation.params.ci_outputs.is_empty() {
                 self.verify_act_capabilities(engine, true).await?;
             }
-            if let super::cache_cohort::CacheRoute::Cohort { policy, .. } = invocation.cache_route {
-                self.agree_cache_policy(engine, policy).await?;
+            if let super::cache_cohort::CacheRoute::Cohort { policy, .. } = invocation.cache_route
+                && let Some(end) = self
+                    .guard_archive_execution(engine, policy, deadline, cancellation)
+                    .await?
+            {
+                return Ok(end);
             }
             let mut args = Self::act_exec(
                 engine,
@@ -958,7 +963,7 @@ impl ActEngineBackend for DockerActBackend {
             let stream = async {
                 let result = docker
                     .stream(
-                        RunOptions::streaming(deadline, RUN_OUTPUT),
+                        RunOptions::streaming(deadline.remaining(), RUN_OUTPUT),
                         Some(cancellation),
                         &events,
                     )

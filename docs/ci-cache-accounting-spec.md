@@ -6761,3 +6761,54 @@ No real-engine claim is made by these synthetic tests.
 Act2 PR #85's six checks passed on `d1629f88dddefd8c21668e138ee5a0cf29d3e105`
 (run `39810469276` plus Codespell). Merge/default-branch full CI and release
 artifact verification are still required before Bosn consumes this dependency.
+
+### Archive policy admission and production candidate (2026-10-22)
+
+Act2 #85 merged at `f82a878a86ebc0790fe02cff74fd92ba18934a01` after all
+six PR checks passed. Its clean default checkout was rebased; the original
+Bosn checkout was fetched/rebased onto main immediately after that merge.
+Exact-default-commit full CI `39813540506` is running. No release or verified
+new artifact is claimed yet; Bosn still pins act2.27 while this local candidate
+is being completed, and must not be pushed in that state.
+
+Two additional transport regressions reproduced real admission gaps: Ready
+could pass with a missing machine policy, and conflicting policy could still
+contact source fencing (`archive-policy-both-regressions-red.log`). Full
+immutable machine policy now agrees before Fence and is required before
+Complete, on every Ready result, and immediately before execution. Contention
+is a typed retry and execution waits asynchronously under the original absolute
+run deadline/cancellation. Seven transport tests pass, including actual
+synthetic-process timeout and cancellation (`archive-policy-timeout-cancel.log`).
+The related machine-policy tests passed two with one explicit hardware fixture
+ignored; four coordination tests passed (`archive-policy-admission-green.log`).
+Clippy initially rejected a nested if; collapsing it passed service library/test
+Clippy in 28.50s (`archive-policy-clippy-recheck.log`). Later activation changes
+still need their final lint and whole exact-source gate.
+
+The local ordinary planner now selects Cohort, loading configuration once.
+Default archive limits are 8 GiB per repository (the existing legacy budget),
+32 GiB aggregate (four full repository budgets), 30-day maximum age, seven-day
+unused age, and five-minute maintenance. These are completed archive payload
+limits, not an allocated machine quota. Existing nonmatching immutable policy
+refuses instead of changing another daemon's contract. Explicit validated cache
+settings override defaults. Planning does not create or fence an engine.
+Synthetic normal-runtime tests use an in-memory frozen-policy/namespace phase
+model; scripted fault tests have an explicit queue whose exhaustion fails.
+Neither is evidence of Docker or act enrollment.
+
+The ignored actual workflow fixture now restores compiled C and npm package
+archives through actions/cache in the subsequent job and second fresh engine,
+verifying payload hashes and execution/content alongside completed native tools.
+That extended fixture has not yet run. Production activation is a local
+candidate only. Retained archive source disposal/accounting, all-class allocated
+ceilings, scoped builder expiry, original full-workload/concurrency/restart and
+large/many-file acceptance remain open; this does not complete #508.
+
+The first production-route CI-focused suite passed 332 tests with 21 explicit
+hardware fixtures ignored in 110.79s (`archive-production-route-first-green.log`).
+After adding configured-policy planning coverage, all four planner tests passed
+and service library/test Clippy passed58.29s
+(`archive-production-route-final-lint.log`). File-length/include-base guards and
+whitespace checks passed; sole-primary code and documentation review is clean.
+The extended Docker fixture remains unexecuted, and no full exact-source Bosn
+gate, new release pin or push is claimed by these results.

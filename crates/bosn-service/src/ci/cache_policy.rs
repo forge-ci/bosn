@@ -11,6 +11,20 @@ pub struct CachePolicy {
     pub(crate) maintenance_interval_secs: u64,
 }
 
+impl Default for CachePolicy {
+    fn default() -> Self {
+        Self {
+            // Preserve the existing per-repository archive ceiling while
+            // bounding the machine cohort to four full repository budgets.
+            repository_max_bytes: 8 << 30,
+            aggregate_max_bytes: 32 << 30,
+            max_age_secs: 30 * 24 * 3600,
+            unused_age_secs: 7 * 24 * 3600,
+            maintenance_interval_secs: 300,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Input {
