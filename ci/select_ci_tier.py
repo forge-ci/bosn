@@ -40,6 +40,8 @@ def diff_base(event_name: str, payload: dict) -> str:
     """The commit a PR or main push is compared against; empty when none."""
     if event_name == "pull_request":
         return payload["pull_request"]["base"]["sha"]
+    if event_name == "merge_group":
+        return payload["merge_group"]["base_sha"]
     if event_name == "push":
         before = payload.get("before", "")
         return "" if not before or set(before) == {"0"} else before

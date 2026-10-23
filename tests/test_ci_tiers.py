@@ -143,6 +143,10 @@ def test_label_changes_reselect_same_sha() -> None:
 
 def test_manual_and_main_tiers() -> None:
     assert select_ci_tier.select("push", {}) == "minimal"
+    # The merge queue runs the default tier against the merge result (#734).
+    queued = {"merge_group": {"base_sha": "b" * 40, "head_sha": "c" * 40}}
+    assert select_ci_tier.select("merge_group", queued) == "minimal"
+    assert select_ci_tier.diff_base("merge_group", queued) == "b" * 40
     assert select_ci_tier.select("workflow_dispatch", {}, "full", "a" * 40) == "full"
     with pytest.raises(ValueError, match="40-character"):
         select_ci_tier.select("workflow_dispatch", {}, "full", "not-a-sha")
