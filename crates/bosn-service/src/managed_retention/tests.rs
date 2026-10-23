@@ -631,6 +631,7 @@ fn summary(applied: bool, planned: u64, removed: u64, failed: u64) -> ManagedRet
         failures: Vec::new(),
         refused: None,
         held: std::collections::BTreeMap::new(),
+        eager: std::collections::BTreeMap::new(),
     }
 }
 

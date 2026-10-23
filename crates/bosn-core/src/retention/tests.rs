@@ -556,3 +556,6 @@ fn under_pressure_stopped_containers_use_the_shorter_gate() {
         Some(HoldReason::InUse)
     );
 }
+
+#[path = "eager_tests.rs"]
+mod eager_tests;

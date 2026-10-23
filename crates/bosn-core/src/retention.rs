@@ -187,12 +187,10 @@ impl RetentionPolicy {
 
     /// The gates a pre-removal re-check applies. The plan decides *which* objects go; the
     /// re-check proves each is still ours, idle and unpinned, and no younger than the shortest
-    /// gate the plan could have selected it under (the budget's floor for a volume).
+    /// gate the plan could have selected it under: the idle floor for a volume, which both the
+    /// byte budget and the eager rules (#659) use.
     #[must_use]
     pub fn recheck_gates(self) -> Self {
-        if self.idle_volume_budget.is_none() {
-            return self;
-        }
         Self {
             volume_ttl: self.volume_ttl.min(self.idle_volume_floor),
             ..self
@@ -267,6 +265,8 @@ pub struct RetentionVerdict {
     /// Age past the applicable gate, when the object is held only by its age gate.
     pub age_seconds: Option<f64>,
     pub bytes: Option<i128>,
+    /// Set when the object was reclaimed before its age gate, and why (#659).
+    pub eager: Option<EagerReason>,
 }
 
 impl RetentionVerdict {
@@ -295,6 +295,7 @@ pub fn classify_managed(
         hold: None,
         age_seconds: artifact.age_seconds,
         bytes: artifact.bytes,
+        eager: None,
     };
 
     // 1. Ownership. A bare `bosn-act-*` name is not evidence; only the label set is.
@@ -384,6 +385,16 @@ impl RetentionPlan {
         }
         counts
     }
+
+    /// How many candidates each eager rule selected (#659).
+    #[must_use]
+    pub fn eager_counts(&self) -> BTreeMap<EagerReason, u64> {
+        let mut counts = BTreeMap::new();
+        for reason in self.candidates.iter().filter_map(|verdict| verdict.eager) {
+            *counts.entry(reason).or_insert(0) += 1;
+        }
+        counts
+    }
 }
 
 /// Build a plan for one pass over the observed Bosn-owned objects.
@@ -397,6 +408,19 @@ pub fn plan_managed(
     artifacts: &[ObservedArtifact],
     our_registry: Option<&str>,
     policy: RetentionPolicy,
+) -> RetentionPlan {
+    plan_managed_with(artifacts, our_registry, policy, &EagerFacts::default())
+}
+
+/// [`plan_managed`], also reclaiming idle volumes the caller's workspace observations prove
+/// obsolete (#659). The eager rules run before the byte budget, so the volumes they take no
+/// longer count against it.
+#[must_use]
+pub fn plan_managed_with(
+    artifacts: &[ObservedArtifact],
+    our_registry: Option<&str>,
+    policy: RetentionPolicy,
+    facts: &EagerFacts,
 ) -> RetentionPlan {
     let mut classified: Vec<RetentionVerdict> = artifacts
         .iter()
@@ -412,6 +436,7 @@ pub fn plan_managed(
         }
     }
 
+    eager::promote(&mut plan, artifacts, policy, facts);
     promote_over_idle_volume_budget(&mut plan, policy);
     // Oldest first inside each kind, so ties on an unmeasured age keep a stable order.
     plan.candidates.sort_by(|left, right| {
@@ -549,7 +574,9 @@ pub fn age_seconds(created: SystemTime) -> Option<f64> {
     (secs >= 0.0).then_some(secs)
 }
 
+mod eager;
 mod footprint;
+pub use eager::{EagerFacts, EagerReason, FAMILY_KEEP};
 pub use footprint::{DEFAULT_OWNED_CEILING, OwnedFootprint};
 
 #[cfg(test)]

@@ -161,6 +161,9 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                                 owned_held: crate::wire::HeldCountWire::encode_counts(
                                     &summary.held,
                                 ),
+                                owned_eager: crate::wire::HeldCountWire::encode_eager(
+                                    &summary.eager,
+                                ),
                                 owned_refused: summary.refused.unwrap_or_default(),
                                 ..Default::default()
                             }

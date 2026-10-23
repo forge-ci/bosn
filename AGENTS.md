@@ -555,6 +555,21 @@ service (`managed_retention/pressure.rs`); the planner only gets the policy. A
 root the daemon cannot stat is no pressure, logged once. The pass logs
 `bosn retention: disk pressure (X GiB free, Y%); idle volume budget 0`.
 
+**Eager reclamation by workspace and family** (decided 2026-10-16, implemented
+2026-10-23, #659). A stack or spec volume's identity hashes its workspace path, so a worktree
+or temporary checkout mints volumes no later ensure can reuse. Past the 1 h idle floor, an idle
+volume is reclaimed before its age gate when its workspace path is proven absent
+(`workspace-gone`; an unreadable path proves nothing), or when it belongs to a repository
+family (the canonical git common directory, read from `.git` at or above the workspace, so
+worktrees share their clone's) and stack whose 3 most recently used workspaces
+(`FAMILY_KEEP`) exclude it (`family-cap`). A workspace in no repository is never grouped by
+guessing. The family is read at pass time from the live workspace rather than recorded in
+the registry: only a present workspace can be in a family, a gone one falls to
+`workspace-gone`, and a registry schema bump would lock older daemons out of the registry.
+Every ownership, liveness and pin gate and the re-check (now at the idle floor whatever the
+budget) are unchanged; each early removal logs its reason, and `bosn gc owned` reports
+`eager` counts. Merged-branch purging is #732.
+
 **Owned footprint ceiling** (decided 2026-10-22, #508). Free disk is not owned
 allocation. Every pass sums the Bosn-labelled containers, volumes and images it
 observed (`OwnedFootprint`), logs the total by kind with the unmeasured count, and
