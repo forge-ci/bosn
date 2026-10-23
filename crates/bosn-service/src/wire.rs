@@ -155,6 +155,10 @@ pub(crate) struct ReplyWire {
     /// Code 230: objects the pass kept, by hold reason (#545). Empty from an older daemon.
     #[prost(message, repeated, tag = "70")]
     pub(crate) owned_held: Vec<HeldCountWire>,
+    /// Code 230: candidates reclaimed before their age gate, by reason (#659). Empty from an
+    /// older daemon.
+    #[prost(message, repeated, tag = "71")]
+    pub(crate) owned_eager: Vec<HeldCountWire>,
 }
 /// One `HoldReason` and how many observed objects it kept.
 #[derive(Message)]
@@ -172,6 +176,28 @@ impl HeldCountWire {
             .map(|(reason, count)| Self {
                 reason: reason.as_str().to_owned(),
                 count: *count,
+            })
+            .collect()
+    }
+    pub(crate) fn encode_eager(
+        eager: &std::collections::BTreeMap<bosn_core::retention::EagerReason, u64>,
+    ) -> Vec<Self> {
+        eager
+            .iter()
+            .map(|(reason, count)| Self {
+                reason: reason.as_str().to_owned(),
+                count: *count,
+            })
+            .collect()
+    }
+    /// Unknown reasons (a newer daemon) are dropped rather than misreported.
+    pub(crate) fn decode_eager(
+        wire: Vec<Self>,
+    ) -> std::collections::BTreeMap<bosn_core::retention::EagerReason, u64> {
+        wire.into_iter()
+            .filter_map(|entry| {
+                bosn_core::retention::EagerReason::parse(&entry.reason)
+                    .map(|reason| (reason, entry.count))
             })
             .collect()
     }
@@ -556,6 +582,7 @@ pub(crate) fn decode_reply(v: ReplyWire) -> Result<Reply, Error> {
             failures: v.owned_failures,
             refused: (!v.owned_refused.is_empty()).then_some(v.owned_refused),
             held: HeldCountWire::decode_counts(v.owned_held),
+            eager: HeldCountWire::decode_eager(v.owned_eager),
         })),
         1 => Err(Error::Protocol("unsupported protocol")),
         2 => Err(Error::Protocol("unknown operation")),

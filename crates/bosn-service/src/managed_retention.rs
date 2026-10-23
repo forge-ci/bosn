@@ -44,7 +44,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 
 use bosn_core::ResourceKind;
-use bosn_core::retention::{RetentionPolicy, RetentionVerdict, classify_managed, plan_managed};
+use bosn_core::retention::{
+    RetentionPolicy, RetentionVerdict, classify_managed, plan_managed_with,
+};
 use bosn_engine::{CensusRead, DockerEngine, RunOptions};
 
 use crate::diagnostics::ManagedRetentionSummary;
@@ -164,6 +166,7 @@ pub fn managed_retention_pass(
                 failures: Vec::new(),
                 refused: Some(detail),
                 held: std::collections::BTreeMap::new(),
+                eager: std::collections::BTreeMap::new(),
             },
             plan: bosn_core::retention::RetentionPlan::default(),
             setup_containers,
@@ -175,7 +178,9 @@ pub fn managed_retention_pass(
         policy,
         bosn_core::retention::OwnedFootprint::of(&artifacts),
     );
-    let plan = plan_managed(&artifacts, our_registry.as_deref(), policy);
+    // #659: deleted workspaces and a family's older checkouts are reclaimed early.
+    let facts = workspaces::observe(&artifacts);
+    let plan = plan_managed_with(&artifacts, our_registry.as_deref(), policy, &facts);
     let mut removed = 0_u64;
     let mut removed_bytes = 0_i128;
     let mut failed = 0_u64;
@@ -202,6 +207,13 @@ pub fn managed_retention_pass(
             });
             match outcome {
                 Ok(Some(measured)) => {
+                    if let Some(reason) = candidate.eager {
+                        crate::daemon_log!(
+                            "bosn retention: reclaimed {} early ({})",
+                            candidate.id,
+                            reason.as_str()
+                        );
+                    }
                     removed += 1;
                     removed_bytes = removed_bytes.saturating_add(measured.unwrap_or(0));
                 }
@@ -227,6 +239,7 @@ pub fn managed_retention_pass(
             failures,
             refused: None,
             held: plan.held_counts(),
+            eager: plan.eager_counts(),
         },
         plan,
         setup_containers,
@@ -952,6 +965,7 @@ mod pressure;
 mod registered;
 mod running;
 mod sizes;
+mod workspaces;
 pub use running::{RunningContainer, running_containers};
 
 #[cfg(test)]

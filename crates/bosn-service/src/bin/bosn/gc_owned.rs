@@ -161,6 +161,11 @@ pub(crate) fn run_gc_owned(arguments: impl Iterator<Item = std::ffi::OsString>) 
                 .iter()
                 .map(|(reason, count)| (reason.as_str(), *count))
                 .collect::<std::collections::BTreeMap<_, _>>(),
+            "eager": summary
+                .eager
+                .iter()
+                .map(|(reason, count)| (reason.as_str(), *count))
+                .collect::<std::collections::BTreeMap<_, _>>(),
         })
     );
 }

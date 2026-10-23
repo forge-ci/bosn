@@ -97,6 +97,9 @@ pub struct ManagedRetentionSummary {
     /// Observed objects kept, counted by why (#545): distinguishes "nothing to do" from
     /// "held for missing labels, foreign ownership, liveness, age or a pin".
     pub held: std::collections::BTreeMap<bosn_core::retention::HoldReason, u64>,
+    /// Candidates reclaimed before their age gate, counted by why (#659). Empty from an older
+    /// daemon.
+    pub eager: std::collections::BTreeMap<bosn_core::retention::EagerReason, u64>,
 }
 
 /// Outcome of one `gc --unmanaged --apply`.

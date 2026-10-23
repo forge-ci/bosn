@@ -932,9 +932,12 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // teardown completes, so no protocol bump is required.
 // #508 exposes the existing 12-hour timeout constant to sibling policy code.
 // Only Rust visibility changed; wire fields, values and encoding are identical.
+// #659 adds reply tag 71 (`owned_eager`, early-reclaim counts by reason) the
+// same additive way as tag 70: an older peer reads it as empty, and an older
+// client ignores it, so no bump.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "f3c608e02e1816312c02113dce489e1a44ba4f86a0d356173300e854bda1e63d",
+    "b8f3f76a2d0fbe44bf336fff2aa97bb8ed279385b2d1ed57e478832fafd683eb",
 );
 
 #[test]
