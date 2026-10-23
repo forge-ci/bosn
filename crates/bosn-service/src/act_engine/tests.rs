@@ -236,11 +236,15 @@ fn private_cgroup_init_reparents_and_refuses_unavailable_or_foreign_roots() {
     std::fs::write(cgroups.join("cgroup.controllers"), "cpu memory pids\n").unwrap();
     std::fs::write(cgroups.join("cgroup.procs"), "1\n42\n").unwrap();
     std::fs::write(cgroups.join("cgroup.subtree_control"), "").unwrap();
+    let binfmt = root.join("binfmt");
+    std::fs::create_dir(&binfmt).unwrap();
+    std::fs::write(binfmt.join("register"), "").unwrap();
     // Run only against a synthetic file tree, never the host cgroupfs.
     let script = ENGINE_INIT
         .replace("[ \"$$\" -eq 1 ]", "[ 1 -eq 1 ]")
         .replace("/proc/self/cgroup", group.to_str().unwrap())
         .replace("/sys/fs/cgroup", cgroups.to_str().unwrap())
+        .replace("/proc/sys/fs/binfmt_misc", binfmt.to_str().unwrap())
         .replace("exec docker-init --", "exec");
     let run = || {
         Command::new("sh")
@@ -297,7 +301,17 @@ fn private_cgroup_init_reparents_and_refuses_unavailable_or_foreign_roots() {
     assert!(
         String::from_utf8_lossy(&result.stderr).contains("private cgroup controllers unavailable")
     );
-    assert!(!ENGINE_INIT.contains("mount "));
+    // The only mount is the binfmt_misc instance foreign-architecture jobs need (#449).
+    let mounts: Vec<_> = ENGINE_INIT
+        .lines()
+        .filter(|l| l.contains("mount "))
+        .collect();
+    assert_eq!(
+        mounts,
+        [
+            "[ -e /proc/sys/fs/binfmt_misc/register ] || mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || :"
+        ]
+    );
     assert!(!ENGINE_INIT.contains("tcp://"));
     let mut wrong = document();
     wrong[0]["Config"]["Cmd"][2] = json!("exec dockerd --host=tcp://0.0.0.0:2375");

@@ -5,6 +5,11 @@ use super::*;
 // Cgroup nesting follows the pinned image's DIND_COMMIT 8d9e3502.../hack/dind.
 // Only the private cgroup namespace root is touched; startup is finite and
 // deliberately omits the publisher entrypoint's TCP listeners and extra mounts.
+// The one mount kept is binfmt_misc (#449): its registrations live only while an
+// instance is mounted, so on a host that mounts none (NixOS without boot.binfmt)
+// setup-qemu-action's registration vanished with its container and every foreign
+// architecture job exited with `exec format error`. Best effort: a host without it
+// still starts.
 pub(super) const ENGINE_INIT: &str = r#"set -eu
 [ "$$" -eq 1 ] || { echo 'engine init requires PID 1' >&2; exit 1; }
 IFS= read -r group < /proc/self/cgroup
@@ -29,6 +34,7 @@ while :; do
     [ "$attempt" -lt 32 ] || { echo 'private cgroup controllers unavailable' >&2; exit 1; }
     sleep 0.01
 done
+[ -e /proc/sys/fs/binfmt_misc/register ] || mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || :
 exec docker-init -- "$@"
 "#;
 pub(crate) fn engine_command() -> Vec<String> {
