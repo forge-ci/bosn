@@ -73,77 +73,208 @@ fn boundary(
     (dir, backend)
 }
 
-#[test]
-fn replacement_registry_finalization_preserves_sources_on_every_unproven_boundary() {
-    for mode in [
-        "ok",
-        "live",
-        "partial",
-        "not-absent",
-        "not-disposed",
-        "bad-pin",
-        "bad-publication",
-        "wrong-root",
-        "wrong-schema",
-        "unknown",
-        "report-error",
-        "trailing",
-        "oversized",
-        "failed-start",
-        "wrong-id",
-        "lost-create",
-        "foreign-command",
-        "cleanup-denied",
-        "lost-remove",
-        "helper-ambiguous",
-        "cache-changed",
-        "source-changed",
-        "source-path-changed",
-        "engine-present",
-        "engine-ambiguous",
-        "context-changed",
-    ] {
-        with_registry(|source_actor, state| async move {
-            let record=crate::ci::engine::cache_usage::helper::recovery_cleanup_tests::seed_source_for_lifetime(
-                &source_actor,!matches!(mode,"live"|"source-path-changed"),&"c".repeat(64),"bosn-ci-cache-test",600).await;
-            let context = SourceContext::from_record(&record).unwrap();
-            source_actor.stop().await;
-            std::fs::rename(
-                state.join("registry.sqlite3"),
-                state.join("unavailable.sqlite3"),
-            )
-            .unwrap();
-            let db = state.join("replacement.sqlite3");
-            drop(Registry::create_writer(&db, REPLACEMENT).unwrap());
-            let daemon = Daemon::open(&db);
-            let (dir, backend) = boundary(&context, &db, mode);
-            let result = backend
-                .dispose_retained_source(&daemon.registry, REPLACEMENT, CONTEXT, &context)
-                .await;
-            daemon.stop().await;
-            let success = matches!(mode, "ok" | "live");
-            assert_eq!(result.is_ok(), success, "{mode}: {result:?}");
-            assert_eq!(dir.path().join("source.json").exists(), !success, "{mode}");
-            assert_eq!(dir.path().join("context.json").exists(), !success, "{mode}");
-            let reader = Registry::open_read_only(&db).unwrap();
-            assert!(
-                reader.act_engine(&record.intent.run_id).unwrap().is_none(),
-                "invented replacement engine row"
-            );
-            if success {
-                assert!(dir.path().join("removed").exists());
-                let page = reader.events(0, 64).unwrap();
-                let last = page
-                    .items
-                    .iter()
-                    .rev()
-                    .find(|e| e.kind.starts_with("ci.cache-helper.v1:"))
-                    .unwrap();
-                let helper: bosn_registry::cache_helper::CacheHelperRecord =
-                    serde_json::from_str(&last.detail).unwrap();
-                assert_eq!(helper.state, CacheHelperState::Removed);
-            }
-        });
+/// One case of [`replacement_registry_finalization_preserves_sources_on_every_unproven_boundary`]'s table; each runs as its own test so nextest
+/// runs them in parallel (#722: run in a loop they took up to 68 s).
+fn replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+    mode: &'static str,
+) {
+    with_registry(|source_actor, state| async move {
+        let record=crate::ci::engine::cache_usage::helper::recovery_cleanup_tests::seed_source_for_lifetime(
+            &source_actor,!matches!(mode,"live"|"source-path-changed"),&"c".repeat(64),"bosn-ci-cache-test",600).await;
+        let context = SourceContext::from_record(&record).unwrap();
+        source_actor.stop().await;
+        std::fs::rename(
+            state.join("registry.sqlite3"),
+            state.join("unavailable.sqlite3"),
+        )
+        .unwrap();
+        let db = state.join("replacement.sqlite3");
+        drop(Registry::create_writer(&db, REPLACEMENT).unwrap());
+        let daemon = Daemon::open(&db);
+        let (dir, backend) = boundary(&context, &db, mode);
+        let result = backend
+            .dispose_retained_source(&daemon.registry, REPLACEMENT, CONTEXT, &context)
+            .await;
+        daemon.stop().await;
+        let success = matches!(mode, "ok" | "live");
+        assert_eq!(result.is_ok(), success, "{mode}: {result:?}");
+        assert_eq!(dir.path().join("source.json").exists(), !success, "{mode}");
+        assert_eq!(dir.path().join("context.json").exists(), !success, "{mode}");
+        let reader = Registry::open_read_only(&db).unwrap();
+        assert!(
+            reader.act_engine(&record.intent.run_id).unwrap().is_none(),
+            "invented replacement engine row"
+        );
+        if success {
+            assert!(dir.path().join("removed").exists());
+            let page = reader.events(0, 64).unwrap();
+            let last = page
+                .items
+                .iter()
+                .rev()
+                .find(|e| e.kind.starts_with("ci.cache-helper.v1:"))
+                .unwrap();
+            let helper: bosn_registry::cache_helper::CacheHelperRecord =
+                serde_json::from_str(&last.detail).unwrap();
+            assert_eq!(helper.state, CacheHelperState::Removed);
+        }
+    });
+}
+
+mod replacement_registry_finalization_preserves_sources_on_every_unproven_boundary {
+    #[test]
+    fn ok() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary("ok");
+    }
+    #[test]
+    fn live() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "live",
+        );
+    }
+    #[test]
+    fn partial() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "partial",
+        );
+    }
+    #[test]
+    fn not_absent() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "not-absent",
+        );
+    }
+    #[test]
+    fn not_disposed() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "not-disposed",
+        );
+    }
+    #[test]
+    fn bad_pin() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "bad-pin",
+        );
+    }
+    #[test]
+    fn bad_publication() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "bad-publication",
+        );
+    }
+    #[test]
+    fn wrong_root() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "wrong-root",
+        );
+    }
+    #[test]
+    fn wrong_schema() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "wrong-schema",
+        );
+    }
+    #[test]
+    fn unknown() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "unknown",
+        );
+    }
+    #[test]
+    fn report_error() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "report-error",
+        );
+    }
+    #[test]
+    fn trailing() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "trailing",
+        );
+    }
+    #[test]
+    fn oversized() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "oversized",
+        );
+    }
+    #[test]
+    fn failed_start() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "failed-start",
+        );
+    }
+    #[test]
+    fn wrong_id() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "wrong-id",
+        );
+    }
+    #[test]
+    fn lost_create() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "lost-create",
+        );
+    }
+    #[test]
+    fn foreign_command() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "foreign-command",
+        );
+    }
+    #[test]
+    fn cleanup_denied() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "cleanup-denied",
+        );
+    }
+    #[test]
+    fn lost_remove() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "lost-remove",
+        );
+    }
+    #[test]
+    fn helper_ambiguous() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "helper-ambiguous",
+        );
+    }
+    #[test]
+    fn cache_changed() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "cache-changed",
+        );
+    }
+    #[test]
+    fn source_changed() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "source-changed",
+        );
+    }
+    #[test]
+    fn source_path_changed() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "source-path-changed",
+        );
+    }
+    #[test]
+    fn engine_present() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "engine-present",
+        );
+    }
+    #[test]
+    fn engine_ambiguous() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "engine-ambiguous",
+        );
+    }
+    #[test]
+    fn context_changed() {
+        super::replacement_registry_finalization_preserves_sources_on_every_unproven_boundary(
+            "context-changed",
+        );
     }
 }
 
