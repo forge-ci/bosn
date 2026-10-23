@@ -74,6 +74,7 @@ pub mod capacity;
 pub mod ci;
 mod client;
 mod cpu_reweight;
+pub mod daemon_switch;
 mod diagnostics;
 mod diagnostics_validate;
 mod dispatch;

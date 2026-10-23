@@ -88,7 +88,15 @@ The package-ready foreground control surface is explicit and authenticated:
 bosn daemon serve --state-dir STATE_DIR
 bosn daemon status --state-dir STATE_DIR [--json]
 bosn daemon stop --state-dir STATE_DIR [--json]
+bosn daemon disable|enable [--state-dir STATE_DIR] [--json]
 ```
+
+`stop` lasts until the next daemon-backed command starts the daemon again.
+`disable` is durable (#670): it writes `<state>/daemon.disabled`, stops the
+user unit for that state directory without unregistering it, and stops a
+running daemon. While the marker exists, commands that would start the daemon
+fail with `bosn daemon is disabled (bosn daemon enable)`, `daemon serve` exits
+cleanly, and `widget --autostart` does not launch. `enable` removes the marker.
 
 `serve` hardens the state directory through kernal-api,
 creates a fresh private v5 registry with kernel OS entropy when absent, or

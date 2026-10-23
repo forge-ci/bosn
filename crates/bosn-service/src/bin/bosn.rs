@@ -42,6 +42,8 @@ mod ci;
 mod daemon;
 #[path = "bosn/daemon_exe.rs"]
 mod daemon_exe;
+#[path = "bosn/daemon_switch.rs"]
+mod daemon_switch;
 #[path = "bosn/gc.rs"]
 mod gc;
 #[path = "bosn/gc_owned.rs"]
@@ -223,6 +225,7 @@ fn usage() -> ! {
     eprintln!("   or: bosn daemon url --state-dir STATE_DIR [--json]");
     eprintln!("   or: bosn daemon token --state-dir STATE_DIR [--json]");
     eprintln!("   or: bosn daemon stop --state-dir STATE_DIR [--json]");
+    eprintln!("   or: bosn daemon disable|enable [--state-dir STATE_DIR] [--json]");
     eprintln!(
         "   or: bosn daemon autostart (enable|disable|status) [--state-dir STATE_DIR] [--json]"
     );

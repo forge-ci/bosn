@@ -145,6 +145,18 @@ fn start_argv(platform: Platform, uid: u32) -> Vec<OsString> {
     }
 }
 
+fn stop_argv(platform: Platform, uid: u32) -> Vec<OsString> {
+    match platform {
+        Platform::LinuxSystemd => argv(&["systemctl", "--user", "stop", SERVICE_NAME]),
+        Platform::MacosLaunchd => argv(&[
+            "launchctl",
+            "kill",
+            "SIGTERM",
+            &format!("gui/{uid}/{SERVICE_NAME}"),
+        ]),
+    }
+}
+
 fn reset_failed_argv() -> Vec<OsString> {
     argv(&["systemctl", "--user", "reset-failed", SERVICE_NAME])
 }
@@ -278,6 +290,31 @@ pub fn start_if_enabled(
         runner.run(&reset_failed_argv())?;
         runner.run(&start)?;
     }
+    Ok(true)
+}
+
+/// Stop, without unregistering, the user unit when it serves this state directory, so a
+/// disabled daemon (#670) is not left running under its supervisor. Returns whether a unit
+/// was asked to stop; a unit for another state directory is left alone.
+///
+/// # Errors
+/// The unit file cannot be read, or the service manager refuses the stop.
+pub fn stop_if_installed(
+    runner: &dyn CommandRunner,
+    platform: Platform,
+    home: &Path,
+    state_dir: &Path,
+) -> Result<bool, String> {
+    let path = unit_path(platform, home);
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+    };
+    if !targets_state(platform, &contents, state_dir) {
+        return Ok(false);
+    }
+    runner.run(&stop_argv(platform, user_id()))?;
     Ok(true)
 }
 

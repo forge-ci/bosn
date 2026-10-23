@@ -470,6 +470,7 @@ fn start_daemon<F>(
 where
     F: FnOnce(&Path, &Path) -> Result<std::process::Child, String>,
 {
+    bosn_service::daemon_switch::refuse_if_disabled(state_dir)?;
     if let (Some(platform), Some(home)) = (platform, home)
         && bosn_service::autostart::start_if_enabled(manager, platform, home, state_dir)?
     {
@@ -973,3 +974,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "run_disabled_tests.rs"]
+mod disabled_tests;

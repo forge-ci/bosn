@@ -171,6 +171,10 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
         artifact::install().unwrap_or_else(|error| fail(&error.to_string()));
         return install_unit(&state_dir);
     }
+    if autostart && bosn_service::daemon_switch::is_disabled(&state_dir) {
+        eprintln!("bosn widget: {}", bosn_service::daemon_switch::DISABLED);
+        return;
+    }
     let binary = match widget_binary() {
         Some(binary) => binary,
         None if autostart => artifact::install().unwrap_or_else(|error| fail(&error.to_string())),
