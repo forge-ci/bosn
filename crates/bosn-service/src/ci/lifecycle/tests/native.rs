@@ -149,6 +149,63 @@ fn uncertain_native_reservation_never_opens_a_slot() {
 }
 
 #[test]
+fn a_gone_engine_releases_its_claim_while_its_recovery_source_is_retained() {
+    // #737: an unacknowledged reservation retains the source and so refuses the
+    // record's cleanup for up to a day. The container itself is gone, so the
+    // machine claim must not hold every next engine behind it.
+    with_registry(|registry, _dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            reserve: true,
+            retain_source: true,
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry.clone(), backend.clone());
+        let plan = native_plan();
+        let run = plan.intent.run_id.clone();
+        let cancel = CancellationSource::new().token();
+        assert!(
+            shared
+                .lease(&run_id(0x5092), plan, &cancel, &mut |_: &str| {})
+                .await
+                .is_err()
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while backend.machine.claim.lock().unwrap().is_some() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "claim outlived its proven-absent engine"
+            );
+            async_engine::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(backend.live(), 0);
+        let record = match registry
+            .act_registry(ActRegistryCommand::Get { run })
+            .await
+            .unwrap()
+        {
+            ActRegistryReply::Record(Some(record)) => record,
+            reply => panic!("engine record missing: {reply:?}"),
+        };
+        assert!(
+            record.tool_recovery.is_some() && record.removal.is_none(),
+            "the record keeps its recovery intent and owed cleanup"
+        );
+        *backend.faults.lock().unwrap() = Faults::default();
+        let next = shared
+            .lease(
+                &run_id(0x5093),
+                shared_plan(&run_id(0x5094)),
+                &cancel,
+                &mut |_: &str| {},
+            )
+            .await
+            .unwrap();
+        shared.release(next).await;
+        shared.close().await;
+    });
+}
+
+#[test]
 fn ordinary_native_policy_refuses_memory_before_source_mutation() {
     with_registry(|registry, _dir| async move {
         let backend = Arc::new(FakeBackend::with(Faults::default()));
