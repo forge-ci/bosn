@@ -23,6 +23,8 @@ pub struct Faults {
     pub exit_code: i32,
     pub hang: bool,
     pub remove: bool,
+    /// The engine is removed, then cleanup still fails: its recovery source is retained (#737).
+    pub retain_source: bool,
     pub inspect: bool,
     /// Resolving the engine image never finishes (a stuck pull).
     pub slow_image: bool,
@@ -369,6 +371,9 @@ impl ActEngineBackend for FakeBackend {
                         return Err("synthetic removal failure".into());
                     }
                     self.engines.lock().unwrap().remove(&name);
+                    if f.retain_source {
+                        return Err("native tool recovery retains the private source volume".into());
+                    }
                     Some(observed.engine_id)
                 }
             };
