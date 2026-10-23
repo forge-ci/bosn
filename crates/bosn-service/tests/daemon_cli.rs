@@ -13,10 +13,13 @@ const READY_DEADLINE: Duration = Duration::from_secs(5);
 
 struct DaemonChild {
     child: Child,
+    /// The daemon's stderr, so a startup exit says why instead of only that it happened.
+    stderr: tempfile::NamedTempFile,
 }
 
 impl DaemonChild {
     fn start(state: &Path) -> Self {
+        let stderr = tempfile::NamedTempFile::new().unwrap();
         Self {
             child: Command::new(env!("CARGO_BIN_EXE_bosn"))
                 // This daemon control increment has no engine work. An
@@ -27,10 +30,15 @@ impl DaemonChild {
                 .arg(state)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(stderr.reopen().unwrap())
                 .spawn()
                 .unwrap(),
+            stderr,
         }
+    }
+
+    fn stderr(&self) -> String {
+        std::fs::read_to_string(self.stderr.path()).unwrap_or_default()
     }
 
     fn wait_for_exit(&mut self) -> ExitStatus {
@@ -74,10 +82,12 @@ fn wait_for_client(daemon: &mut DaemonChild, state: &Path) -> Client {
         if runtime.run(client.ping()).is_ok() {
             return client;
         }
-        assert!(
-            daemon.child.try_wait().unwrap().is_none(),
-            "daemon exited before becoming ready"
-        );
+        if let Some(status) = daemon.child.try_wait().unwrap() {
+            panic!(
+                "daemon exited before becoming ready ({status}): {}",
+                daemon.stderr()
+            );
+        }
         assert!(Instant::now() < deadline, "daemon did not become ready");
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -138,6 +148,7 @@ fn daemon_stderr_lines_have_unix_millisecond_timestamps() {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap(),
+        stderr: tempfile::NamedTempFile::new().unwrap(),
     };
     let client = wait_for_client(&mut daemon, &state);
     RuntimeBuilder::current_thread()
