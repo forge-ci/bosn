@@ -72,176 +72,297 @@ fn commands(directory: &std::path::Path) -> Vec<Vec<String>> {
         .collect()
 }
 
-#[test]
-fn reference_release_helper_requires_completion_and_never_contacts_source() {
-    for mode in [
-        "ok",
-        "absent-retry",
-        "partial",
-        "bad-pin",
-        "not-absent",
-        "trailing",
-        "oversized",
-        "failed-start",
-        "wrong-id",
-        "lost-create",
-        "foreign-command",
-        "cleanup-denied",
-        "lost-remove",
-        "cleanup-mixed",
-        "helper-ambiguous",
-        "cache-changed",
-    ] {
-        with_registry(|actor, state| async move {
-            let record = seed_source(&actor, false).await;
-            let (dir, before) = backend(&record, &state, mode);
-            assert!(
-                before
-                    .release_tool_with_helper(&actor, &record.intent.run_id, OWNER)
-                    .await
-                    .is_err()
-            );
-            assert!(
-                !dir.path().join("commands").exists(),
-                "release before durable completion contacted Docker"
-            );
-            let record =
-                complete_source(&actor, &record, crate::ci::lifecycle::now_seconds()).await;
-            let (dir, backend) = backend(&record, &state, mode);
-            let result = backend
+/// One case of [`reference_release_helper_requires_completion_and_never_contacts_source`]'s table; each runs as its own test so nextest
+/// runs them in parallel (#722: run in a loop they took up to 68 s).
+fn reference_release_helper_requires_completion_and_never_contacts_source(mode: &'static str) {
+    with_registry(|actor, state| async move {
+        let record = seed_source(&actor, false).await;
+        let (dir, before) = backend(&record, &state, mode);
+        assert!(
+            before
                 .release_tool_with_helper(&actor, &record.intent.run_id, OWNER)
-                .await;
-            let success = matches!(mode, "ok" | "absent-retry");
-            assert_eq!(result.is_ok(), success, "{mode}: {result:?}");
-            let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
-            assert_release_state(&reader, &record.intent.run_id, success);
-            let commands = commands(dir.path());
-            assert_source_free(&commands, &record);
-            let helper = last_helper(&reader);
-            let pending = matches!(
-                mode,
-                "foreign-command"
-                    | "cleanup-denied"
-                    | "lost-remove"
-                    | "cleanup-mixed"
-                    | "helper-ambiguous"
-            );
-            assert_eq!(
-                helper.state == CacheHelperState::Removed,
-                !pending,
-                "{mode}: {helper:?}"
-            );
-            if mode == "lost-remove" {
-                assert!(
-                    backend
-                        .retry_measurements(&actor, OWNER, None)
-                        .await
-                        .unwrap()
-                        .removed
-                        .is_some()
-                );
-                assert!(
-                    reader
-                        .act_engine(&record.intent.run_id)
-                        .unwrap()
-                        .unwrap()
-                        .tool_recovery_completion
-                        .unwrap()
-                        .reference_released_at
-                        .is_none()
-                );
-            }
-            if success {
-                let before = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+                .await
+                .is_err()
+        );
+        assert!(
+            !dir.path().join("commands").exists(),
+            "release before durable completion contacted Docker"
+        );
+        let record = complete_source(&actor, &record, crate::ci::lifecycle::now_seconds()).await;
+        let (dir, backend) = backend(&record, &state, mode);
+        let result = backend
+            .release_tool_with_helper(&actor, &record.intent.run_id, OWNER)
+            .await;
+        let success = matches!(mode, "ok" | "absent-retry");
+        assert_eq!(result.is_ok(), success, "{mode}: {result:?}");
+        let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
+        assert_release_state(&reader, &record.intent.run_id, success);
+        let commands = commands(dir.path());
+        assert_source_free(&commands, &record);
+        let helper = last_helper(&reader);
+        let pending = matches!(
+            mode,
+            "foreign-command"
+                | "cleanup-denied"
+                | "lost-remove"
+                | "cleanup-mixed"
+                | "helper-ambiguous"
+        );
+        assert_eq!(
+            helper.state == CacheHelperState::Removed,
+            !pending,
+            "{mode}: {helper:?}"
+        );
+        if mode == "lost-remove" {
+            assert!(
                 backend
-                    .release_tool_with_helper(&actor, &record.intent.run_id, OWNER)
+                    .retry_measurements(&actor, OWNER, None)
                     .await
-                    .unwrap();
-                assert_eq!(
-                    std::fs::read_to_string(dir.path().join("commands")).unwrap(),
-                    before,
-                    "acknowledged release retried Docker"
-                );
-            }
-        });
+                    .unwrap()
+                    .removed
+                    .is_some()
+            );
+            assert!(
+                reader
+                    .act_engine(&record.intent.run_id)
+                    .unwrap()
+                    .unwrap()
+                    .tool_recovery_completion
+                    .unwrap()
+                    .reference_released_at
+                    .is_none()
+            );
+        }
+        if success {
+            let before = std::fs::read_to_string(dir.path().join("commands")).unwrap();
+            backend
+                .release_tool_with_helper(&actor, &record.intent.run_id, OWNER)
+                .await
+                .unwrap();
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("commands")).unwrap(),
+                before,
+                "acknowledged release retried Docker"
+            );
+        }
+    });
+}
+
+mod reference_release_helper_requires_completion_and_never_contacts_source {
+    #[test]
+    fn ok() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source("ok");
+    }
+    #[test]
+    fn absent_retry() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "absent-retry",
+        );
+    }
+    #[test]
+    fn partial() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source("partial");
+    }
+    #[test]
+    fn bad_pin() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source("bad-pin");
+    }
+    #[test]
+    fn not_absent() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source("not-absent");
+    }
+    #[test]
+    fn trailing() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source("trailing");
+    }
+    #[test]
+    fn oversized() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source("oversized");
+    }
+    #[test]
+    fn failed_start() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "failed-start",
+        );
+    }
+    #[test]
+    fn wrong_id() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source("wrong-id");
+    }
+    #[test]
+    fn lost_create() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "lost-create",
+        );
+    }
+    #[test]
+    fn foreign_command() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "foreign-command",
+        );
+    }
+    #[test]
+    fn cleanup_denied() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "cleanup-denied",
+        );
+    }
+    #[test]
+    fn lost_remove() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "lost-remove",
+        );
+    }
+    #[test]
+    fn cleanup_mixed() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "cleanup-mixed",
+        );
+    }
+    #[test]
+    fn helper_ambiguous() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "helper-ambiguous",
+        );
+    }
+    #[test]
+    fn cache_changed() {
+        super::reference_release_helper_requires_completion_and_never_contacts_source(
+            "cache-changed",
+        );
     }
 }
 
-#[test]
-fn recovery_helper_publication_and_cleanup_preserve_durable_ordering() {
-    for mode in [
-        "ok",
-        "partial",
-        "bad-pin",
-        "trailing",
-        "failed-start",
-        "source-changed",
-        "source-path-changed",
-        "wrong-id",
-        "lost-create",
-        "foreign-command",
-        "cleanup-denied",
-        "lost-remove",
-        "engine-present",
-        "engine-ambiguous",
-        "cleanup-mixed",
-        "helper-ambiguous",
-        "oversized",
-    ] {
-        with_registry(|actor, state| async move {
-            let record = seed_source(&actor, false).await;
-            let (dir, backend) = backend(&record, &state, mode);
-            let result = backend
-                .recover_tool_with_helper(&actor, &record.intent.run_id, OWNER)
-                .await;
-            assert_eq!(result.is_ok(), mode == "ok", "{mode}: {result:?}");
-            let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
-            let after = reader.act_engine(&record.intent.run_id).unwrap().unwrap();
-            assert_eq!(
-                after.tool_recovery_completion.is_some(),
-                mode == "ok",
-                "{mode}"
-            );
-            assert!(after.tool_recovery_source_disposal_at.is_none());
-            assert!(after.retains_tool_recovery_source(crate::ci::lifecycle::now_seconds()));
-            let commands = commands(dir.path());
+/// One case of [`recovery_helper_publication_and_cleanup_preserve_durable_ordering`]'s table; each runs as its own test so nextest
+/// runs them in parallel (#722: run in a loop they took up to 68 s).
+fn recovery_helper_publication_and_cleanup_preserve_durable_ordering(mode: &'static str) {
+    with_registry(|actor, state| async move {
+        let record = seed_source(&actor, false).await;
+        let (dir, backend) = backend(&record, &state, mode);
+        let result = backend
+            .recover_tool_with_helper(&actor, &record.intent.run_id, OWNER)
+            .await;
+        assert_eq!(result.is_ok(), mode == "ok", "{mode}: {result:?}");
+        let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
+        let after = reader.act_engine(&record.intent.run_id).unwrap().unwrap();
+        assert_eq!(
+            after.tool_recovery_completion.is_some(),
+            mode == "ok",
+            "{mode}"
+        );
+        assert!(after.tool_recovery_source_disposal_at.is_none());
+        assert!(after.retains_tool_recovery_source(crate::ci::lifecycle::now_seconds()));
+        let commands = commands(dir.path());
+        assert!(!commands.iter().any(
+            |a| a.first().is_some_and(|s| s == "volume") && a.get(1).is_some_and(|s| s == "rm")
+        ));
+        if matches!(mode, "engine-present" | "engine-ambiguous") {
+            return;
+        }
+        assert_publication_helper_journal(&commands, &reader, mode);
+        if matches!(
+            mode,
+            "source-changed"
+                | "source-path-changed"
+                | "wrong-id"
+                | "lost-create"
+                | "foreign-command"
+        ) {
+            assert!(!dir.path().join("started").exists(), "{mode}");
+        }
+        if mode == "ok" {
             assert!(
-                !commands
-                    .iter()
-                    .any(|a| a.first().is_some_and(|s| s == "volume")
-                        && a.get(1).is_some_and(|s| s == "rm"))
+                backend
+                    .recover_tool_with_helper(&actor, &record.intent.run_id, OWNER)
+                    .await
+                    .is_ok()
             );
-            if matches!(mode, "engine-present" | "engine-ambiguous") {
-                return;
-            }
-            assert_publication_helper_journal(&commands, &reader, mode);
-            if matches!(
-                mode,
-                "source-changed"
-                    | "source-path-changed"
-                    | "wrong-id"
-                    | "lost-create"
-                    | "foreign-command"
-            ) {
-                assert!(!dir.path().join("started").exists(), "{mode}");
-            }
-            if mode == "ok" {
-                assert!(
-                    backend
-                        .recover_tool_with_helper(&actor, &record.intent.run_id, OWNER)
-                        .await
-                        .is_ok()
-                );
-                assert_eq!(commands.iter().filter(|a| a[0] == "start").count(), 1);
-                assert!(
-                    after
-                        .tool_recovery_completion
-                        .unwrap()
-                        .reference_released_at
-                        .is_none()
-                );
-            }
-        });
+            assert_eq!(commands.iter().filter(|a| a[0] == "start").count(), 1);
+            assert!(
+                after
+                    .tool_recovery_completion
+                    .unwrap()
+                    .reference_released_at
+                    .is_none()
+            );
+        }
+    });
+}
+
+mod recovery_helper_publication_and_cleanup_preserve_durable_ordering {
+    #[test]
+    fn ok() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("ok");
+    }
+    #[test]
+    fn partial() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("partial");
+    }
+    #[test]
+    fn bad_pin() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("bad-pin");
+    }
+    #[test]
+    fn trailing() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("trailing");
+    }
+    #[test]
+    fn failed_start() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("failed-start");
+    }
+    #[test]
+    fn source_changed() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("source-changed");
+    }
+    #[test]
+    fn source_path_changed() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering(
+            "source-path-changed",
+        );
+    }
+    #[test]
+    fn wrong_id() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("wrong-id");
+    }
+    #[test]
+    fn lost_create() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("lost-create");
+    }
+    #[test]
+    fn foreign_command() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("foreign-command");
+    }
+    #[test]
+    fn cleanup_denied() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("cleanup-denied");
+    }
+    #[test]
+    fn lost_remove() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("lost-remove");
+    }
+    #[test]
+    fn engine_present() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("engine-present");
+    }
+    #[test]
+    fn engine_ambiguous() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering(
+            "engine-ambiguous",
+        );
+    }
+    #[test]
+    fn cleanup_mixed() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("cleanup-mixed");
+    }
+    #[test]
+    fn helper_ambiguous() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering(
+            "helper-ambiguous",
+        );
+    }
+    #[test]
+    fn oversized() {
+        super::recovery_helper_publication_and_cleanup_preserve_durable_ordering("oversized");
     }
 }
 
