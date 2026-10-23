@@ -121,6 +121,14 @@ toolchain  = { via = "setup-soldr:solo-toolchain", max = "210MB", per = "none", 
 registry   = { via = "setup-soldr:cargo-registry",  max = "200MB", lockfile = true, per = "none",          evict = "lru" }
 soldr-mini = { via = "setup-soldr:soldr-mini",     max = "30MB",  per = "none", min = "1MB",                evict = "lru" }
 uv         = { via = "setup-uv",                   max = "100MB", per = "platform",                        evict = "lru" }
+# setup-soldr's per-source ancestor build entries (setup-soldr#566). Every main
+# push saved one (~250 MB) and nothing retired them: 23 entries, 5.7 GB, held
+# the repository over GitHub's 10 GB limit (2026-10-23). Keep the most recently
+# used, one per platform.
+ancestor   = { via = "setup-soldr:ancestor-build", max = "260MB", per = "platform",                     evict = "lru" }
+# ci-pre.yml's per-gate attestation side entries (~440 B each). Declared so the
+# janitor keeps them; closed PRs' entries are still reclaimed.
+attest     = { prefix = "att1-",                   max = "1MB" }
 
 # Ancestor promotion (CACHE-024, zackees/ci.yml#335). Standardizing on
 # setup-soldr's ancestor encoding -- shortest parent-edge distance from a live

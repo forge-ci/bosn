@@ -10,6 +10,14 @@
 # (lineage ordinals and the trailers live there) but only READS it: the code
 # it runs is ci_lint from the pinned ci.yml ref, never a PR-authored script.
 # Cache saves use the runner's token, which GitHub scopes to this ref.
+#
+# cache-maint is zackees/ci.yml's cache janitor (docs/policy-general.md,
+# GEN-014..018), on main pushes only: it deletes caches that ci.toml's
+# [cache.family] entries do not keep (undeclared keys, closed PRs' entries,
+# superseded and poisoned entries, an evict = "lru" family's overflow, and
+# anything unused for 5 days), so the repository stays under its [cache]
+# budget and GitHub's own 10 GB LRU never evicts what a job restores. It never
+# deletes an entry younger than 10 minutes or the newest entry of a family.
 
 name: CI Pre
 
@@ -95,3 +103,36 @@ jobs:
         with:
           path: ${{ steps.att.outputs.path_6 }}
           key: ${{ steps.att.outputs.stem_6 }}${{ env.PR_CACHE_TAG }}
+
+  cache-maint:
+    name: Cache janitor
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # One sweep at a time, repo-wide; a running sweep is never cancelled.
+    concurrency:
+      group: cache-janitor
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # The janitor reads only ci.toml from this repository.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: ci.toml
+          sparse-checkout-cone-mode: false
+      # Newer than the verify pin: it knows setup-soldr's ancestor-build family.
+      - uses: actions/checkout@v4
+        with:
+          repository: zackees/ci.yml
+          ref: 41fcbca60a7901c8707411c4abf4d0b41dd71426
+          path: .ci-lint
+          persist-credentials: false
+          sparse-checkout: ci_lint
+      - name: Sweep caches
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: .ci-lint
+        run: python3 -P -m ci_lint cache janitor --repo . --default-branch main
