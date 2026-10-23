@@ -74,7 +74,7 @@ async fn retire_preparation(
     let token = record
         .as_ref()
         .and_then(|record| record.execution_claim.as_deref());
-    lifecycle::cleanup(
+    let cleaned = lifecycle::cleanup(
         registry,
         backend,
         &owner,
@@ -83,12 +83,25 @@ async fn retire_preparation(
         ActRunOutcome::Cancelled,
         &mut Clock(intent.created_at),
     )
-    .await?;
+    .await;
     let machine = backend
         .machine()
         .ok_or("shared engine backend unavailable")?;
     if machine.inspect(&intent.engine_name()).await?.is_some() {
+        cleaned?;
         return Err("preparation engine still exists after cleanup".into());
+    }
+    // The claim fences the machine's one engine container, nothing else (#737).
+    // Once that container is proven gone, cleanup the record still owes (a
+    // recovery source retained until its reservation is acknowledged or
+    // expires) stays with the record and startup recovery, and no longer holds
+    // every daemon's next engine behind this claim.
+    if let Err(error) = cleaned {
+        daemon_log!(
+            "bosn ci: engine {} is gone; releasing its machine claim, record cleanup deferred: {}",
+            intent.engine_name(),
+            error.chars().take(512).collect::<String>()
+        );
     }
     machine.remove_claim(claim).await
 }
