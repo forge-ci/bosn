@@ -878,7 +878,9 @@ fn a_silent_step_still_shows_its_progress_while_it_runs() {
         let staging = new_uuid().await.unwrap();
         staged(&runtime, &staging);
         let mut submission = request(&staging, 'e');
-        submission.timeout_secs = Some(10);
+        // A loaded gate host took more than 3 s to show the step; the run's own
+        // timeout stays well past the visibility deadline so it never ends first.
+        submission.timeout_secs = Some(60);
         let run = call::<SubmitReply>(
             &runtime,
             CiRequest::Submit {
@@ -887,7 +889,7 @@ fn a_silent_step_still_shows_its_progress_while_it_runs() {
         )
         .await
         .run;
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         loop {
             let record = runtime.record(&run).unwrap();
             // Queued at first on a slow machine; never done before the step shows.
