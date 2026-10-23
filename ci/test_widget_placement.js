@@ -63,12 +63,33 @@ assert.equal(calls.at(-1)[3], 'loadScript');
 timer.timeout.emit();
 assert.equal(calls.at(-1)[3], 'unloadScript');
 assert.deepEqual(warnings, []);
-// A compositor that rejects geometry must stop readiness transitions.
+// A compositor that rejects geometry withdraws readiness without stopping the
+// timer (#692): one tick of grace for asynchronous placement, then one
+// diagnostic, bounded backoff, and recovery once placement is applied again.
 let rejected = bubble.frameGeometry;
-Object.defineProperty(bubble, 'frameGeometry', {get:()=>rejected, set:()=>{}});
+let accept = false;
+let stored = rejected;
+Object.defineProperty(bubble, 'frameGeometry', {get:()=>accept ? stored : rejected, set:value=>{stored=value;}});
 area={x:0,y:0,width:800,height:600};
+const before = calls.length;
 timer.timeout.emit();
-assert.equal(timer.stopped,true);
+assert.equal(calls.length, before, 'a first mismatch waits one tick for asynchronous placement');
+assert.deepEqual(warnings, []);
+timer.timeout.emit();
+assert.notEqual(timer.stopped,true,'a rejected readback must not stop readiness for the session');
 assert.equal(calls.at(-1)[3],'unloadScript');
 assert.equal(warnings.length,1);
 assert.match(warnings[0], /geometry readback rejected.*bosn widget install/);
+for (let tick = 0; tick < 400; tick++) timer.timeout.emit();
+assert.equal(warnings.length,1,'a persisting rejection is reported once per transition');
+const rejectedCalls = calls.length - before;
+assert.ok(rejectedCalls <= 12, `backoff bounds compositor calls while rejected (${rejectedCalls})`);
+accept = true;
+for (let tick = 0; tick < 300 && warnings.length < 2; tick++) timer.timeout.emit();
+assert.equal(warnings.length,2,'recovery is reported once');
+assert.match(warnings[1], /recovered/);
+const marks = calls.length;
+timer.timeout.emit();
+timer.timeout.emit();
+assert.ok(calls.length > marks, 'readiness pulses resume after recovery');
+console.log('widget placement: rejected readback backs off and recovers');

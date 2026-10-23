@@ -1,6 +1,12 @@
 //! Permit compact windows only with installed compositor-owned dock placement.
 
-use std::{future::Future, io::Read, path::PathBuf, time::Duration};
+use std::{
+    future::Future,
+    io::Read,
+    path::PathBuf,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 const READY: &str = "bosn-widget-corner-ready-v1";
 
@@ -150,9 +156,52 @@ fn installed_configuration() -> bool {
     )
 }
 
+/// How long a refusal is reused before KWin is probed again (#692). Every
+/// compact-window step asks; without this each one spawned up to fourteen
+/// `busctl` calls and printed the same line, ~25,000 times an hour.
+const REFUSAL_TTL: Duration = Duration::from_secs(30);
+
+/// The last verdict and the last diagnostic printed. A refusal is reused for
+/// [`REFUSAL_TTL`]; `Ready` is always re-proved, so the gate fails closed.
+#[derive(Default)]
+struct Gate {
+    refused: Option<(Instant, Readiness)>,
+    reported: Option<Readiness>,
+}
+
+impl Gate {
+    fn cached(&self, now: Instant) -> Option<Readiness> {
+        self.refused
+            .filter(|(at, _)| now.saturating_duration_since(*at) < REFUSAL_TTL)
+            .map(|(_, readiness)| readiness)
+    }
+
+    /// Record a probed verdict; the diagnostic is returned only on the
+    /// transition into its state, never again while the state persists.
+    fn record(&mut self, now: Instant, readiness: Readiness) -> Option<&'static str> {
+        self.refused = (readiness != Readiness::Ready).then_some((now, readiness));
+        let changed = self.reported != Some(readiness);
+        self.reported = Some(readiness);
+        changed.then(|| readiness.diagnostic()).flatten()
+    }
+}
+
+static GATE: Mutex<Gate> = Mutex::new(Gate {
+    refused: None,
+    reported: None,
+});
+
+fn gate() -> std::sync::MutexGuard<'static, Gate> {
+    GATE.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 pub async fn configured() -> bool {
+    if let Some(readiness) = gate().cached(Instant::now()) {
+        return readiness == Readiness::Ready;
+    }
     let readiness = live_ready(installed_configuration(), bus).await;
-    if let Some(message) = readiness.diagnostic() {
+    if let Some(message) = gate().record(Instant::now(), readiness) {
         eprintln!("bosn-widget: {message}");
     }
     readiness == Readiness::Ready
@@ -222,6 +271,31 @@ mod tests {
         }));
         assert_eq!(ready, Readiness::Ready);
         assert_eq!(ready.diagnostic(), None);
+    }
+
+    #[test]
+    fn repeated_refusals_probe_once_per_ttl_and_report_once() {
+        // #692: N compact-panel attempts against a stale pulse.
+        let mut gate = Gate::default();
+        let start = Instant::now();
+        let (mut probes, mut reports) = (0, 0);
+        for attempt in 0..1000u64 {
+            let now = start + Duration::from_millis(attempt * 100);
+            if gate.cached(now).is_some() {
+                continue;
+            }
+            probes += 1;
+            reports += usize::from(gate.record(now, Readiness::StalePulse).is_some());
+        }
+        // 100 s of attempts: one probe per 30 s TTL, one diagnostic in total.
+        assert_eq!(probes, 4);
+        assert_eq!(reports, 1);
+        assert_eq!(gate.cached(start), Some(Readiness::StalePulse));
+        // Ready is never cached, and a later stale pulse is a new transition.
+        let later = start + Duration::from_secs(200);
+        assert_eq!(gate.record(later, Readiness::Ready), None);
+        assert_eq!(gate.cached(later), None);
+        assert!(gate.record(later, Readiness::StalePulse).is_some());
     }
 
     #[test]
