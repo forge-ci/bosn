@@ -175,3 +175,39 @@ fn contention_wait_is_async_and_cancellable() {
         shared.close().await;
     });
 }
+
+/// #735: contention that never clears ends the run with an actionable error instead of
+/// holding its admission slot forever. RED before the bound: this test never returned.
+#[test]
+fn endless_contention_ends_the_run_with_an_actionable_error() {
+    with_registry(|registry, _| async move {
+        let backend = Arc::new(FakeBackend::default());
+        backend
+            .archive_replies
+            .lock()
+            .unwrap()
+            .get_or_insert_default()
+            .extend(std::iter::repeat_with(|| (Phase::Require, Ok(Status::Retry))).take(64));
+        let shared = SharedEngine::new(registry, backend.clone());
+        let lease = leased(&shared).await;
+        let mut notes = Vec::new();
+        let started = std::time::Instant::now();
+        let error = shared
+            .prepare_archives(
+                &lease,
+                &route(),
+                &CancellationSource::new().token(),
+                &mut |note| notes.push(note.to_owned()),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            error.contains("still contended") && error.contains("retry the run"),
+            "{error}"
+        );
+        assert!(started.elapsed() >= ENROLLMENT_WAIT);
+        assert_eq!(notes, ["waiting for archive enrollment coordination"]);
+        shared.release(lease).await;
+        shared.close().await;
+    });
+}
