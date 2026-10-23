@@ -25,7 +25,7 @@ use bosn_engine::{
 };
 use bosn_generation::{
     ContextEntry, ExternalImageIdentity,
-    collector::{CollectorLimits, collect_context},
+    collector::{CollectorLimits, collect_context_with_defaults},
     dockerfile::external_images,
     stack_generation_async, stack_generation_from_context,
 };
