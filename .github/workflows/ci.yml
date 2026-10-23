@@ -8,6 +8,9 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  # The merge queue (#734) tests the merge result that lands. Its caches would be scoped to
+  # the temporary gh-readonly-queue ref, which no PR can read, so saving stays on main pushes.
+  merge_group:
   workflow_dispatch:
     inputs:
       tier:
