@@ -412,7 +412,10 @@ fn observe_volumes(
     let sizes = if names.is_empty() {
         BTreeMap::new()
     } else {
-        sizes::volume_sizes(engine, options)
+        sizes::volume_sizes(engine, sizes::VOLUME_SIZE_DEADLINE).unwrap_or_else(|error| {
+            crate::daemon_log!("bosn retention: volume sizes unmeasured: {error}");
+            BTreeMap::new()
+        })
     };
     for chunk in names.chunks(INSPECT_CHUNK) {
         let Some(entries) = parse_inspect::<VolumeDetail>(

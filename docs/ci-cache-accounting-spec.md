@@ -7312,3 +7312,17 @@ footprint that #713 logs and bounds (256 GiB), together with the shared cache
 volume, setup volumes, containers and images. Whole-machine Bosn allocation is
 the owned footprint; free space under Docker's root is the separate
 disk-pressure input. Neither is a hard filesystem quota.
+
+
+### Volume sizes were silently unmeasured on the host (#508 item 1, 2026-10-23)
+
+On released 0.1.24 the development host's daemon logged `owned footprint 39.4 GiB
+of 256.0 GiB ceiling (containers 28.4, volumes 0.0, images 11.0 GiB; 42 unmeasured)`.
+At that moment `docker system df -v` reported 41 Bosn-labelled volumes totalling about
+200 GB, `bosn-ci-cache-v1` alone 50.39 GB. Volume sizes come only from that read, and it
+shared the pass's 30 s per-read deadline. On the busy host the read overran that
+deadline (the pass's observation phase took 41 s), and the failure fell back to an
+empty map without a log line. So the ceiling counted every volume as unmeasured and
+could not fire. The size read now has its own `VOLUME_SIZE_DEADLINE` (300 s) and
+output cap. A failure logs `bosn retention: volume sizes unmeasured: ...`. Unmeasured
+volumes stay counted, never guessed.
