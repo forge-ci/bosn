@@ -339,9 +339,8 @@ impl ActEngineBackend for FakeBackend {
                     record.engine_id.clone()
                 }
                 Some(observed) => {
-                    let required = record
-                        .intent
-                        .required_labels(owner)
+                    // The labels it was created with, tool generation included.
+                    let required = crate::act_engine::creation_labels(&record.intent, owner)
                         .map_err(|e| e.to_string())?;
                     if observed.labels != required {
                         return Err(format!("engine {name} is not provably ours"));
