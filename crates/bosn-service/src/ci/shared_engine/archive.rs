@@ -8,6 +8,16 @@ use crate::ci::{
     },
 };
 use kernal_api::async_engine::{self, CancellationToken};
+use std::time::{Duration, Instant};
+
+/// How long a run waits for archive enrollment contention before it ends with an actionable
+/// error (#735). Contention is a busy maintenance lock or migration lease, or a retryable act2
+/// report: normally seconds. Without a bound, back-to-back runs from other sessions starved one
+/// run for over an hour while it held its admission slot and stranded the queue behind it.
+#[cfg(not(test))]
+const ENROLLMENT_WAIT: Duration = Duration::from_secs(15 * 60);
+#[cfg(test)]
+const ENROLLMENT_WAIT: Duration = Duration::from_secs(3);
 
 impl SharedEngine {
     pub(crate) async fn prepare_archives(
@@ -22,6 +32,7 @@ impl SharedEngine {
         };
         let mut phase = Phase::Require;
         let mut said_wait = false;
+        let waiting_since = Instant::now();
         loop {
             self.verify(lease).await?;
             let request = ArchiveEnrollmentRequest {
@@ -48,6 +59,13 @@ impl SharedEngine {
                     said_wait = false;
                 }
                 (_, Status::Retry) => {
+                    if waiting_since.elapsed() >= ENROLLMENT_WAIT {
+                        return Err(format!(
+                            "archive enrollment still contended after {} s (cache maintenance \
+                             or another run holds the shared cache cohort); retry the run",
+                            waiting_since.elapsed().as_secs()
+                        ));
+                    }
                     if !said_wait {
                         note("waiting for archive enrollment coordination");
                         said_wait = true;

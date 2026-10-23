@@ -711,8 +711,10 @@ maintenance_interval_secs = 300
 
 The first enrollment freezes the machine policy. Another daemon proposing a
 different policy refuses; changing configuration alone cannot replace an
-existing agreement. Contention waits asynchronously within the run's timeout
-and responds to cancellation.
+existing agreement. Contention waits asynchronously and responds to
+cancellation, for at most 15 minutes (#735): past that the run ends with
+`archive enrollment still contended after N s ...; retry the run`, so it frees
+its admission slot instead of stranding the queue behind it.
 
 These are act2's logical archive bytes (`act cache prune --apply`, the same
 retention act2's cache server runs in-process), not filesystem blocks. A pass
