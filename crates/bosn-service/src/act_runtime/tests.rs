@@ -265,7 +265,7 @@ with open(log,'a') as f:f.write(json.dumps(args)+'\n')
 assert args[:4]==['container','ls','--all','--no-trunc']
 if mode=='failed-list':sys.exit(7)
 if mode=='deadline':
- import time;time.sleep(8)
+ import time;time.sleep(30)
 if mode=='foreign':print('f'*64)
 "#,
             )
@@ -314,9 +314,10 @@ if mode=='foreign':print('f'*64)
                     ActStartupRecoveryOptions {
                         page_size: if mode == "invalid" { 0 } else { 1 },
                         max_runs: if mode == "ceiling" { 1 } else { 3 },
-                        // 10 s leaves a 1 s deferral headroom (#600); 6 s left 0.2 s,
-                        // which a loaded parallel run overran.
-                        deadline: Duration::from_secs(if mode == "deadline" { 10 } else { 20 }),
+                        // 20 s leaves 3 s of deferral headroom after the 12 s engine budget.
+                        // 10 s (1 s headroom, #600) and 6 s (0.2 s) were overrun by loaded
+                        // parallel gates.
+                        deadline: Duration::from_secs(20),
                     },
                     &token,
                 );
