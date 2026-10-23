@@ -73,6 +73,8 @@ jobs:
     uses: ./.github/workflows/ci-pre.yml
     permissions:
       contents: read
+      # Only ci-pre's cache-maint job (main pushes) uses it.
+      actions: write
 
   select-tier:
     name: Select CI tier
