@@ -571,7 +571,7 @@ pub fn daemon_start_failure(state_dir: &Path) -> String {
     );
     if state_dir.join("registry.sqlite3").exists() {
         message.push_str(
-            ". If this state directory belongs to the Python bosn 0.1.x CLI, stop that daemon (`bosn daemon stop` with the old CLI) and move the directory aside, or pass --state-dir; see docs/migration-rust.md",
+            ". If this state directory belongs to the Python bosn 0.1.x CLI, stop that daemon (`bosn daemon stop` with the old CLI) and move the directory aside (carry its config.toml, which holds your settings such as `[ui] enabled`, into the new one), or pass --state-dir; see docs/migration-rust.md",
         );
     }
     message

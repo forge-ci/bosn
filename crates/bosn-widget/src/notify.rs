@@ -2,7 +2,7 @@
 //! session (the daemon is headless). Notify on every failure, and on the
 //! completion of runs a human started; agent successes stay silent.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Mutex};
 
 use bosn_service::{
     Client,
@@ -55,6 +55,54 @@ fn notify(run: &RunView) {
         .spawn();
 }
 
+/// The last dashboard refusal reported, so one that persists across every
+/// window attempt is shown once, and again only after a grant succeeds.
+#[derive(Default)]
+struct Refusals {
+    last: Option<String>,
+}
+
+impl Refusals {
+    fn first(&mut self, message: &str) -> bool {
+        if self.last.as_deref() == Some(message) {
+            return false;
+        }
+        self.last = Some(message.to_owned());
+        true
+    }
+}
+
+static REFUSALS: Mutex<Refusals> = Mutex::new(Refusals { last: None });
+
+fn refusals() -> std::sync::MutexGuard<'static, Refusals> {
+    REFUSALS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The text shown when the daemon refuses a dashboard page.
+fn refusal_body(message: &str) -> String {
+    format!("{message}. `bosn widget install` turns the dashboard on for this state directory.")
+}
+
+/// The daemon refused a dashboard page: say so, with the fix, once per
+/// distinct refusal.
+pub fn ui_refused(message: &str) {
+    if !refusals().first(message) {
+        return;
+    }
+    let body = refusal_body(message);
+    eprintln!("bosn-widget: dashboard unavailable: {body}");
+    let _ = std::process::Command::new("notify-send")
+        .args(["--app-name=bosn", "bosn: dashboard unavailable", &body])
+        .spawn();
+}
+
+/// A grant succeeded: a later refusal is a new transition worth reporting.
+pub fn ui_granted() {
+    refusals().last = None;
+}
+
 /// Open an allowlisted URL (the daemon already checked the allowlist).
 pub fn open_external(url: &str) {
     let program = if cfg!(target_os = "macos") {
@@ -68,6 +116,19 @@ pub fn open_external(url: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_persisting_refusal_is_reported_once_with_its_fix() {
+        let mut refusals = Refusals::default();
+        let refused = "refused: the dashboard is disabled; set `[ui] enabled = true` in <state>/config.toml and restart the daemon";
+        let reports = (0..100).filter(|_| refusals.first(refused)).count();
+        assert_eq!(reports, 1);
+        assert!(refusals.first("refused: path must be a local dashboard path"));
+        refusals.last = None;
+        assert!(refusals.first(refused), "a refusal after a grant is new");
+        let body = refusal_body(refused);
+        assert!(body.contains("[ui] enabled = true") && body.contains("bosn widget install"));
+    }
 
     #[test]
     fn failures_always_notify_successes_only_for_humans() {

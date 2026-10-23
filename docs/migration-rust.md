@@ -130,7 +130,10 @@ consumer such as clud migrates as follows.
    stop its daemon (`bosn daemon stop`) and wait for running tasks to finish,
    then move its state aside (for example to
    `~/.local/state/bosn-python-0.1`) before the first native `bosn run`, which
-   starts the native daemon on a fresh registry. The offline
+   starts the native daemon on a fresh registry. Copy its `config.toml` back
+   into the new directory first: it holds your settings, not registry state,
+   and without it the daemon starts with defaults (the dashboard the widget
+   shows is off until `[ui] enabled = true` is set again). The offline
    `bosn registry import-v4` bridge ([python-v4-cutover.md](python-v4-cutover.md))
    accepts only a v4 registry with the marker a bridge-capable Python-v4
    release writes; a 0.1.x (schema 3) registry cannot be imported. Native

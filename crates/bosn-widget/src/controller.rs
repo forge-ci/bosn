@@ -243,12 +243,19 @@ impl Windows {
 
 /// A daemon page's URL with a fresh single-use sign-in token (views are
 /// incognito, so each window, and each navigation, signs in on its own).
+/// A refusal is shown to the user, never dropped: discarding it left the
+/// panel empty with no hint that the dashboard was off (#537).
 async fn page_url(client: &Client, path: &str) -> Option<String> {
-    client
-        .ci_ui_grant(Some(path.into()))
-        .await
-        .ok()
-        .map(|grant| grant.url)
+    match client.ci_ui_grant(Some(path.into())).await {
+        Ok(grant) => {
+            crate::notify::ui_granted();
+            Some(grant.url)
+        }
+        Err(error) => {
+            crate::notify::ui_refused(&error.to_string());
+            None
+        }
+    }
 }
 
 async fn grant(client: &Client, path: &str) -> Option<WebviewUrlGrant> {
