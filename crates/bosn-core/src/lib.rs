@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 pub mod act;
 pub mod act_coverage;
 pub mod compose;
-pub mod config;
 pub mod manifest;
 pub mod retention;
 pub mod setup;
@@ -19,10 +18,6 @@ pub use compose::{
     ComposeErrorCode, ComposePlan, ComposeSetupPlan, DependencySpec, HealthcheckSpec, MountSpec,
     RelativePath, ResourceSpec, ServiceSpec, parse_and_plan_compose_yaml,
     parse_and_translate_compose_yaml, parse_compose_yaml, plan_compose, translate_compose_to_setup,
-};
-pub use config::{
-    AppPolicy, MachinePolicy, PolicyDefaults, PolicyError, PolicyOrigin, parse_machine_policy_toml,
-    resolve_app_policy, resolve_machine_policy,
 };
 pub use manifest::{
     MANIFEST_TASK_SECRETS, Manifest, ManifestError, ManifestRoots, parse_manifest_toml,

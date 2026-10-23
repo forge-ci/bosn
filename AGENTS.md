@@ -499,6 +499,12 @@ Operators opt out with `auto_retention = false` in the state directory's
 `retention.toml`. Keep the ownership, age, liveness and pinning gates on every
 removal.
 
+**No machine-policy file (#527, decided 2026-10-23).** The `bosn_core::config`
+`MachinePolicy`/`AppPolicy` resolver and its `[policy]` TOML were never called by production
+code, so they were retired rather than wired. `retention.toml` is retention's one
+configuration surface; its thresholds are planner constants. A new operator knob gets a real
+reader in the same change, never a parse-only surface.
+
 **Objects from registries that predate the machine catalog** (decided
 2026-10-10). A label naming a registry the catalog never saw is not proof that
 the registry is gone, so those objects stay `foreign-registry`: never reclaimed

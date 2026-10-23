@@ -44,7 +44,7 @@ This is the honest baseline. It is the reason S2–S5 are not a port but a build
 | `gc --unmanaged` | **present** since S3 (#271) and S3b (#276): the preview is read-only and local, the removal is a daemon operation | `crates/bosn-service/src/bin/bosn.rs` `run_gc_unmanaged`; daemon op 35 in `crates/bosn-service/src/lib.rs` |
 | Autostart | **present** since S4 (#272): `bosn daemon autostart enable\|disable\|status` writes the platform entry **and registers it** (`systemctl --user enable --now`, `launchctl load -w`) | `crates/bosn-service/src/autostart.rs` |
 | Maintenance pass | **present** since S4 (#272): the daemon runs the census at start and every hour, logging the warning | `crates/bosn-service/src/lib.rs` `serve` |
-| Retention / pressure / verdict model | **Implemented and tested, and unwired.** `Pressure::assess`, `evaluate`, `collectable_ordered`, `container_should_stop`, `lease_expired`, `retention_signals`, `PolicyDefaults`, `RetentionConfig` have **zero production consumers** | `crates/bosn-core/src/lib.rs:362-570`; `crates/bosn-core/src/config.rs:53-74`; exercised only by `crates/bosn-core/tests/domain.rs` |
+| Retention / pressure / verdict model | **Implemented and tested, and unwired.** `Pressure::assess`, `evaluate`, `collectable_ordered`, `container_should_stop`, `lease_expired`, `retention_signals`, `RetentionConfig` have **zero production consumers** (`PolicyDefaults` was retired with the unwired machine-policy resolver, #527) | `crates/bosn-core/src/lib.rs:362-570`; exercised only by `crates/bosn-core/tests/domain.rs` |
 
 Two consequences worth stating plainly, because both change what the remaining slices are:
 
