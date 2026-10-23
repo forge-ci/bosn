@@ -14,6 +14,7 @@ use bosn_core::{
 use kernal_api::hash::Sha256Hasher;
 
 pub mod collector;
+pub mod default_ignore;
 pub mod dockerfile;
 pub mod resolver;
 mod walk_prune;

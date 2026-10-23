@@ -12,7 +12,11 @@ use std::{
 
 use kernal_api::platform::fs::{self, ContextPathKind, DirectoryCursor};
 
-use crate::{ContextEntry, ContextObservation, dockerfile};
+use crate::{ContextEntry, ContextObservation, default_ignore::DefaultIgnore, dockerfile};
+
+/// The name the walk pruner protects for the built-in set; no such file
+/// exists in the context, so nothing is ever protected by it.
+const DEFAULT_IGNORE_NAME: &str = "<bosn default .dockerignore>";
 
 #[derive(Clone, Debug)]
 pub struct CollectorLimits {
@@ -89,6 +93,35 @@ impl std::fmt::Display for CollectorError {
     }
 }
 impl std::error::Error for CollectorError {}
+
+impl CollectorError {
+    /// The refusal a user reads: which of bosn's limits was hit, with its
+    /// value, and the remedy (#657). Other errors keep their own text.
+    pub fn refusal(&self, limits: &CollectorLimits) -> String {
+        let mib = |bytes: usize| bytes / (1024 * 1024);
+        let limit = match self {
+            Self::Limit("total bytes") => format!(
+                "context exceeds {} MiB total (bosn's limit)",
+                mib(limits.max_total_bytes)
+            ),
+            Self::Limit("file size") => format!(
+                "a context file exceeds {} MiB (bosn's limit)",
+                mib(limits.max_file_bytes)
+            ),
+            Self::Limit("path length") => format!(
+                "a context path exceeds {} bytes (bosn's limit)",
+                limits.max_path_bytes
+            ),
+            Self::Limit("depth") => format!(
+                "the context is nested deeper than {} directories (bosn's limit)",
+                limits.max_depth
+            ),
+            Self::EntryCount { .. } | Self::WalkCount { .. } => format!("{self} (bosn's limit)"),
+            other => return other.to_string(),
+        };
+        format!("{limit}; add a .dockerignore")
+    }
+}
 impl From<std::io::Error> for CollectorError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
@@ -108,7 +141,23 @@ pub fn collect_context(
     dockerfile: Option<&str>,
     limits: &CollectorLimits,
 ) -> Result<ContextObservation, CollectorError> {
-    collect_context_inner(root, dockerfile, limits, None)
+    collect_context_inner(root, dockerfile, limits, None, None)
+}
+
+/// [`collect_context`] for a manifest Dockerfile build (#657): when the
+/// context has no ignore file, apply bosn's default set for the workspace's
+/// kind, and report which one was used. An ignore file always wins.
+pub fn collect_context_with_defaults(
+    root: &Path,
+    dockerfile: &str,
+    limits: &CollectorLimits,
+) -> Result<(ContextObservation, Option<DefaultIgnore>), CollectorError> {
+    let specific = format!("{dockerfile}.dockerignore");
+    let explicit = root.join(&specific).is_file() || root.join(".dockerignore").is_file();
+    let default = (!explicit).then(|| DefaultIgnore::detect(root)).flatten();
+    let rules = default.map(DefaultIgnore::rules);
+    let context = collect_context_inner(root, Some(dockerfile), limits, None, rules.as_deref())?;
+    Ok((context, default))
 }
 #[cfg(all(test, unix))]
 fn collect_context_checkpoint(
@@ -117,7 +166,7 @@ fn collect_context_checkpoint(
     limits: &CollectorLimits,
     checkpoint: &dyn Fn(),
 ) -> Result<ContextObservation, CollectorError> {
-    collect_context_inner(root, dockerfile, limits, Some(checkpoint))
+    collect_context_inner(root, dockerfile, limits, Some(checkpoint), None)
 }
 #[expect(clippy::too_many_lines, reason = "baseline, ci.yml#229")]
 fn collect_context_inner(
@@ -125,6 +174,7 @@ fn collect_context_inner(
     dockerfile: Option<&str>,
     limits: &CollectorLimits,
     checkpoint: Option<&dyn Fn()>,
+    fallback: Option<&str>,
 ) -> Result<ContextObservation, CollectorError> {
     let root = fs::canonical_context_path(root)?;
     let initial_root_identity = root_identity(&root)?;
@@ -176,10 +226,15 @@ fn collect_context_inner(
         })
         .transpose()?;
 
+    // The default set prunes only when no ignore file was found.
+    let fallback = fallback.filter(|_| ignore_name.is_none());
     let pruner = crate::walk_prune::WalkPruner::new(
         dockerfile,
         &docker_bytes,
-        ignore_name.as_deref().zip(ignore_bytes.as_deref()),
+        ignore_name
+            .as_deref()
+            .zip(ignore_bytes.as_deref())
+            .or(fallback.map(|rules| (DEFAULT_IGNORE_NAME, rules.as_bytes()))),
     )?;
     // First pass is names and non-following kinds only.  It is bounded before
     // retention and does not open ordinary file contents.
@@ -260,7 +315,7 @@ fn collect_context_inner(
     if let (Some(name), Some(bytes)) = (&ignore_name, ignore_bytes) {
         replace_bytes(&mut selector, name, bytes);
     }
-    let selected = dockerfile::select_context(&selector, dockerfile)?;
+    let selected = dockerfile::select_context_with(&selector, dockerfile, fallback)?;
     let selected: BTreeSet<_> = selected.iter().map(entry_path).collect();
     if let Some(checkpoint) = checkpoint {
         checkpoint();
@@ -299,6 +354,10 @@ fn collect_context_inner(
                     .max_total_bytes
                     .checked_sub(total)
                     .ok_or(CollectorError::Limit("total bytes"))?;
+                // Name the limit before reading: the bounded read would only say "too large".
+                if len > remaining {
+                    return Err(CollectorError::Limit("total bytes"));
+                }
                 let read_limit = limits.max_file_bytes.min(remaining);
                 let observed = fs::read_context_regular_file_bounded(&disk, read_limit)?;
                 let executable = observed.metadata.executable;

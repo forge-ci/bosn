@@ -37,6 +37,16 @@ pub fn select_context(
     entries: &[ContextEntry],
     dockerfile: &str,
 ) -> Result<Vec<ContextEntry>, DockerfileError> {
+    select_context_with(entries, dockerfile, None)
+}
+
+/// [`select_context`], with `fallback` ignore text applied only when the
+/// context carries no ignore file of its own (#657: bosn's default set).
+pub fn select_context_with(
+    entries: &[ContextEntry],
+    dockerfile: &str,
+    fallback: Option<&str>,
+) -> Result<Vec<ContextEntry>, DockerfileError> {
     let df = file(entries, dockerfile)
         .ok_or_else(|| DockerfileError::MissingDockerfile(dockerfile.into()))?;
     let text =
@@ -51,7 +61,7 @@ pub fn select_context(
         Some((_, b)) => std::str::from_utf8(b)
             .map(ignore_rules)
             .map_err(|_| DockerfileError::InvalidUtf8(".dockerignore".into()))?,
-        None => Vec::new(),
+        None => fallback.map(ignore_rules).unwrap_or_default(),
     };
     let (sources, all) = local_sources(text)?;
     let mut selected = Vec::new();

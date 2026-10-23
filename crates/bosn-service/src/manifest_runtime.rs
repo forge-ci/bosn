@@ -30,8 +30,21 @@ pub(crate) async fn manifest_dockerfile_build_plan(
             .dockerfile
             .as_deref()
             .ok_or_else(|| "manifest Dockerfile build is missing its Dockerfile".to_owned())?;
-        let context = collect_context(&workspace, Some(dockerfile), &CollectorLimits::default())
-            .map_err(|_| "manifest Dockerfile context was refused".to_owned())?;
+        let limits = CollectorLimits::default();
+        let (context, default_ignore) =
+            collect_context_with_defaults(&workspace, dockerfile, &limits).map_err(|error| {
+                format!(
+                    "manifest Dockerfile context was refused: {}",
+                    error.refusal(&limits)
+                )
+            })?;
+        if let Some(default) = default_ignore {
+            daemon_log!(
+                "bosn manifest: {}: {}",
+                workspace.display(),
+                default.notice()
+            );
+        }
         let mut entries = Vec::new();
         for entry in &context.entries {
             match entry {
