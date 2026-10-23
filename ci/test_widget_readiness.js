@@ -57,9 +57,10 @@ function verify(initialMarker, mode = 'ordinary') {
         timer.timeout.emit();
     }
     if (mode === 'invalid-query' || mode === 'rejected-load' || mode === 'rejected-unload') {
-        assert.equal(timer.stopped, true, 'invalid compositor replies must fail closed');
+        // #692: fail closed without stopping the timer; retries back off.
+        assert.notEqual(timer.stopped, true, 'invalid compositor replies must not stop readiness for the session');
         assert.deepEqual(transitions, []);
-        assert.equal(mutations, mode === 'invalid-query' ? 0 : 1);
+        assert.equal(mutations, mode === 'invalid-query' ? 0 : 2);
         assert.equal(warnings.length, 1, 'failure must emit one actionable diagnostic');
         assert.match(warnings[0], /bosn widget install/);
         return;

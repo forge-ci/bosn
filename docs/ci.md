@@ -245,7 +245,11 @@ opened once, at its final size, and then reused:
   installed KDE Wayland dock placement is enabled, loaded and executing its
   geometry handler. Bounded live probes require a fresh compositor-owned
   readiness transition after successful geometry readback; stale configuration
-  or an unloaded/failed script keeps compact windows hidden. No fixed top-left or
+  or an unloaded/failed script keeps compact windows hidden. A refusal is reused
+  for 30 s and reported once per transition, never on every attempt. A rejected
+  geometry readback (two consecutive ticks, allowing for asynchronous placement)
+  withdraws the readiness marker and backs off, doubling up to 60 s, instead of
+  stopping the script; it recovers by itself once placement applies. No fixed top-left or
   compositor-default center position is requested. A portable work-area
   capability remains tracked in zackees/kernal-api#393.
 - The panel is shown and hidden by explicit clicks; startup and activity never
