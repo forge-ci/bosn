@@ -5,7 +5,6 @@
 //! `cargo test -p bosn-core --test integration -- <module>::`.
 
 mod compose;
-mod config;
 mod domain;
 mod manifest;
 mod setup;

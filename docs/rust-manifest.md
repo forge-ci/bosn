@@ -28,11 +28,11 @@ the plan, and later slices act on them.
 | `[stack.X] default_target_volume` | boolean | `true` | `false` suppresses the synthesized `target` build-output volume. |
 | `[task.X] keep` | boolean | `false` | `true` keeps today's long-lived container instead of an ephemeral one per run. |
 
-Machine policy precedence is explicit: defaults (with a supplied CPU observation) < supplied
-machine file TOML < supplied environment values < supplied CLI values. `MachinePolicy` remains
-immutable when `resolve_app_policy` derives an `AppPolicy`; the latter exposes the original
-machine policy and only tightens `run_max_duration` or `build_ttl_seconds`. App input can never
-change machine-wide settings or raise a machine ceiling. Origins remain attached to both views.
+There is no machine-policy file. A `MachinePolicy`/`AppPolicy` resolver with a `[policy]` TOML
+surface once lived in `bosn_core::config`, but no production code ever called it, so every key
+it validated was inert; it was retired (#527). Retention's one configuration surface is the
+state directory's `retention.toml` (`auto_retention = false` opts out); its thresholds are the
+documented constants of the retention planner (AGENTS.md, "Automatic retention").
 
 ## Test evidence
 
