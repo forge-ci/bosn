@@ -431,6 +431,8 @@ pub(crate) fn ensure_daemon(
     client: &Client,
     state_dir: &Path,
 ) -> Result<(), String> {
+    // Before installing the executable: a disabled directory does no work at all (#670).
+    bosn_service::daemon_switch::refuse_if_disabled(state_dir)?;
     let release = env!("CARGO_PKG_VERSION");
     let executable = crate::daemon_exe::install_daemon_executable(state_dir, release)?;
     if let Ok(identity) = runtime.run(client.daemon_identity())
@@ -470,6 +472,7 @@ fn start_daemon<F>(
 where
     F: FnOnce(&Path, &Path) -> Result<std::process::Child, String>,
 {
+    bosn_service::daemon_switch::refuse_if_disabled(state_dir)?;
     if let (Some(platform), Some(home)) = (platform, home)
         && bosn_service::autostart::start_if_enabled(manager, platform, home, state_dir)?
     {
@@ -973,3 +976,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "run_disabled_tests.rs"]
+mod disabled_tests;

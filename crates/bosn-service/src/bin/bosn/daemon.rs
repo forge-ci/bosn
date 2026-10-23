@@ -86,6 +86,10 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
         run_daemon_autostart(arguments);
         return;
     }
+    if matches!(command.to_string_lossy().as_ref(), "disable" | "enable") {
+        crate::daemon_switch::run(&command.to_string_lossy(), arguments);
+        return;
+    }
     let invocation = match command.to_string_lossy().as_ref() {
         "serve" => parse_daemon_serve_arguments(arguments)
             .map(|(state_dir, runners)| DaemonInvocation::Serve { state_dir, runners }),
@@ -114,6 +118,9 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
     };
     match invocation {
         DaemonInvocation::Serve { state_dir, runners } => {
+            if serve_refused_while_disabled(&state_dir) {
+                return;
+            }
             let mut service = bosn_service::Service::new(&state_dir)
                 .with_release_version(env!("CARGO_PKG_VERSION"))
                 .with_idle_exit(idle_exit_from_env());
@@ -173,6 +180,19 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
             print_run_http_value(&runtime, &state_dir, "token", json);
         }
     }
+}
+
+/// A disabled state directory (#670) exits cleanly, so the unit's `Restart=on-failure`
+/// never retries it.
+fn serve_refused_while_disabled(state_dir: &Path) -> bool {
+    let disabled = bosn_service::daemon_switch::is_disabled(state_dir);
+    if disabled {
+        bosn_service::daemon_log!(
+            "bosn daemon serve: {}",
+            bosn_service::daemon_switch::DISABLED
+        );
+    }
+    disabled
 }
 
 fn run_daemon_status(runtime: &kernal_api::async_engine::Runtime, state_dir: &Path, json: bool) {
