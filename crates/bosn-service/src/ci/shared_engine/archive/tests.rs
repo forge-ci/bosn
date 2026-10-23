@@ -152,8 +152,16 @@ fn contention_wait_is_async_and_cancellable() {
         let lease = leased(&shared).await;
         let stop = CancellationSource::new();
         let cancellation = stop.token();
+        // Cancel during the contention wait, once the first Require is seen:
+        // a fixed 25 ms delay could cancel before it was sent on a loaded runner.
+        let observed = backend.clone();
         let cancel = async_engine::launch(async move {
-            async_engine::sleep(Duration::from_millis(25)).await;
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while observed.archive_phases.lock().unwrap().is_empty()
+                && std::time::Instant::now() < deadline
+            {
+                async_engine::sleep(Duration::from_millis(5)).await;
+            }
             stop.cancel();
         });
         let error = shared

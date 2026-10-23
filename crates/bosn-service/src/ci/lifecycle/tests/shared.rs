@@ -459,12 +459,27 @@ fn interrupted_preparation_keeps_claim_until_engine_removal() {
         }));
         let shared = SharedEngine::new(registry.clone(), backend.clone());
         let cancel = CancellationSource::new().token();
-        let result = async_engine::timeout(
-            Duration::from_millis(150),
-            shared.lease(&run_id(991), want(991, &dir, 8), &cancel, &mut |_| {}),
-        )
+        // Interrupt only once preparation is under way: a fixed 150 ms
+        // timeout lost the race on a loaded runner (preparations was 0).
+        let (id, wanted) = (run_id(991), want(991, &dir, 8));
+        let mut progress = |_: &str| {};
+        let interrupted = shared.lease(&id, wanted, &cancel, &mut progress);
+        let started = async {
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while *backend.engine_preparations.lock().unwrap() == 0 {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "preparation never started"
+                );
+                async_engine::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        let result = async_engine::timeout(Duration::from_secs(40), async {
+            futures_util::pin_mut!(interrupted);
+            futures_util::future::select(interrupted, Box::pin(started)).await;
+        })
         .await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
         assert_eq!(*backend.engine_preparations.lock().unwrap(), 1);
         async_engine::sleep(Duration::from_millis(150)).await;
         assert_eq!(backend.live(), 1, "failed removal retains engine");
