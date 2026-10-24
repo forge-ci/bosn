@@ -132,9 +132,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // around a pending first publication instead of stopping.
             // act2.32 maps a run's container references (container: modes,
             // VolumesFrom, Links) to the run-keyed names its proxy gave them (#449).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.32/act_Linux_x86_64.tar.gz",
-            sha256: "fafadec768d6d8b37b66a0956435499a5a1858f27ce4dd2ebabdf3a74eab749e",
-            binary_sha256: "c8a4724a8f2d401be19e021469f5d70071f7f229404b2977ad3ddcc1cc1954c8",
+            // act2.33 makes tool-store writers wait for a busy catalog instead of
+            // failing with a bare bbolt timeout (act2#91, #747).
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.33/act_Linux_x86_64.tar.gz",
+            sha256: "cbcb24de5d3f5b04b2a12e2324684cca15e4396e51654c40b194d6de57bdb910",
+            binary_sha256: "5762fd5fba6c9f9031f861698071f084d756b05a0268da25392164ba22d35127",
         }),
         _ => None,
     }
