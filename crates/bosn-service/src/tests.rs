@@ -932,16 +932,16 @@ async fn stopped(server: async_engine::Task<Result<(), Error>>) {
 async fn wait_for_client(state: &Path) -> Client {
     let client = Client::for_state(state).unwrap();
     // Keep the fast 20 ms poll, but give a saturated CI runner time to
-    // start the daemon. The old 30 polls allowed only 600 ms and made
-    // unrelated service tests fail before their assertions ran.
+    // start the daemon. 600 ms, then 5 s, made unrelated service tests fail
+    // before their assertions ran while gate lanes shared the host (#749).
     let started = std::time::Instant::now();
     loop {
         let error = match client.ping().await {
             Ok(_) => return client,
             Err(error) => error,
         };
-        if started.elapsed() >= Duration::from_secs(5) {
-            panic!("daemon did not become ready within 5s; last ping error: {error}");
+        if started.elapsed() >= Duration::from_secs(30) {
+            panic!("daemon did not become ready within 30s; last ping error: {error}");
         }
         async_engine::sleep(Duration::from_millis(20)).await;
     }
