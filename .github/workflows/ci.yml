@@ -161,9 +161,11 @@ jobs:
           job-status: ${{ job.status }}
           save-cache: auto
           save-cache-remote: ${{ github.ref == 'refs/heads/main' && 'auto' || 'false' }}
-          # CACHE-024 (setup-soldr#552): the sanctioned automatic key. Under
-          # act it saves per source, so workspace units accumulate (#503).
-          key: auto
+          # CACHE-024 (setup-soldr#552): the automatic key, under act only, where it
+          # saves per source so workspace units accumulate (#503). On GitHub it
+          # saved ancestor keys that no restore read without pinned trusted
+          # writers (0 of 349 hits, #756), so GitHub keeps the lockfile key.
+          key: ${{ env.ACT && 'auto' || '' }}
           target-cache: false
           cargo-registry-cache: false
           prebuild-deps: none
@@ -280,9 +282,8 @@ jobs:
           job-status: ${{ job.status }}
           save-cache: auto
           save-cache-remote: ${{ github.ref == 'refs/heads/main' && 'auto' || 'false' }}
-          # CACHE-024 (setup-soldr#552): the sanctioned automatic key. Under
-          # act it saves per source, so workspace units accumulate (#503).
-          key: auto
+          # Automatic key under act only, as in the rust job (#503, #756).
+          key: ${{ env.ACT && 'auto' || '' }}
           target-cache: false
           cargo-registry-cache: false
           prebuild-deps: none
