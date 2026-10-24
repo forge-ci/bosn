@@ -7326,3 +7326,18 @@ empty map without a log line. So the ceiling counted every volume as unmeasured 
 could not fire. The size read now has its own `VOLUME_SIZE_DEADLINE` (300 s) and
 output cap. A failure logs `bosn retention: volume sizes unmeasured: ...`. Unmeasured
 volumes stay counted, never guessed.
+
+### act2.32: run-keyed container references (#449, 2026-10-24)
+
+act2 #90 merged as `5ef168de`. Full checks 40074055010 passed all five jobs on that
+exact master SHA. Release 40074802643 published `v0.2.89-act2.32` from `master`
+(eleven archives and `checksums.txt`). Linux archive `fafadec7...749e` matches
+`checksums.txt`; executable `c8a4724a...54c8` reports `act version 0.2.89-act2.32`.
+
+- The run proxy suffixes every named container create with the run's key, but a
+  later create's `container:<name>` network, pid and ipc modes, `VolumesFrom` and
+  `Links` still named the original, so a `docker://` action step that joins the job
+  container's network failed with `No such container` (the remaining
+  `TestRunDifferentArchitecture` failure after the binfmt_misc mount fix). Each such
+  reference now resolves to `name-<key>` when this run created that container;
+  anything else is left to the access check.
