@@ -7341,3 +7341,18 @@ exact master SHA. Release 40074802643 published `v0.2.89-act2.32` from `master`
   `TestRunDifferentArchitecture` failure after the binfmt_misc mount fix). Each such
   reference now resolves to `name-<key>` when this run created that container;
   anything else is left to the access check.
+
+### act2.33: tool-store writers wait for a busy catalog (#747, 2026-10-24)
+
+act2 #92 merged as `94f2a653`. Full checks 40113618619 passed on that exact master
+SHA. Release 40115120081 published `v0.2.89-act2.33` from tag `v0.2.89-act2.33` on
+that SHA. Linux archive `cbcb24de...b910` matches `checksums.txt`; executable
+`5762fd5f...5127` reports `act version 0.2.89-act2.33`.
+
+- `prepareToolSnapshotStore` and `enrollToolRecoverySourceStore` opened the tool
+  store's catalog once with a 100 ms bbolt timeout. When two local-gate lanes enrolled
+  in one engine, the second failed with `tool enrollment incomplete: timeout` or
+  `tool recovery reservation incomplete: timeout`: 3 of 4 gate runs on 2026-10-24
+  failed so before any test ran. Writers with an operation context now retry
+  contention until that context ends, as generation updates already did; the
+  context-free admission keeps the short probe.
