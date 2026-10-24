@@ -107,6 +107,15 @@ The requested commit must be reachable and contain the CI selector scripts.
 The coverage status confirms its own checkout SHA and all named cell outcomes.
 Release still uses its separate workflow.
 
+`main` lands through the merge queue (#734, ruleset `main merge queue`). A queued
+PR runs the minimal tier on GitHub's `gh-readonly-queue/main/...` ref, which is
+the merge result that lands, against the queue's `base_sha`. Caches are saved
+only from `main` pushes: a queue ref's caches would be scoped to a ref no PR can
+read, so PR and queue runs restore them and never save. Repository admins can
+still bypass the queue.
+The first queued PR (#751, 2026-10-24) took 6.6 min from enqueue to landed:
+its `merge_group` run was 6 min, nearly all of it the Rust job.
+
 The target for ordinary CI is at most 12.5% of a matched full event's total
 runner minutes. The lane selection is in place, but that ratio needs live
 minimal and full runs at the same revision before it can be reported.
