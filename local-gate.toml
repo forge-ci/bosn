@@ -40,7 +40,7 @@ run = ["bosn", "ci", "run", "--workspace", ".", "--workflow", ".github/workflows
 tools = ["bosn", "docker", "uv", "python"]
 
 [gate.replay]
-repository = "zackees/bosn"
+repository = "forge-ci/bosn"
 workflow = "ci.yml"
 mode = "minimal"
 report-source = "stdout"

@@ -41,7 +41,7 @@ def failures(jobs: Iterable[dict[str, Any]]) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", default="zackees/bosn")
+    parser.add_argument("--repo", default="forge-ci/bosn")
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--candidate-sha", required=True)
     args = parser.parse_args()

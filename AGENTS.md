@@ -133,7 +133,7 @@ living implementation spec.
   "no matching distribution" rather than a failed compile.
 - **PyPI uses trusted publishing** (OIDC), like kernal-api's crates.io release: no PyPI
   token is stored. It needs `vars.PUBLISH_PYPI == 'true'` and the pypi.org trusted
-  publisher for `bosn`: repository `zackees/bosn`, workflow `auto-release.yml`,
+  publisher for `bosn`: repository `forge-ci/bosn`, workflow `auto-release.yml`,
   environment `pypi`. PyPI matches both names exactly: renaming the workflow file or the
   job's environment breaks publishing. Without the variable a tag still produces the
   GitHub release, and the run summary says PyPI was skipped.
