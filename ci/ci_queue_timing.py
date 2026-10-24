@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
-REPO = "zackees/bosn"
+REPO = "forge-ci/bosn"
 ESCALATION_OWNER = "@zackees"
 ESCALATION_DOC = "docs/ci-queue-slo.md"
 # Jobs that gate everything else and must not wait behind long wheel builds.

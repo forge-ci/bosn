@@ -373,7 +373,7 @@ impl GithubApiProxy {
 fn json_error(status: u16, message: &str) -> http_server::Response {
     let body = serde_json::json!({
         "message": format!("bosn github api proxy: {message}"),
-        "documentation_url": "https://github.com/zackees/bosn/blob/main/docs/github-api-proxy.md",
+        "documentation_url": "https://github.com/forge-ci/bosn/blob/main/docs/github-api-proxy.md",
     })
     .to_string();
     http_server::Response::new(status, body)

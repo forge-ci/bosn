@@ -260,7 +260,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     cmd.add_argument("--ci-run-id", required=True)
     cmd.add_argument("--issue", default="")
     cmd.add_argument("--dry-run", default="true", choices=("true", "false"))
-    cmd.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "zackees/bosn"))
+    cmd.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "forge-ci/bosn"))
     cmd.add_argument("--output", type=Path)
     cmd.add_argument("--summary", type=Path)
     args = parser.parse_args(argv)

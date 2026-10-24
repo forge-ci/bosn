@@ -27,7 +27,7 @@ name: Release
 # verbatim and a reusable workflow would rename them.
 #
 # Publishing needs `vars.PUBLISH_PYPI == 'true'` and this workflow registered on
-# pypi.org as the trusted publisher for `bosn`: repository zackees/bosn,
+# pypi.org as the trusted publisher for `bosn`: repository forge-ci/bosn,
 # workflow `auto-release.yml`, environment `pypi`. PyPI matches both names
 # exactly, so renaming this file or the environment breaks publishing. No PyPI
 # token is stored. Every publishing step is idempotent: a re-run verifies what
