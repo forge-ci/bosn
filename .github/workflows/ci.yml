@@ -220,7 +220,9 @@ jobs:
           export CLIPPY_ARGS="-D__CLIPPY_HACKERY__warnings__CLIPPY_HACKERY__"
           test -x "$RUSTC_WORKSPACE_WRAPPER"
           # nextest runs every test binary in parallel (#600); it cannot run
-          # doctests, so they run separately and nothing is dropped.
+          # doctests, so they run separately and nothing is dropped. Half the
+          # test time is timer waits, so run two tests per CPU (#758).
+          export NEXTEST_TEST_THREADS="$(( $(nproc) * 2 ))"
           PYO3_PYTHON="$(command -v python)" soldr cargo nextest run --workspace --all-targets --locked --features bosn-python/embedded-python-tests
           PYO3_PYTHON="$(command -v python)" soldr cargo test --workspace --doc --locked --features bosn-python/embedded-python-tests
 
