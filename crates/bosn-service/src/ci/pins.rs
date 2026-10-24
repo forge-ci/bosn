@@ -130,9 +130,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // act2.30 adds bounded inode allocation across the full cache root.
             // act2.31 bounds the engine's build cache and maintains a cohort
             // around a pending first publication instead of stopping.
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.31/act_Linux_x86_64.tar.gz",
-            sha256: "15bda868f23582b706c10257db98f91ba23227720c950abb0450ea3f8db4d367",
-            binary_sha256: "f11007ca616a9e9ab04165444f8bcded4b9633ed2d0c0ee142c24fa3cc09819e",
+            // act2.32 maps a run's container references (container: modes,
+            // VolumesFrom, Links) to the run-keyed names its proxy gave them (#449).
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.32/act_Linux_x86_64.tar.gz",
+            sha256: "fafadec768d6d8b37b66a0956435499a5a1858f27ce4dd2ebabdf3a74eab749e",
+            binary_sha256: "c8a4724a8f2d401be19e021469f5d70071f7f229404b2977ad3ddcc1cc1954c8",
         }),
         _ => None,
     }
