@@ -153,6 +153,9 @@ jobs:
       - name: Set up Soldr
         uses: zackees/setup-soldr@v0
         with:
+          # soldr has no `verdict` command: the probe resolves it as a missing
+          # tool and retries the 404 for 36 s per job (#754, setup-soldr#602).
+          verdicts: "off"
           version: "0.9.32"
           cache: true
           job-status: ${{ job.status }}
@@ -269,6 +272,7 @@ jobs:
         if: needs.select-tier.outputs.test == 'true'
         uses: zackees/setup-soldr@v0
         with:
+          verdicts: "off"
           version: "0.9.32"
           cache: true
           # Fork the restored Rust foundation so wheel units can be saved too.
@@ -363,6 +367,7 @@ jobs:
         if: needs.select-tier.outputs.full == 'true'
         uses: zackees/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
+          verdicts: "off"
           version: "0.9.32"
           toolchain: "1.95.0"
           prebuild-deps: none
@@ -448,6 +453,7 @@ jobs:
         if: needs.select-tier.outputs.full == 'true'
         uses: zackees/setup-soldr@v0 # v0.9.82 or later (floating major)
         with:
+          verdicts: "off"
           cache: false
           cross-targets: ${{ matrix.target }}
 
@@ -533,6 +539,7 @@ jobs:
       - name: Set up Soldr
         uses: zackees/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
+          verdicts: "off"
           version: "0.9.32"
           toolchain: "1.95.0"
           prebuild-deps: none
