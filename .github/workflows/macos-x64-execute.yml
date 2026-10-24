@@ -57,6 +57,7 @@ jobs:
       - name: Set up Soldr Darwin target
         uses: zackees/setup-soldr@v0 # v0.9.82 or later (floating major)
         with:
+          verdicts: "off"
           cache: false
           cross-targets: x86_64-apple-darwin
 
