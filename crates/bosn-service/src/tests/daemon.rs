@@ -943,7 +943,7 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // records read as no proxy. Additive, so no bump.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "a44ee2a81de40350d9334bf085f85bb948251935c5c47c3f8d864b653a01e2d6",
+    "d97a2a2a45c8863bf9bb5441ecd15f32777686f97e74b3640c294a461aec4cdc",
 );
 
 #[test]

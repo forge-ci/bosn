@@ -12,10 +12,10 @@
 //!   bridge address, which only the daemon dials.
 //! - The daemon keeps a small pool of idle channels open to the channel
 //!   port. Each starts with the run's relay nonce; a channel that does not
-//!   is closed. An idle channel parks a FIFO pair in the run's relay
-//!   directory.
+//!   is closed. An idle channel parks a one-shot `nc -l` on an engine-local
+//!   loopback port, named by its idle marker.
 //! - A job connection claims one idle channel (an atomic `mv` of its
-//!   marker) and splices its socket to the FIFOs. The daemon sees the
+//!   marker) and `exec`s `nc` to that port. The daemon sees the
 //!   client's first bytes on that channel and serves it with
 //!   [`crate::github_connect::serve_client`], then dials a new idle channel.
 //!
@@ -46,19 +46,17 @@ pub fn dir(work_root: &str, key: &str) -> String {
     format!("{work_root}/ghp/{key}")
 }
 
-/// Run on each daemon channel: check the nonce, park a FIFO pair, splice.
+/// Run on each daemon channel: check the nonce, then park a one-shot
+/// loopback listener whose port is the idle marker. `nc` splices the claimer
+/// to this channel, so no FIFO or `cat` sits in the path.
 const PARK: &str = r#"D="$1"
 IFS= read -r hello || exit 0
 [ "$hello" = "$(cat "$D/hello")" ] || exit 0
-c="$D/ch/$$"
-mkfifo "$c.up" "$c.down" || exit 0
-trap 'rm -f "$c.up" "$c.down" "$D/idle/$$" "$D/busy/$$"' EXIT
-: > "$D/idle/$$"
-exec 3<&0
-cat "$c.up" &
-up=$!
-cat <&3 > "$c.down"
-wait "$up"
+p=$((20000 + $$ % 20000))
+me=$$
+trap 'rm -f "$D/idle/$p"' EXIT
+(usleep 200000; kill -0 "$me" 2>/dev/null && : > "$D/idle/$p") &
+nc -l -s 127.0.0.1 -p "$p"
 "#;
 
 /// Run on each job connection: claim an idle channel and splice to it.
@@ -69,12 +67,7 @@ while [ "$n" -lt 600 ]; do
     [ -e "$m" ] || continue
     id="${m##*/}"
     if mv "$m" "$D/busy/$id" 2>/dev/null; then
-      exec 3<&0
-      cat <&3 > "$D/ch/$id.up" &
-      up=$!
-      cat "$D/ch/$id.down"
-      kill "$up" 2>/dev/null
-      exit 0
+      exec nc 127.0.0.1 "$id"
     fi
   done
   n=$((n + 1))
@@ -90,7 +83,7 @@ pub fn start_script(dir: &str, channel_port: u16, job_port: u16) -> String {
         r#"set -eu
 D='{dir}'
 rm -rf "$D"
-mkdir -p "$D/idle" "$D/busy" "$D/ch"
+mkdir -p "$D/idle" "$D/busy"
 chmod 700 "$D"
 IFS= read -r hello
 printf '%s\n' "$hello" > "$D/hello"
@@ -181,7 +174,7 @@ fn worker(
         let peer = stream.peer_addr().ok();
         let local = stream.local_addr().ok();
         // Park with no timeout until a job connection claims the channel: a
-        // parked channel that gave up would leave a stale FIFO pair that hands
+        // parked channel that gave up would leave a stale marker that hands
         // a later client an empty reply.
         let _ = stream.set_read_timeout(None);
         let mut first = [0u8; 1];
@@ -232,10 +225,9 @@ mod tests {
             script.contains("-s \"$addr\""),
             "the channel port binds the bridge address only"
         );
-        // POSIX sh backgrounds read /dev/null unless stdin is redirected
-        // explicitly, so the splices go through fd 3.
-        assert!(PARK.contains("cat <&3"));
-        assert!(CLAIM.contains("cat <&3"));
+        // nc does the splice: busybox cat over FIFOs lost bytes (#650).
+        assert!(PARK.contains("nc -l -s 127.0.0.1"));
+        assert!(CLAIM.contains("exec nc 127.0.0.1"));
         assert!(stop_script("/w/ghp/abc").contains("rm -rf \"$D\""));
     }
 }

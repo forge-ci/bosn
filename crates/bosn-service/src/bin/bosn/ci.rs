@@ -382,7 +382,13 @@ fn plan(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
 
 /// Switches of the verbs that submit a run. `--wait` is the default and
 /// accepted for older callers.
-const SUBMIT_SWITCHES: &[&str] = &["--json", "--wait", "--detach", "--github-token", "--github-proxy"];
+const SUBMIT_SWITCHES: &[&str] = &[
+    "--json",
+    "--wait",
+    "--detach",
+    "--github-token",
+    "--github-proxy",
+];
 
 fn submit(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
     let flags = Flags::parse(arguments, PLAN_FLAGS, SUBMIT_SWITCHES)?;
