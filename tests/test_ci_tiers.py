@@ -28,7 +28,9 @@ def test_required_tiered_jobs_fail_closed_when_selector_fails() -> None:
         job = CI["jobs"][name]
         # Fail closed when the selector fails, but a superseded (cancelled)
         # run must never leave FAILURE required checks behind (#373).
-        assert job["if"] == "${{ !cancelled() }}", "required checks must run after selector failure"
+        # A main push skips entirely: the merge queue proved the tree that
+        # lands, so there is nothing left to fail closed on (zackees/ci.yml#432).
+        assert job["if"] == "${{ !cancelled() && github.event_name != 'push' }}"
         assert "select-tier" in job["needs"]
         verify = job["steps"][0]
         assert verify["name"] == "Verify selected CI tier"
@@ -76,7 +78,9 @@ def test_required_wheel_matrix_cells_exist_on_every_tier() -> None:
     }.items():
         job = jobs[name]
         assert "select-tier" in job["needs"]
-        assert job["if"] == "${{ !cancelled() }}", "matrix must expand even if selector fails"
+        # The matrix still expands after a selector failure on PR, queue and
+        # dispatch events (#373); main pushes run no validation at all (#432).
+        assert job["if"] == "${{ !cancelled() && github.event_name != 'push' }}"
         matrix = job["strategy"]["matrix"]
         cells = set(matrix.get("os", [])) or {cell["target"] for cell in matrix["include"]}
         assert cells == expected_cells
@@ -90,9 +94,14 @@ def test_required_status_names_remain() -> None:
     jobs = CI["jobs"]
     assert jobs["lint-no-macos-runners"]["name"] == "CI policy (no hosted macOS runners)"
     assert jobs["rust"]["name"] == "Rust workspace (locked tests)"
-    # It always runs, except that an attested, trusted PR head may skip it
-    # (GATE-008/010, ci-attestations.yml); a skipped required check passes.
-    assert jobs["rust"]["if"] == "needs.verify.outputs.skip_rust != 'true'"
+    # It always runs on PR, queue and dispatch events, except that an attested,
+    # trusted PR head may skip it (GATE-008/010, ci-attestations.yml); a
+    # skipped required check passes. A main push skips it too -- the merge
+    # queue proved the tree (zackees/ci.yml#432) -- and its remote cache save
+    # moved to the push-only cache-writer job.
+    assert jobs["rust"]["if"] == (
+        "needs.verify.outputs.skip_rust != 'true' && github.event_name != 'push'"
+    )
 
 
 def test_native_backend_and_compiler_fixtures_have_provisioned_tools() -> None:
@@ -178,8 +187,39 @@ def test_full_coverage_sentinel_waits_for_every_lane() -> None:
     }
     assert any("ci/verify_full_coverage.py" in step.get("run", "") for step in job["steps"])
     timing = CI["jobs"]["ci-queue-timing"]
-    assert timing["if"] == "${{ !cancelled() }}"
+    # Reports queue/execution timing for the lanes that ran; on a main push
+    # every lane it measures is skipped (zackees/ci.yml#432), so it is too.
+    assert timing["if"] == "${{ !cancelled() && github.event_name != 'push' }}"
     assert "full-coverage" in timing["needs"]
+
+
+def test_main_push_skips_validation_and_runs_only_the_writers() -> None:
+    # zackees/ci.yml#432: the merge queue proves the tree that lands, so a
+    # main push re-runs no validation -- and must still refresh both remote
+    # cache families (PR runs never save remotely, queue-ref saves are
+    # unreadable) through build-only, push-only writer jobs.
+    jobs = CI["jobs"]
+    validation = (
+        "lint-no-macos-runners",
+        "rust",
+        "linux",
+        "native-wheel",
+        "darwin-cross-wheel",
+        "widget",
+        "full-coverage",
+        "ci-queue-timing",
+    )
+    for name in validation:
+        assert "github.event_name != 'push'" in str(jobs[name].get("if", "")), name
+    # darwin-hosted-smoke carries no push conjunct of its own: it is excused
+    # by lint_no_macos_runners' exact `if:` pin (issue #252) and skips anyway
+    # because darwin-cross-wheel skips on push and the needs: cascades (WF-004).
+    for name in ("cache-writer", "cache-writer-linux"):
+        job = jobs[name]
+        assert job["if"] == "github.event_name == 'push'"
+        assert job.get("needs") == ["verify"]
+        assert "timeout-minutes" in job, "writers are bounded like every other job"
+        assert "CI_REMOTE_ONLY" not in job.get("env", {})
 
 
 def test_only_run_introspection_jobs_are_remote_only() -> None:
