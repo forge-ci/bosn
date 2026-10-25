@@ -61,10 +61,12 @@ mod tool_native_preparation;
 mod tool_recovery;
 pub(crate) use act_install::install_act_script;
 pub use tool_enrollment::EnrollmentPhase;
+mod inputs;
 mod invocation;
-pub use invocation::{ActInvocation, LOCAL_RUNNER_LABELS};
+pub use invocation::{ActInvocation, default_runners, runners_for};
 mod lines;
 mod run_scope;
+pub mod runner_images;
 pub use run_scope::{Closed, MAX_SLOTS, RunLimits, RunScope, ToolCacheSave, doctor_args};
 mod runner_tools;
 mod toolcache;
@@ -404,108 +406,6 @@ impl DockerActBackend {
         self.verify_installed_act(engine, &version).await
     }
 
-    /// Stream `file` into the engine on `docker exec`'s stdin. The engine's
-    /// root is read-only and its storage is a private tmpfs, which `docker
-    /// cp` cannot reach, so inputs travel the way the owned runtime's do.
-    async fn stream_in(
-        &self,
-        what: &str,
-        engine: &str,
-        file: &Path,
-        script: &str,
-    ) -> Result<(), String> {
-        let input = std::fs::File::open(file).map_err(|e| format!("{what}: {e}"))?;
-        let size = input.metadata().map_err(|e| format!("{what}: {e}"))?.len();
-        let result = self
-            .docker
-            .with_args(Self::exec_stdin(engine, script))
-            .capture_with_stdin_file_async(
-                input,
-                size,
-                RunOptions::bounded(PULL_DEADLINE, CONTROL_OUTPUT),
-                None,
-            )
-            .await
-            .map_err(|e| format!("{what}: {e}"))?;
-        if !result.ok() {
-            return Err(format!(
-                "{what} failed: {}",
-                String::from_utf8_lossy(&result.stderr).trim()
-            ));
-        }
-        Ok(())
-    }
-
-    /// Stream the frozen source and bosn's overlay (each as a tar) and the
-    /// event payload into the engine's work directory.
-    async fn copy_inputs(
-        &self,
-        engine: &str,
-        invocation: &ActInvocation,
-        source: &Path,
-        event: &Path,
-    ) -> Result<(), String> {
-        let root = invocation
-            .scope
-            .as_ref()
-            .map_or_else(String::new, |scope| format!("{}/", scope.work_relative()));
-        self.copy_tree(engine, source, &format!("{root}src"))
-            .await?;
-        let overlay = super::store::overlay_beside(source);
-        if overlay.is_dir() {
-            self.copy_tree(engine, &overlay, &format!("{root}overlay"))
-                .await?;
-        }
-        self.stream_in(
-            "event copy",
-            engine,
-            event,
-            &format!("cat > {}/event.json", invocation.work()),
-        )
-        .await
-    }
-
-    /// Stream the host directory `tree` into `{ENGINE_WORK}/<into>`.
-    async fn copy_tree(&self, engine: &str, tree: &Path, into: &str) -> Result<(), String> {
-        let archive = tree.with_extension("engine.tar");
-        let (from, to) = (tree.to_path_buf(), archive.clone());
-        let tar = async_engine::launch_blocking(move || {
-            kernal_api::run_bounded_command(
-                kernal_api::SpawnSpec::new("tar")
-                    .arg("-C")
-                    .arg(&from)
-                    .arg("-cf")
-                    .arg(&to)
-                    .arg(".")
-                    .stdin(kernal_api::StreamMode::Null)
-                    .stdout(kernal_api::StreamMode::Piped)
-                    .stderr(kernal_api::StreamMode::Piped),
-                PULL_DEADLINE,
-                CONTROL_OUTPUT,
-            )
-        })
-        .await
-        .map_err(|e| format!("{into} archive: {e}"))?
-        .map_err(|e| format!("{into} archive: {e}"))?;
-        if tar.exit.raw_code() != 0 {
-            let _ = std::fs::remove_file(&archive);
-            return Err(format!(
-                "{into} archive failed: {}",
-                String::from_utf8_lossy(&tar.stderr).trim()
-            ));
-        }
-        let copied = self
-            .stream_in(
-                &format!("{into} copy"),
-                engine,
-                &archive,
-                &format!("tar -xf - -C {ENGINE_WORK}/{into}"),
-            )
-            .await;
-        let _ = std::fs::remove_file(&archive);
-        copied
-    }
-
     fn exec(engine: &str, script: &str) -> Vec<String> {
         ["exec", engine, "sh", "-ec", script]
             .into_iter()
@@ -843,6 +743,12 @@ impl ActEngineBackend for DockerActBackend {
                 PULL_DEADLINE,
             )
             .await?;
+            // Runner images other than the default, from the run's table:
+            // loaded from the cache volume or produced once, then proven.
+            for script in runner_images::ensure_scripts(&invocation.runners) {
+                self.checked("runner image", Self::exec(engine, &script), PULL_DEADLINE)
+                    .await?;
+            }
             if let Some(scope) = &invocation.scope {
                 let admitted = self.admit(engine, scope).await?;
                 scope.verify_admitted(&admitted)?;
