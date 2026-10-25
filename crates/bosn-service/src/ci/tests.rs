@@ -42,6 +42,7 @@ pub(crate) fn request(staging: &str, sha_byte: char) -> SubmitRequest {
         pr_number: None,
         timeout_secs: Some(5),
         secrets: Vec::new(),
+        github_proxy: None,
         params: Default::default(),
     }
 }

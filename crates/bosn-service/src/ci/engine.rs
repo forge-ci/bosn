@@ -67,6 +67,7 @@ pub use invocation::{ActInvocation, default_runners, runners_for};
 mod lines;
 mod run_scope;
 pub mod runner_images;
+mod script;
 pub use run_scope::{Closed, MAX_SLOTS, RunLimits, RunScope, ToolCacheSave, doctor_args};
 mod runner_tools;
 mod toolcache;
@@ -264,6 +265,17 @@ pub trait ActEngineBackend: Send + Sync {
         engine: &'a str,
         scope: &'a RunScope,
     ) -> BoxFuture<'a, Result<Closed, String>>;
+    /// Run one of bosn's fixed scripts in the engine, feeding `stdin` (never
+    /// argv), and return its stdout: the `--github-proxy` relay (#650).
+    fn engine_script<'a>(
+        &'a self,
+        engine: &'a str,
+        script: &'a str,
+        stdin: &'a [u8],
+    ) -> BoxFuture<'a, Result<String, String>> {
+        let _ = (engine, script, stdin);
+        Box::pin(async { Err("this backend runs no engine scripts".into()) })
+    }
     fn execute<'a>(
         &'a self,
         engine: &'a str,
@@ -773,6 +785,19 @@ impl ActEngineBackend for DockerActBackend {
                 )
             })
         })
+    }
+
+    fn engine_script<'a>(
+        &'a self,
+        engine: &'a str,
+        script: &'a str,
+        stdin: &'a [u8],
+    ) -> BoxFuture<'a, Result<String, String>> {
+        Box::pin(script::run(
+            &self.docker,
+            Self::exec_stdin(engine, script),
+            stdin,
+        ))
     }
 
     fn close_scope<'a>(

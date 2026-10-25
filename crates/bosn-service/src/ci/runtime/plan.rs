@@ -187,6 +187,7 @@ impl CiRuntime {
             cache: spec.cache,
             deadline,
             shared,
+            github: None,
         })
     }
 }
