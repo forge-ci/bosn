@@ -142,8 +142,7 @@ fn condition(value: &Value) -> Option<String> {
 mod tests {
     use super::*;
 
-    const LOCAL: &str =
-        r#"contains(fromJSON('["ubuntu-latest","ubuntu-26.04","ubuntu-24.04","ubuntu-22.04"]'), matrix.os)"#;
+    const LOCAL: &str = r#"contains(fromJSON('["ubuntu-latest","ubuntu-26.04","ubuntu-24.04","ubuntu-22.04"]'), matrix.os)"#;
 
     #[test]
     fn a_matrix_runner_is_decided_per_leg_by_bosn_not_act() {
