@@ -935,9 +935,11 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // #659 adds reply tag 71 (`owned_eager`, early-reclaim counts by reason) the
 // same additive way as tag 70: an older peer reads it as empty, and an older
 // client ignores it, so no bump.
+// #642 changed only `ci/model.rs` parsing: an unsupported job now fills the
+// existing optional `reason`. No serialized type changed, so no bump.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "b8f3f76a2d0fbe44bf336fff2aa97bb8ed279385b2d1ed57e478832fafd683eb",
+    "a44ee2a81de40350d9334bf085f85bb948251935c5c47c3f8d864b653a01e2d6",
 );
 
 #[test]
