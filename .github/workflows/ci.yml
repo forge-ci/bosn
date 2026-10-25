@@ -151,7 +151,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Set up Soldr
-        uses: zackees/setup-soldr@v0
+        uses: forge-ci/setup-soldr@v0
         with:
           # soldr has no `verdict` command: the probe resolves it as a missing
           # tool and retries the 404 for 36 s per job (#754, setup-soldr#602).
@@ -274,7 +274,7 @@ jobs:
 
       - name: Set up Soldr for Linux checks
         if: needs.select-tier.outputs.test == 'true'
-        uses: zackees/setup-soldr@v0
+        uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
           version: "0.9.32"
@@ -368,7 +368,7 @@ jobs:
 
       - name: Set up Soldr for the wheel backend
         if: needs.select-tier.outputs.full == 'true'
-        uses: zackees/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
+        uses: forge-ci/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
           verdicts: "off"
           version: "0.9.32"
@@ -454,7 +454,7 @@ jobs:
       # and Apple SDK 14.5, not a host macOS runner or zig/osxcross fallback.
       - name: Set up Soldr Darwin target
         if: needs.select-tier.outputs.full == 'true'
-        uses: zackees/setup-soldr@v0 # v0.9.82 or later (floating major)
+        uses: forge-ci/setup-soldr@v0 # v0.9.82 or later (floating major)
         with:
           verdicts: "off"
           cache: false
@@ -540,7 +540,7 @@ jobs:
           ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Soldr
-        uses: zackees/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
+        uses: forge-ci/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
           verdicts: "off"
           version: "0.9.32"

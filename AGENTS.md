@@ -169,7 +169,7 @@ living implementation spec.
 - **Hosted macOS runners are reserved for `ci-full` and release smoke checks.**
   `ci/lint_no_macos_runners.py` rejects macOS runner labels outside those gated jobs.
   Both `x86_64-apple-darwin` and `aarch64-apple-darwin` wheels
-  build on `ubuntu-latest` through `zackees/setup-soldr` (floating `@v0`) +
+  build on `ubuntu-latest` through `forge-ci/setup-soldr` (floating `@v0`) +
   `soldr prepare --target …`, using Soldr's LLVM 21.1.5 and managed Apple SDK 14.5 —
   never Xcode, zig, or osxcross.
 - **Linux verifies macOS wheels statically; full CI and release execute them on
@@ -225,7 +225,7 @@ Never install an exact old Soldr on the host (`uv tool install soldr==<x>`,
 repository and session on the machine: a pinned install downgrades all of
 them, and an old Soldr daemon can take over `~/.soldr` and lock newer daemons
 out until it is killed. Use the latest release (`uv tool install soldr`, or
-`uv tool upgrade soldr`). CI pins its own Soldr through `zackees/setup-soldr`,
+`uv tool upgrade soldr`). CI pins its own Soldr through `forge-ci/setup-soldr`,
 and `docker/test.Dockerfile` installs the latest one inside the container;
 neither touches the host.
 

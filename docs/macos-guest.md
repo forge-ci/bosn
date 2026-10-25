@@ -131,7 +131,7 @@ prebuilt binaries into the guest.
 
 For distributable Python wheels, Bosn uses this same boundary in CI.  Both
 `x86_64-apple-darwin` and `aarch64-apple-darwin` wheels build on
-`ubuntu-latest` through `zackees/setup-soldr@v0` (v0.9.82 or later), followed by
+`ubuntu-latest` through `forge-ci/setup-soldr@v0` (v0.9.82 or later), followed by
 `soldr prepare --target <triple> --github-env "$GITHUB_ENV"`.  Soldr provides
 LLVM 21.1.5 and its managed Apple SDK 14.5; no hosted macOS runner, Xcode,
 zig, or osxcross is involved in the build. The wheel backend sets the documented floors:

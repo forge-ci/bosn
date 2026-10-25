@@ -148,7 +148,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Soldr for the wheel backend
-        uses: zackees/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
+        uses: forge-ci/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
           verdicts: "off"
           version: "0.9.32"
@@ -200,7 +200,7 @@ jobs:
           toolchain: 1.95.0
 
       - name: Set up Soldr Darwin target
-        uses: zackees/setup-soldr@v0 # v0.9.82 or later (floating major)
+        uses: forge-ci/setup-soldr@v0 # v0.9.82 or later (floating major)
         with:
           verdicts: "off"
           cache: false

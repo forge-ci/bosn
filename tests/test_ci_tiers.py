@@ -110,7 +110,7 @@ def test_native_backend_and_compiler_fixtures_have_provisioned_tools() -> None:
         soldr = next(
             index
             for index, step in enumerate(steps)
-            if step.get("uses", "").startswith("zackees/setup-soldr@")
+            if step.get("uses", "").startswith("forge-ci/setup-soldr@")
         )
         uv = next(
             index
