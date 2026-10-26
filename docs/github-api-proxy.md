@@ -107,7 +107,7 @@ the value:
 Only clients that honour `GITHUB_API_URL` (for example `@actions/github`'s
 Octokit, `actions/github-script`, or `curl "$GITHUB_API_URL/..."`) use the
 proxy. Actions that hard-code `https://api.github.com` bypass it and stay
-anonymous. As of this writing that includes `zackees/setup-soldr` and
+anonymous. As of this writing that includes `forge-ci/setup-soldr` and
 `@actions/tool-cache`'s `getManifestFromRepo` (used by `actions/setup-python`
 when the Python version is not in the runner's tool cache; it falls back to
 `raw.githubusercontent.com` on failure).

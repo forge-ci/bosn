@@ -55,7 +55,7 @@ jobs:
 
       # Same pinned Soldr contract as the CI darwin-cross-wheel lane.
       - name: Set up Soldr Darwin target
-        uses: zackees/setup-soldr@v0 # v0.9.82 or later (floating major)
+        uses: forge-ci/setup-soldr@v0 # v0.9.82 or later (floating major)
         with:
           verdicts: "off"
           cache: false
