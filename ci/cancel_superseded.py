@@ -64,7 +64,7 @@ def api(path: str, method: str = "GET") -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     repo = os.environ["GITHUB_REPOSITORY"]
