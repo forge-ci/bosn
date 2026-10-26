@@ -11,7 +11,7 @@
 # `local-gate.toml`, and declaring both is a GATE-001 violation.
 schema  = 3
 profile = "rust-pypi-app"
-linter  = "zackees/ci.yml@0fcff997fefecf152ba075875029582d1ec05ad1"
+linter  = "zackees/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e"
 
 # ── Platforms ────────────────────────────────────────────────────────────────
 # Linux is the only native CI host here: every ci.yml job runs `ubuntu-latest`.
