@@ -168,7 +168,7 @@ platform-code     = ["crates/bosn-core/src/**"]
 
 # Read off the workflows: the release job publishes `bosn-python` to PyPI over
 # OIDC, and cache maintenance retires entries with `actions: write`.
-permissions = { "id-token: write" = ["publish"], "actions: write" = ["cache-maint"] }
+permissions = { "id-token: write" = ["publish"], "actions: write" = ["cache-maint", "cancel-superseded", "queue-cache-janitor"] }
 
 # This repository calls `forge-ci/setup-soldr` directly and has no composite
 # wrapper under `.github/actions/`, so `only-in` is the empty string: it asserts

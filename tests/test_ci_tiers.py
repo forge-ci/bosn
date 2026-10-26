@@ -258,7 +258,13 @@ def test_no_job_runs_unconditionally_under_a_cancelled_run() -> None:
     # A bare always() job still starts when its run is cancelled and then
     # fails, leaving a FAILURE required check on the head that blocks the
     # merge even though the live run is green (#373).
+    # The one exception is GEN-022's end-of-queue cache janitor
+    # (forge-ci/ci.yml#405): it must sweep even after a failed job, runs only
+    # on merge_group, and is not a required check, so it cannot block a merge.
     for name, job in CI["jobs"].items():
+        if name == "queue-cache-janitor":
+            assert job["if"] == "always() && github.event_name == 'merge_group'"
+            continue
         assert "always()" not in str(job.get("if", "")), name
 
 

@@ -37,6 +37,31 @@ permissions:
   contents: read
 
 jobs:
+  # GEN-022 / forge-ci/ci.yml#409: a queue ref carries the base commit
+  # (gh-readonly-queue/main/pr-<N>-<sha>), so the workflow concurrency group
+  # never pairs a PR's rebuilt queue run with the one main's movement replaced;
+  # this cancels the older one. No `needs:`; only the end-of-queue janitor
+  # depends on it (local-gate.toml exempts it from verify).
+  cancel-superseded:
+    name: Cancel superseded queue runs
+    if: ${{ !cancelled() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
+          sparse-checkout: ci/cancel_superseded.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Cancel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ci/cancel_superseded.py
+
   # GATE-002/003 (zackees/ci.yml#166, bosn#361): the head commit carries a
   # tree-bound `Local-Gate:` attestation from `ci-lint local-gate run`
   # (local-gate.toml), and every other job needs this one. It supersedes the
@@ -729,3 +754,43 @@ jobs:
         run: >-
           python3 ci/ci_queue_timing.py report --run-id "${{ github.run_id }}"
           --summary-file "$GITHUB_STEP_SUMMARY"
+
+  # GEN-022 (forge-ci/ci.yml#405): every merge-queue run ends with the ci-lint
+  # cache janitor. It runs after every other job, even failed ones, so the
+  # repository stays under [cache].budget by our LRU order instead of GitHub's.
+  # Main pushes already sweep in ci-pre's cache-maint; both share the
+  # non-cancelling `cache-janitor` group, so one sweep runs at a time.
+  queue-cache-janitor:
+    name: End-of-queue cache janitor
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage, ci-queue-timing]
+    if: always() && github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: cache-janitor
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      # The janitor reads only ci.toml from this repository.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: ci.toml
+          sparse-checkout-cone-mode: false
+      # Same pin as ci-pre's cache-maint: newer than the verify pin, it knows
+      # setup-soldr's ancestor-build family.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: zackees/ci.yml
+          ref: 41fcbca60a7901c8707411c4abf4d0b41dd71426
+          path: .ci-lint
+          persist-credentials: false
+          sparse-checkout: ci_lint
+      - name: Sweep caches
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: .ci-lint
+        run: python3 -P -m ci_lint cache janitor --repo . --default-branch main
