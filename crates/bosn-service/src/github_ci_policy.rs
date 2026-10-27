@@ -9,7 +9,6 @@
 //! [`GithubWrites`].
 
 use std::fmt;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -83,11 +82,12 @@ impl fmt::Debug for FakeToken {
 impl FakeToken {
     /// A fresh token from the OS secure random source.
     pub async fn generate() -> Result<Self, String> {
-        let bytes = kernal_api::random::SecureRandom::new(1, Duration::from_secs(5))
-            .map_err(|_| "secure random unavailable".to_owned())?
-            .bytes(FAKE_TOKEN_HEX / 2)
-            .await
-            .map_err(|_| "secure random unavailable".to_owned())?;
+        let bytes = crate::secure_random::bytes(
+            "GitHub proxy token",
+            crate::secure_random::RandomBudget::Long,
+            FAKE_TOKEN_HEX / 2,
+        )
+        .await?;
         Ok(Self::from_bytes(&bytes))
     }
 

@@ -31,6 +31,20 @@ starts: resolving and pulling images, preparing the engine and running act. A
 run that exceeds it ends `timed_out`; cleanup can remain unconfirmed or deferred
 until the daemon proves the relevant resources are gone.
 
+Secure-random failures name the operation, category, and its 3- or 5-second
+limit. `operating-system secure randomness unavailable` identifies an OS
+entropy failure; `runtime unavailable`, `worker failed`, `capacity exhausted`,
+and `cancelled` identify different failures. A `deadline expired` report means
+the caller stopped waiting: the worker may have been queued or blocked, and
+the report cannot establish which. Each process shares bounded pools for these
+operations; a timed-out worker keeps its admission slot until it actually ends.
+No fallback ID or token is generated.
+
+The secure-random limit is separate from a daemon request deadline (the client
+could not get a timely response), the whole-run timeout, and a `ci wait`
+observation deadline. Check daemon status and host load when the daemon itself
+does not respond; a request deadline alone does not identify an entropy failure.
+
 Engine setup has separate outer limits in the daemon's `<state>/config.toml`:
 
 ```toml

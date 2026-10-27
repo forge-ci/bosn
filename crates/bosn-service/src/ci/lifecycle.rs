@@ -256,12 +256,12 @@ pub(super) async fn registry_owner(registry: &RegistryActor) -> Result<String, S
 
 /// A fresh, unguessable execution-claim token.
 async fn claim_token() -> Result<String, String> {
-    let random = kernal_api::random::SecureRandom::new(1, Duration::from_secs(5))
-        .map_err(|e| format!("claim token: {e}"))?;
-    let bytes = random
-        .bytes(16)
-        .await
-        .map_err(|e| format!("claim token: {e}"))?;
+    let bytes = crate::secure_random::bytes(
+        "execution claim token",
+        crate::secure_random::RandomBudget::Long,
+        16,
+    )
+    .await?;
     Ok(crate::uuid(&bytes))
 }
 

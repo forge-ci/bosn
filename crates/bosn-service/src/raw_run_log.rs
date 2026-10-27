@@ -116,6 +116,20 @@ impl std::ops::Deref for JobLogSink {
     }
 }
 
+/// Obtain an ID before creating any durable log paths.
+pub(crate) async fn create_job_log(
+    state_dir: &Path,
+    job_id: u64,
+    task: &str,
+    id: impl std::future::Future<Output = Result<String, crate::ci::wire::CiError>>,
+) -> Result<RawRunLog, String> {
+    let run_id = id.await.map_err(|error| error.message)?;
+    let raw = RawRunLog::create(state_dir, &run_id).map_err(|error| error.to_string())?;
+    raw.write_metadata(&run_id, job_id, Some(task))
+        .map_err(|error| error.to_string())?;
+    Ok(raw)
+}
+
 impl RawRunLog {
     pub fn create(state_dir: &Path, run_id: &str) -> io::Result<Self> {
         if !crate::ci::wire::valid_uuid(run_id) {

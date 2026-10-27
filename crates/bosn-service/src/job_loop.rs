@@ -730,15 +730,9 @@ pub(crate) fn launch_started_setup_jobs(
                     SetupJobRequest::ManifestConverge(_) => "manifest-converge",
                     SetupJobRequest::ManifestAppTask(request) => &request.task_name,
                 };
-                let raw = async {
-                    let run_id = ci::wire::new_uuid().await.map_err(|e| e.message)?;
-                    let raw = crate::raw_run_log::RawRunLog::create(&state_dir, &run_id)
-                        .map_err(|e| e.to_string())?;
-                    raw.write_metadata(&run_id, id, Some(task))
-                        .map_err(|e| e.to_string())?;
-                    Ok::<_, String>(raw)
-                }
-                .await;
+                let raw =
+                    crate::raw_run_log::create_job_log(&state_dir, id, task, ci::wire::new_uuid())
+                        .await;
                 match raw {
                     Ok(raw) => {
                         let path = raw.root().display().to_string();

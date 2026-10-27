@@ -944,9 +944,10 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // #780 adds optional defaulted stage observations to run records and reports.
 // Older clients ignore them and newer clients read older records as empty,
 // so the daemon protocol remains 2.
+// #784 preserves typed secure-random failure messages without changing wire fields.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "00ee40c8962aeac150ecbb29cab76af91d137da04f8eec08912d031555f23cd1",
+    "66c1f75d30d4eccafd395827dc4b78e15515ae414c8dc2282818764d2a63cedf",
 );
 
 #[test]
