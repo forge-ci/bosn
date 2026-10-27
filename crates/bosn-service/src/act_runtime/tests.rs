@@ -117,6 +117,89 @@ mod startup_recovery {
         }
     }
 
+    fn pending_intent(n: u32) -> ActEngineIntent {
+        ActEngineIntent {
+            run_id: format!("00000000-0000-4000-8000-{n:012}"),
+            workspace: "/private/source".into(),
+            candidate_sha: "a".repeat(40),
+            payload_sha256: "b".repeat(64),
+            snapshot_sha256: "c".repeat(64),
+            act_version: "0.2.88".into(),
+            act_image_digest: format!("sha256:{}", "d".repeat(64)),
+            engine_image_digest: format!("sha256:{}", "e".repeat(64)),
+            runner_image_digest: format!("sha256:{}", "f".repeat(64)),
+            creation_profile: Some(
+                crate::act_engine::creation_profile_with_cache(
+                    crate::ci::limits::size_engine(
+                        crate::ci::lifecycle::tests::FAKE_HOST,
+                        Default::default(),
+                    )
+                    .unwrap(),
+                    None,
+                )
+                .unwrap(),
+            ),
+            created_at: 1.0,
+            spare: false,
+        }
+    }
+
+    /// Retirement issues admission-class commands, the first of which seals the
+    /// startup window. Every interrupt must therefore land before any retirement
+    /// runs, or a backlog of two or more stale runs stops the daemon (#2247).
+    #[test]
+    fn every_startup_interrupt_lands_before_retirement_can_seal_the_window() {
+        const OWNER: &str = "11111111-2222-4333-8444-555555555555";
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("registry.sqlite3");
+        let mut registry = Registry::create_writer(&db, OWNER).unwrap();
+        let mut intents = Vec::new();
+        let mut tx = registry.begin_immediate().unwrap();
+        for n in 1..=2 {
+            let intent = pending_intent(n);
+            tx.begin_act_engine(&intent).unwrap();
+            intents.push(intent);
+        }
+        tx.commit().unwrap();
+        async_engine::RuntimeBuilder::multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+            .run(async {
+                let (sender, receiver) = async_engine::channel(16);
+                let actor = RegistryActor { sender };
+                let task = async_engine::launch(crate::registry_actor(registry, receiver, None));
+                let options = ActStartupRecoveryOptions {
+                    page_size: 1,
+                    max_runs: 2,
+                    deadline: Duration::from_secs(20),
+                };
+                let cancellation = async_engine::CancellationSource::new();
+                let interrupted =
+                    startup::interrupt_pending(&actor, options, &cancellation.token())
+                        .await
+                        .unwrap();
+                assert_eq!(interrupted.len(), 2);
+                assert!(interrupted.iter().all(|record| {
+                    record.state == ActEngineState::CleanupRequired
+                        && record.outcome == Some(ActRunOutcome::Interrupted)
+                }));
+                // The first admission closes the window for good; the interrupts
+                // above already happened, so recovery can still finish and seal.
+                actor
+                    .act_registry(ActRegistryCommand::Begin(pending_intent(3)))
+                    .await
+                    .unwrap();
+                let late = startup::interrupt_pending(&actor, options, &cancellation.token())
+                    .await
+                    .unwrap_err();
+                assert!(late.to_string().contains("window sealed"), "{late}");
+                actor.stop().await;
+                task.await.unwrap();
+            });
+    }
+
     #[test]
     fn startup_recovery_cannot_succeed_without_seal() {
         let runtime = async_engine::RuntimeBuilder::multi_thread()
