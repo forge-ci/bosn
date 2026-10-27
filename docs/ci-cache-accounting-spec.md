@@ -7388,3 +7388,14 @@ The verified binary exposes `--timeout-secs` on enrollment and reservation.
 Unchanged defaults keep act2's historical nested deadlines; an explicit changed
 budget propagates to the operation while parent cancellation and separate
 cleanup limits remain in force. Bosn adoption awaits its own release gates.
+
+### act2.36: retry native lock probes after releasing leases
+
+Act2 #99 merged at `9d2b1ce09390e7330f5bc36438e2097e796dba2e`. Full CI
+run `40480905628` passed on that SHA, and release run `40482226594`
+published `v0.2.89-act2.36`. The Linux x86_64 archive SHA-256
+`5faef9235421a5a15d20b0c366df3754f83f07b247d31d455cef2bb805b2fa49` matched
+the release asset digest and checksums file. Its extracted binary SHA-256 is
+`2ce98c3fb7a8c29fb63b1f963b4026196b6a8827929a61f22851c3ec1d07325b`.
+The release retries contention probes within the existing operation deadline
+after releasing held leases, preserving the recovery ownership fences.
