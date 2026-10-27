@@ -23,11 +23,12 @@ def write_tree(root: Path, version: str = "0.1.4") -> None:
     (root / "src" / "bosn").mkdir(parents=True)
     (root / "crates" / "bosn-python" / "src").mkdir(parents=True)
     (root / "crates" / "bosn").mkdir()
+    (root / "crates" / "bosn-service").mkdir()
     (root / "Cargo.toml").write_text(
         f'[workspace]\nmembers = []\n\n[workspace.package]\nversion = "{version}"\n',
         encoding="utf-8",
     )
-    for crate in ("bosn", "bosn-python"):
+    for crate in ("bosn", "bosn-python", "bosn-service"):
         (root / "crates" / crate / "Cargo.toml").write_text(
             f'[package]\nname = "{crate}"\nversion.workspace = true\n', encoding="utf-8"
         )
@@ -79,7 +80,7 @@ def test_malformed_tags_are_refused(tmp_path: Path, tag: str) -> None:
 # Each second copy of the version is what a bump would forget, so each is refused.
 
 
-@pytest.mark.parametrize("crate", ["bosn", "bosn-python"])
+@pytest.mark.parametrize("crate", ["bosn", "bosn-python", "bosn-service"])
 def test_a_crate_that_writes_its_own_version_is_refused(tmp_path: Path, crate: str) -> None:
     write_tree(tmp_path)
     (tmp_path / "crates" / crate / "Cargo.toml").write_text(
