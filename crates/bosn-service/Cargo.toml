@@ -1,6 +1,9 @@
 [package]
 name = "bosn-service"
-version = "0.1.0"
+# Inherited, never pinned: this crate builds the `bosn` binary and the daemon,
+# both of which report their version. A pinned `0.1.0` here made every released
+# CLI answer `bosn 0.1.0` (and made every daemon look version-compatible).
+version.workspace = true
 edition = "2024"
 rust-version = "1.95"
 # Internal: amalgamated into the crates.io `bosn` crate at release.

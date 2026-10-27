@@ -3,8 +3,9 @@
 
 ``source --tag vX.Y.Z`` checks that the tag names exactly the release version,
 ``[workspace.package].version`` in Cargo.toml, and that nothing that ships writes
-its own copy of it: both published crates inherit it, the wheel reads it through
-maturin, and ``bosn.__version__`` is derived.
+its own copy of it: the published crates and ``bosn-service`` (which builds the
+shipped binary and daemon) inherit it, the wheel reads it through maturin, and
+``bosn.__version__`` is derived.
 
 ``wheels --tag vX.Y.Z DIR`` checks that DIR holds exactly the four platform
 wheels a release ships: one ``cp310-abi3`` wheel each for Linux x86_64, Windows
@@ -50,7 +51,7 @@ def single_source_errors(root: Path) -> list[str]:
     A second copy is what a bump forgets; `./bump` rewrites only the workspace line.
     """
     errors: list[str] = []
-    for crate in ("bosn", "bosn-python"):
+    for crate in ("bosn", "bosn-python", "bosn-service"):
         path = root / "crates" / crate / "Cargo.toml"
         package = tomllib.loads(path.read_text(encoding="utf-8"))["package"]
         if package.get("version") != {"workspace": True}:

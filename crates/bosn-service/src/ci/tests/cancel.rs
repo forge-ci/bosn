@@ -9,10 +9,9 @@ fn cancelling_is_visible_immediately_until_teardown_finishes() {
             ..Faults::default()
         }));
         let runtime = CiRuntime::start(&dir, registry, backend.clone(), 1);
-        let run = submit(&runtime, 'a').await.run;
-        while *backend.executions.lock().unwrap() == 0 {
-            async_engine::sleep(Duration::from_millis(5)).await;
-        }
+        // Observe cancellation during execution, not a preparation timeout.
+        let run = submit_with_timeout(&runtime, 'a', 30).await.run;
+        execution::wait_for_executions(&runtime, &backend, &[&run]).await;
         let cancelled: CancelReply = call(&runtime, CiRequest::Cancel { run: run.clone() }).await;
         assert!(cancelled.cancelled);
         assert_eq!(cancelled.state, RunState::Running);

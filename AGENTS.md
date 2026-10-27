@@ -101,10 +101,12 @@ living implementation spec.
 ## Releasing (the pretag release gate)
 
 - **The version is written once**: `[workspace.package].version` in the root `Cargo.toml`
-  (the zccache/soldr pattern). `bosn` and `bosn-python` inherit it, the wheel reads it through
-  maturin (`dynamic = ["version"]`), `bosn.__version__` comes from the loaded extension, and
-  `uv.lock` records the project as dynamic. `ci/verify_release.py` refuses any second copy.
-  The internal crates are never published and keep their own versions.
+  (the zccache/soldr pattern). `bosn`, `bosn-python` and `bosn-service` inherit it, the wheel
+  reads it through maturin (`dynamic = ["version"]`), `bosn.__version__` comes from the loaded
+  extension, and `uv.lock` records the project as dynamic. `ci/verify_release.py` refuses any
+  second copy. `bosn-service` builds the shipped `bosn` binary and daemon, so it must inherit:
+  a pinned `0.1.0` there made every released CLI answer `bosn 0.1.0`. The other internal
+  crates are never published, ship no artifacts, and keep their own versions.
 - **Prepare the version by PR**: `./bump patch` (or `minor`, `major`, `X.Y.Z`) rewrites that
   one line and refreshes `Cargo.lock`'s two workspace entries. Merging it releases nothing.
 - **Request the release for the exact merged SHA** (`<SHA>` = full 40-hex commit on `main`):
