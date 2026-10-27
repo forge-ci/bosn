@@ -941,9 +941,12 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // record. An older daemon refuses the field (`deny_unknown_fields`), so a
 // client never silently loses the opt-in; an older client omits it and older
 // records read as no proxy. Additive, so no bump.
+// #780 adds optional defaulted stage observations to run records and reports.
+// Older clients ignore them and newer clients read older records as empty,
+// so the daemon protocol remains 2.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "d97a2a2a45c8863bf9bb5441ecd15f32777686f97e74b3640c294a461aec4cdc",
+    "00ee40c8962aeac150ecbb29cab76af91d137da04f8eec08912d031555f23cd1",
 );
 
 #[test]
