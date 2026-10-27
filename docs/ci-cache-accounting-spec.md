@@ -7373,3 +7373,18 @@ within its existing deadline before holding any generation reader lease. The
 later reacquisition keeps its short fail-closed probe. Enrollment selection
 errors identify their existing short catalog probe without changing lock order.
 Bosn adoption is pending its own review, full CI and release gate.
+
+
+### act2.35: opt-in native operation budgets
+
+Act2 #97 merged at `306620a106b10010c18a21258b5ef9788b7999b2`. Full CI
+run `40463244634` passed on that exact SHA, and release run `40464307215`
+published `v0.2.89-act2.35`. The Linux x86_64 archive SHA-256
+`6adab1d4b44458e2b3bc0bb0a1297a4bf20911eb8459ac39bff3beb7a06e4852` matched
+the published checksums and GitHub asset digest. Its binary SHA-256 is
+`3054f4e0593d9c147d1fa3cebb5d6ead1e66bb00b9c1245ee28a6ccd659417ab`; it
+reports version `0.2.89-act2.35` and capability `tool-operation-timeouts-v1`.
+The verified binary exposes `--timeout-secs` on enrollment and reservation.
+Unchanged defaults keep act2's historical nested deadlines; an explicit changed
+budget propagates to the operation while parent cancellation and separate
+cleanup limits remain in force. Bosn adoption awaits its own release gates.

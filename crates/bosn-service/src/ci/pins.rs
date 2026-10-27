@@ -137,9 +137,10 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // failing with a bare bbolt timeout (act2#91, #747).
             // act2.34 waits for initial recovery catalog contention and names
             // the short enrollment selection catalog probe (act2#95, #96).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.34/act_Linux_x86_64.tar.gz",
-            sha256: "4e81c4d65fe0ac27fccf5ff761c6d6380c6ab901beca7aeca987c9049a813d32",
-            binary_sha256: "c776fab31bc7baf72567947601df161b7cd133f79947fae8a0423bd3860180aa",
+            // act2.35 adds bounded opt-in enrollment and reservation budgets (act2#97).
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.35/act_Linux_x86_64.tar.gz",
+            sha256: "6adab1d4b44458e2b3bc0bb0a1297a4bf20911eb8459ac39bff3beb7a06e4852",
+            binary_sha256: "3054f4e0593d9c147d1fa3cebb5d6ead1e66bb00b9c1245ee28a6ccd659417ab",
         }),
         _ => None,
     }

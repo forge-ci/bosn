@@ -111,7 +111,13 @@ fn ci_stage_timeouts_bound_real_reservation_transport_and_keep_intent() {
         let commands = std::fs::read_to_string(dir.path().join("commands.log")).unwrap();
         let commands: Vec<_> = commands.lines().collect();
         assert_eq!(commands.len(), 2);
-        assert!(commands[0].contains("--timeout-secs 1"));
-        assert!(commands[1].contains("--timeout-secs 3"));
+        let has_budget = |command: &str, expected: &str| {
+            let words: Vec<_> = command.split_whitespace().collect();
+            words
+                .windows(2)
+                .any(|pair| pair == ["--timeout-secs", expected])
+        };
+        assert!(has_budget(commands[0], "1"));
+        assert!(has_budget(commands[1], "3"));
     });
 }
