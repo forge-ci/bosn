@@ -74,3 +74,8 @@ cmd = "soldr toolchain ensure --json && soldr cargo test -p bosn-core --lib rete
 [task.shared-engine-test]
 stack = "test"
 cmd = "soldr toolchain ensure --json && soldr cargo test -p bosn-service --lib --locked -- ci::lifecycle ci::machine ci::spare ci::shared_engine"
+
+# Focused timeout and stage-statistics coverage for the CI control plane.
+[task.ci-timeouts-test]
+stack = "test"
+cmd = "soldr toolchain ensure --json && soldr cargo test -p bosn-service --lib --locked -- ci_stage_timeouts && soldr cargo test -p bosn-service --lib --locked -- ci::lifecycle::tests::native && soldr cargo test -p bosn-service --lib --locked -- restart_marks_unfinished_runs_interrupted_and_keeps_finished_ones && soldr cargo test -p bosn-service --lib --locked -- published_schema_matches_the_types && soldr cargo check -p bosn-service --locked"

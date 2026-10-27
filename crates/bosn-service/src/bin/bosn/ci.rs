@@ -47,7 +47,10 @@ pub mod adapter;
 mod capacity;
 #[path = "ci/doctor.rs"]
 mod doctor;
+#[path = "ci/stages.rs"]
+mod stages;
 pub use capacity::{format_ci_capacity, format_task_capacity};
+use stages::print_setup_stages;
 
 const EXIT_REFUSED: i32 = 3;
 /// `wait` reached its deadline, or `report` on a run still in progress.
@@ -636,6 +639,7 @@ fn report(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
         if let Some(reason) = &r.reason {
             println!("reason: {reason}");
         }
+        print_setup_stages(&r.stages);
         if let Some(failure) = &r.first_failure {
             println!(
                 "first failure: job {} step {} (exit {})",
@@ -936,6 +940,7 @@ fn print_tree(view: &RunView) {
     if let Some(reason) = &run.reason {
         println!("  reason: {reason}");
     }
+    print_setup_stages(&run.stages);
     for group in &run.tree.groups {
         println!("  stage {}", group.name);
         for job in &group.jobs {

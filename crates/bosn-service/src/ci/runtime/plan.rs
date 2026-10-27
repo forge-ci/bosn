@@ -155,6 +155,7 @@ impl CiRuntime {
                 super::super::reply::CiCpuSource::DefaultCeiling
             },
             native_tools: Some(NATIVE_TOOL_PAYLOAD_BYTES),
+            timeouts: settings.ci_timeouts,
         };
         shared.validate_native_policy()?;
         let scope = run_scope(&record.id, &intent)?;

@@ -33,23 +33,57 @@ pub async fn run_on_shared(
     observer.note("leasing a slot in the shared engine");
     let run = plan.intent.run_id.clone();
     let leased = {
-        let mut note = |why: &str| observer.note(why);
+        let mut progress = |update| match update {
+            super::super::shared_engine::LeaseUpdate::Note(why) => observer.note(&why),
+            super::super::shared_engine::LeaseUpdate::Stage(event) => {
+                use super::super::wire::StageEvent;
+                let event = match event {
+                    StageEvent::Started {
+                        kind,
+                        outer_limit_secs,
+                        command_limit_secs,
+                        ..
+                    } => StageEvent::Started {
+                        kind,
+                        outer_limit_secs,
+                        command_limit_secs,
+                        run_remaining_ms: Some(
+                            plan.deadline.remaining().as_millis().min(u64::MAX as u128) as u64,
+                        ),
+                    },
+                    event => event,
+                };
+                observer.stage(event);
+            }
+        };
         async_engine::timeout_at(
             plan.deadline,
             async_engine::cancellable(
                 cancellation,
-                shared.lease(&run, want, cancellation, &mut note),
+                shared.lease_observed(&run, want, cancellation, &mut progress),
             ),
         )
         .await
     };
     let lease = match leased {
-        Err(_) => return report(ExecutionEnd::TimedOut, CleanupEnd::Removed, None, None),
-        Ok(Err(_)) => return report(ExecutionEnd::Cancelled, CleanupEnd::Removed, None, None),
+        Err(_) => {
+            observer.stage(super::super::wire::StageEvent::Aborted {
+                state: super::super::wire::StageState::Interrupted,
+                reason: super::super::wire::StageReason::RunDeadline,
+            });
+            return report(ExecutionEnd::TimedOut, CleanupEnd::Unconfirmed, None, None);
+        }
+        Ok(Err(_)) => {
+            observer.stage(super::super::wire::StageEvent::Aborted {
+                state: super::super::wire::StageState::Cancelled,
+                reason: super::super::wire::StageReason::Cancelled,
+            });
+            return report(ExecutionEnd::Cancelled, CleanupEnd::Unconfirmed, None, None);
+        }
         Ok(Ok(Err(error))) => {
             return report(
                 ExecutionEnd::EngineFailed(error),
-                CleanupEnd::Removed,
+                CleanupEnd::Unconfirmed,
                 None,
                 None,
             );

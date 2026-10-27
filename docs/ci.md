@@ -28,7 +28,34 @@ wire record keeps `state: running` during that interval and adds the optional
 
 `--timeout-secs N` (default 2 hours) bounds the whole run from the moment it
 starts: resolving and pulling images, preparing the engine and running act. A
-run that exceeds it ends `timed_out`, and its engine is still removed.
+run that exceeds it ends `timed_out`; cleanup can remain unconfirmed or deferred
+until the daemon proves the relevant resources are gone.
+
+Engine setup has separate outer limits in the daemon's `<state>/config.toml`:
+
+```toml
+[ci_timeouts]
+prepare_secs = 1800     # engine preparation and reservation outer limit
+enrollment_secs = 900   # each native enrollment phase
+reservation_secs = 180  # native recovery reservation command
+```
+
+Each value must be between 1 and 43200 seconds. Restart the daemon after
+changing its configuration. These settings bound Bosn's commands; they do not
+replace the overall run deadline. Bosn forwards a changed enrollment or reservation setting to act2; unchanged
+values retain act2's historical defaults (900 seconds for enrollment and 180
+seconds for reservation). The operation limit is reported separately from the
+whole-run and outer limits. Some act2 sub-operations still use shorter limits,
+including lock probes, so the operation limit is not a guarantee that every
+nested operation can wait for that full duration. A deadline does not prove a
+blocked operating-system operation has stopped; ownership and recovery fences
+remain in force until cleanup is proven. Error messages include measured phase
+duration and the outer limit when available.
+Stage durations use the daemon's monotonic clock. A live duration is sampled
+for status and is not persisted; if the daemon stops mid-stage, that duration
+is unavailable after restart. `bosn ci wait --deadline-ms` only bounds the
+observation; it does not stop a detached run. Cleanup and recovery have their own safety limits and retain
+unacknowledged resources for reconciliation.
 
 ## A run lives as long as its client
 

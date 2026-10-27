@@ -36,6 +36,43 @@ pub struct WidgetConfig {
     pub external_hosts: Vec<String>,
 }
 
+/// Operator-controlled outer deadlines, in seconds. Internal act2 safety
+/// deadlines can be lower and must be reported separately.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct CiTimeouts {
+    pub prepare_secs: u64,
+    pub enrollment_secs: u64,
+    pub reservation_secs: u64,
+}
+
+impl Default for CiTimeouts {
+    fn default() -> Self {
+        Self {
+            prepare_secs: 1800,
+            enrollment_secs: 900,
+            reservation_secs: 180,
+        }
+    }
+}
+
+impl CiTimeouts {
+    fn validate(self) -> Result<Self, String> {
+        for (name, value) in [
+            ("prepare_secs", self.prepare_secs),
+            ("enrollment_secs", self.enrollment_secs),
+            ("reservation_secs", self.reservation_secs),
+        ] {
+            if !(1..=43200).contains(&value) {
+                return Err(format!(
+                    "ci_timeouts.{name} must be between 1 and 43200 seconds"
+                ));
+            }
+        }
+        Ok(self)
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CiConfig {
@@ -45,6 +82,8 @@ pub struct CiConfig {
     pub widget: WidgetConfig,
     #[serde(default)]
     pub engine: super::limits::EngineConfig,
+    #[serde(default)]
+    pub ci_timeouts: CiTimeouts,
     /// Override the default coordinated archive retention policy.
     #[serde(default)]
     pub cache: Option<super::cache_policy::CachePolicy>,
@@ -57,7 +96,13 @@ pub fn load(state_dir: &Path) -> Result<CiConfig, String> {
     let path = state_dir.join("config.toml");
     match std::fs::read_to_string(&path) {
         Ok(text) => {
-            toml::from_str::<CiConfig>(&text).map_err(|e| format!("{}: {e}", path.display()))
+            let config = toml::from_str::<CiConfig>(&text)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            config
+                .ci_timeouts
+                .validate()
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(config)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(CiConfig::default()),
         Err(error) => Err(format!("{}: {error}", path.display())),
@@ -193,6 +238,36 @@ mod tests {
         std::fs::write(dir.path().join("config.toml"), "[ui]\nenabeld = true\n").unwrap();
         assert!(load(dir.path()).unwrap_err().contains("enabeld"));
     }
+    #[test]
+    fn ci_stage_timeouts_default_and_validate_operator_overrides() {
+        let dir = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+        let defaults = load(dir.path()).unwrap().ci_timeouts;
+        assert_eq!(defaults.prepare_secs, 1800);
+        assert_eq!(defaults.enrollment_secs, 900);
+        assert_eq!(defaults.reservation_secs, 180);
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "[ci_timeouts]\nprepare_secs = 3600\nenrollment_secs = 1200\nreservation_secs = 300\n",
+        )
+        .unwrap();
+        let configured = load(dir.path()).unwrap().ci_timeouts;
+        assert_eq!(
+            (
+                configured.prepare_secs,
+                configured.enrollment_secs,
+                configured.reservation_secs
+            ),
+            (3600, 1200, 300)
+        );
+        for name in ["prepare_secs", "enrollment_secs", "reservation_secs"] {
+            for invalid in [0, 43201] {
+                std::fs::write(&path, format!("[ci_timeouts]\n{name} = {invalid}\n")).unwrap();
+                assert!(load(dir.path()).is_err(), "invalid {name}: {invalid}");
+            }
+        }
+    }
+
     #[test]
     fn engine_configuration_accepts_validated_retention() {
         let dir = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();

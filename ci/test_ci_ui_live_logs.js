@@ -77,11 +77,48 @@ const context = vm.createContext({
 const incremental = source.includes('function reconcile(');
 vm.runInContext('const logState = new WeakMap(); const logCache = new Map(); let selected = "run-1";\n' +
   (incremental ? body('reconcile') + '\n' + body('patchNode') + '\n' : '') + body('loadLog'), context);
+// A quiet running setup phase must resample its elapsed duration, and stop
+// polling when it finishes or the user selects another run.
+const stageTimers = [];
+let stageRefreshes = 0;
+let stageShouldFail = false;
+const stageContext = vm.createContext({
+  setTimeout: (fn, delay) => { const timer = { fn, delay, cleared: false }; stageTimers.push(timer); return timer; },
+  clearTimeout: (timer) => { timer.cleared = true; },
+  showRun: () => { stageRefreshes++; return stageShouldFail ? Promise.reject(new Error("transient")) : Promise.resolve(); },
+});
+vm.runInContext('let selected = "run-1"; let stageRefresh = null;\n' + body('scheduleStageRefresh'), stageContext);
+const scheduleStage = vm.runInContext('scheduleStageRefresh', stageContext);
+scheduleStage({ id: 'run-1', state: 'running', stages: [{ state: 'running' }] });
+assert.equal(stageTimers.length, 1);
+assert.equal(stageTimers[0].delay, 1000);
+stageTimers[0].fn();
+assert.equal(stageRefreshes, 1);
+scheduleStage({ id: 'run-1', state: 'running', stages: [{ state: 'running' }] });
+scheduleStage({ id: 'run-1', state: 'done', stages: [{ state: 'succeeded' }] });
+assert.equal(stageTimers[1].cleared, true);
+vm.runInContext('selected = "run-2"', stageContext);
+scheduleStage({ id: 'run-1', state: 'running', stages: [{ state: 'running' }] });
+assert.equal(stageTimers.length, 2);
+
 const fetchLog = (pre, run) => incremental
   ? vm.runInContext('loadLog', context)(pre, {}, run)
   : vm.runInContext('loadLog', context)(pre, 'full', {}, run);
 
 (async () => {
+  vm.runInContext('selected = "run-1"', stageContext);
+  stageShouldFail = true;
+  scheduleStage({ id: 'run-1', state: 'running', stages: [{ state: 'running' }] });
+  const failedTimer = stageTimers.at(-1);
+  failedTimer.fn();
+  await new Promise(setImmediate);
+  const retryTimer = stageTimers.at(-1);
+  assert.notEqual(retryTimer, failedTimer, 'transient failure must rearm the stage refresh');
+  assert.equal(retryTimer.delay, 1000);
+  stageShouldFail = false;
+  retryTimer.fn();
+  await new Promise(setImmediate);
+
   const parent = new Node('DIV');
   const details = new Node('DETAILS');
   details.dataset.key = 'step job Build:1';

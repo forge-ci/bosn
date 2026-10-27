@@ -9,6 +9,68 @@ use kernal_api::async_engine::{self, CancellationToken};
 use std::time::Duration;
 
 impl SharedEngine {
+    async fn enroll_phase(
+        &self,
+        engine: &Spare,
+        phase: EnrollmentPhase,
+        max: u64,
+        limit_secs: u64,
+        cancellation: &CancellationToken,
+        progress: &mut (dyn FnMut(super::LeaseUpdate) + Send),
+    ) -> Result<Option<bosn_registry::act::ActToolGenerationBinding>, String> {
+        use crate::ci::wire::{StageEvent, StageKind, StageState};
+        let kind = match phase {
+            EnrollmentPhase::Fence => StageKind::EnrollmentFence,
+            EnrollmentPhase::Complete => StageKind::EnrollmentComplete,
+        };
+        progress(super::LeaseUpdate::Stage(StageEvent::Started {
+            kind,
+            outer_limit_secs: limit_secs,
+            command_limit_secs: None,
+            run_remaining_ms: None,
+        }));
+        let started = std::time::Instant::now();
+        let result = async_engine::timeout(
+            Duration::from_secs(limit_secs),
+            async_engine::cancellable(
+                cancellation,
+                self.backend.enroll_native_tools(
+                    &engine.observed.engine_id,
+                    phase,
+                    max,
+                    Duration::from_secs(limit_secs),
+                ),
+            ),
+        )
+        .await;
+        let state = match &result {
+            Err(_) => StageState::TimedOut,
+            Ok(Err(_)) => StageState::Cancelled,
+            Ok(Ok(Err(_))) => StageState::Failed,
+            Ok(Ok(Ok(_))) => StageState::Succeeded,
+        };
+        progress(super::LeaseUpdate::Stage(StageEvent::Finished {
+            kind,
+            state,
+            elapsed_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        }));
+        match result {
+            Err(_) => Err(format!(
+                "native enrollment {phase:?} timed out after {:.3}s (outer limit {limit_secs}s)",
+                started.elapsed().as_secs_f64()
+            )),
+            Ok(Err(_)) => Err(format!(
+                "native enrollment cancelled during {phase:?} after {:.3}s",
+                started.elapsed().as_secs_f64()
+            )),
+            Ok(Ok(Err(error))) => Err(format!(
+                "native enrollment {phase:?} failed after {:.3}s (outer limit {limit_secs}s; act2 may enforce a shorter internal limit): {error}",
+                started.elapsed().as_secs_f64()
+            )),
+            Ok(Ok(Ok(result))) => Ok(result),
+        }
+    }
+
     pub(super) async fn enroll_prepared(
         &self,
         want: &SparePlan,
@@ -16,19 +78,19 @@ impl SharedEngine {
         guard: PreparationGuard,
         max: u64,
         cancellation: &CancellationToken,
+        progress: &mut (dyn FnMut(super::LeaseUpdate) + Send),
     ) -> Result<Result<Held, Step>, String> {
         let held = Claim::held(&self.registry, &engine);
         held.verify().await?;
-        async_engine::cancellable(
+        self.enroll_phase(
+            &engine,
+            EnrollmentPhase::Fence,
+            max,
+            want.timeouts.enrollment_secs,
             cancellation,
-            self.backend.enroll_native_tools(
-                &engine.observed.engine_id,
-                EnrollmentPhase::Fence,
-                max,
-            ),
+            progress,
         )
-        .await
-        .map_err(|_| "native enrollment cancelled during source fence")??;
+        .await?;
         // Open directory descriptors survive the atomic source exchange. Drain
         // every other engine after installing the fence before publishing.
         loop {
@@ -43,17 +105,17 @@ impl SharedEngine {
                 .await
                 .map_err(|_| "native enrollment cancelled while draining writers")?;
         }
-        let binding = async_engine::cancellable(
-            cancellation,
-            self.backend.enroll_native_tools(
-                &engine.observed.engine_id,
+        let binding = self
+            .enroll_phase(
+                &engine,
                 EnrollmentPhase::Complete,
                 max,
-            ),
-        )
-        .await
-        .map_err(|_| "native enrollment cancelled during completion")??
-        .ok_or("native enrollment returned no generation")?;
+                want.timeouts.enrollment_secs,
+                cancellation,
+                progress,
+            )
+            .await?
+            .ok_or("native enrollment returned no generation")?;
         held.verify().await?;
         if binding.max_payload_bytes != max {
             return Err("native enrollment changed payload bound".into());
@@ -73,6 +135,6 @@ impl SharedEngine {
         self.machine()?.remove_claim(&guard.disarm()).await?;
         let owner = crate::ci::lifecycle::registry_owner(&self.registry).await?;
         // The source refusal file remains across these two genuine claims.
-        Box::pin(self.make(self.machine()?, &actual, &owner, cancellation)).await
+        Box::pin(self.make(self.machine()?, &actual, &owner, cancellation, progress)).await
     }
 }

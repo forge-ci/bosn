@@ -7356,3 +7356,46 @@ that SHA. Linux archive `cbcb24de...b910` matches `checksums.txt`; executable
   failed so before any test ran. Writers with an operation context now retry
   contention until that context ends, as generation updates already did; the
   context-free admission keeps the short probe.
+
+
+### act2.34: recovery reservation contention and enrollment diagnostics
+
+Act2 PRs #95 and #96 merged on master at `5fbd948ce73d4f548f81aa8e316d9a6960fb9b64`.
+Full act2 checks on that exact SHA passed in run `40456325205`; the tag-triggered
+release run `40457499039` published `v0.2.89-act2.34`. The Linux x86_64
+archive SHA-256 `4e81c4d65fe0ac27fccf5ff761c6d6380c6ab901beca7aeca987c9049a813d32`
+matched the published checksums and GitHub asset digest. Its extracted `act`
+binary SHA-256 is `c776fab31bc7baf72567947601df161b7cd133f79947fae8a0423bd3860180aa`
+and reports `act version 0.2.89-act2.34`.
+
+Initial recovery reservation catalog acquisition now retries ordinary contention
+within its existing deadline before holding any generation reader lease. The
+later reacquisition keeps its short fail-closed probe. Enrollment selection
+errors identify their existing short catalog probe without changing lock order.
+Bosn adoption is pending its own review, full CI and release gate.
+
+
+### act2.35: opt-in native operation budgets
+
+Act2 #97 merged at `306620a106b10010c18a21258b5ef9788b7999b2`. Full CI
+run `40463244634` passed on that exact SHA, and release run `40464307215`
+published `v0.2.89-act2.35`. The Linux x86_64 archive SHA-256
+`6adab1d4b44458e2b3bc0bb0a1297a4bf20911eb8459ac39bff3beb7a06e4852` matched
+the published checksums and GitHub asset digest. Its binary SHA-256 is
+`3054f4e0593d9c147d1fa3cebb5d6ead1e66bb00b9c1245ee28a6ccd659417ab`; it
+reports version `0.2.89-act2.35` and capability `tool-operation-timeouts-v1`.
+The verified binary exposes `--timeout-secs` on enrollment and reservation.
+Unchanged defaults keep act2's historical nested deadlines; an explicit changed
+budget propagates to the operation while parent cancellation and separate
+cleanup limits remain in force. Bosn adoption awaits its own release gates.
+
+### act2.36: retry native lock probes after releasing leases
+
+Act2 #99 merged at `9d2b1ce09390e7330f5bc36438e2097e796dba2e`. Full CI
+run `40480905628` passed on that SHA, and release run `40482226594`
+published `v0.2.89-act2.36`. The Linux x86_64 archive SHA-256
+`5faef9235421a5a15d20b0c366df3754f83f07b247d31d455cef2bb805b2fa49` matched
+the release asset digest and checksums file. Its extracted binary SHA-256 is
+`2ce98c3fb7a8c29fb63b1f963b4026196b6a8827929a61f22851c3ec1d07325b`.
+The release retries contention probes within the existing operation deadline
+after releasing held leases, preserving the recovery ownership fences.

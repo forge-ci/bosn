@@ -48,6 +48,12 @@ mod enrollment;
 mod machine_ops;
 mod preparation;
 
+/// Typed progress for a run that is actually preparing the shared engine.
+pub(crate) enum LeaseUpdate {
+    Note(String),
+    Stage(super::wire::StageEvent),
+}
+
 /// How long an engine with no run is kept before it is retired.
 pub const DEFAULT_IDLE_RETIRE: Duration = Duration::from_secs(600);
 /// How often the daemon checks for an idle engine.
@@ -177,6 +183,22 @@ impl SharedEngine {
         cancellation: &CancellationToken,
         note: &mut (dyn FnMut(&str) + Send),
     ) -> Result<Lease, String> {
+        let mut forward = |update| {
+            if let LeaseUpdate::Note(why) = update {
+                note(&why);
+            }
+        };
+        self.lease_observed(run, want, cancellation, &mut forward)
+            .await
+    }
+
+    pub(crate) async fn lease_observed(
+        &self,
+        run: &str,
+        want: SparePlan,
+        cancellation: &CancellationToken,
+        progress: &mut (dyn FnMut(LeaseUpdate) + Send),
+    ) -> Result<Lease, String> {
         want.validate_native_policy()?;
         self.state().wanted = true;
         let identity =
@@ -191,12 +213,15 @@ impl SharedEngine {
             if self.state().closed {
                 return Err("the daemon is stopping".into());
             }
-            match self.step(&want, &identity, &holder, cancellation).await? {
+            match self
+                .step(&want, &identity, &holder, cancellation, progress)
+                .await?
+            {
                 Step::Leased(lease) => return Ok(lease),
                 Step::Again => async_engine::sleep(Duration::from_millis(100)).await,
                 Step::Wait(why) => {
                     if said.insert(why.clone()) {
-                        note(&why);
+                        progress(LeaseUpdate::Note(why));
                     }
                     async_engine::sleep(WAIT_TICK).await;
                 }
@@ -210,6 +235,7 @@ impl SharedEngine {
         identity: &EngineIdentity,
         holder: &Holder,
         cancellation: &CancellationToken,
+        progress: &mut (dyn FnMut(LeaseUpdate) + Send),
     ) -> Result<Step, String> {
         let machine = self.machine()?;
         let mut held = self.held.lock().await;
@@ -221,7 +247,10 @@ impl SharedEngine {
             }
         }
         if held.is_none() {
-            match self.find_or_make(want, identity, cancellation).await? {
+            match self
+                .find_or_make(want, identity, cancellation, progress)
+                .await?
+            {
                 Ok(found) => *held = Some(found),
                 Err(step) => return Ok(step),
             }

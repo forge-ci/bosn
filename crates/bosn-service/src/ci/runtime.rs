@@ -52,6 +52,8 @@ const PUBLISH_INTERVAL: Duration = Duration::from_millis(250);
 
 struct RunSlot {
     record: RunRecord,
+    /// Monotonic clock for a live stage; never persisted across daemon restarts.
+    stage_clock: Option<Instant>,
     cancel: Option<CancellationSource>,
     /// Sparse (seq, byte offset) index into the run's log.
     index: Vec<(u64, u64)>,
@@ -60,6 +62,16 @@ struct RunSlot {
 }
 
 impl RunSlot {
+    fn live_record(&self) -> RunRecord {
+        let mut record = self.record.clone();
+        if let (Some(started), Some(stage)) = (self.stage_clock, record.stages.last_mut())
+            && stage.state == StageState::Running
+        {
+            stage.elapsed_ms = Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+        }
+        record
+    }
+
     /// The record's next version, to write once the lock is released.
     fn snapshot(&mut self) -> Save {
         self.version += 1;
@@ -106,6 +118,7 @@ impl CiState {
             record.id.clone(),
             RunSlot {
                 record,
+                stage_clock: None,
                 cancel: None,
                 index: Vec::new(),
                 version,
@@ -372,7 +385,7 @@ impl CiRuntime {
     }
 
     pub(crate) fn record(&self, run: &str) -> Result<RunRecord, CiError> {
-        self.lock().slot(run).map(|s| s.record.clone())
+        self.lock().slot(run).map(RunSlot::live_record)
     }
 
     /// Apply `change` to a run's record and write the result in the
@@ -519,7 +532,7 @@ impl CiRuntime {
             .filter(|slot| workspace.is_none_or(|w| slot.record.workspace == w))
             .filter(|slot| filter.is_none_or(|f| slot.record.state == f))
             .take(limit)
-            .map(|slot| RunView::of(slot.record.clone(), false))
+            .map(|slot| RunView::of(slot.live_record(), false))
             .collect();
         ListReply {
             runs,
@@ -923,6 +936,9 @@ fn record_engine_report(record: &mut RunRecord, report: &EngineReport) {
     };
     record.cleanup = Some(match &report.cleanup {
         CleanupEnd::Removed => "removed".into(),
+        CleanupEnd::Unconfirmed => {
+            "unconfirmed: preparation cleanup may be ongoing or deferred".into()
+        }
         CleanupEnd::Failed(e) => format!("failed: {e}"),
     });
 }

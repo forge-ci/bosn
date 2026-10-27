@@ -96,6 +96,7 @@ pub fn shared_plan(run: &str) -> super::super::spare::SparePlan {
         cache: test_cache(),
         cpu_source: super::super::reply::CiCpuSource::DefaultCeiling,
         native_tools: None,
+        timeouts: Default::default(),
     }
 }
 pub fn test_cache() -> CacheVolume {

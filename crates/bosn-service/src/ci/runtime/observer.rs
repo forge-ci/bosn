@@ -87,6 +87,40 @@ impl EngineObserver for RunObserver {
             text: text.into(),
         });
     }
+    fn stage(&mut self, event: StageEvent) {
+        self.runtime.update(&self.id, |slot| match event {
+            StageEvent::Started {
+                kind,
+                outer_limit_secs,
+                command_limit_secs,
+                run_remaining_ms,
+            } => {
+                slot.stage_clock = Some(Instant::now());
+                slot.record.stage_started(
+                    kind,
+                    lifecycle::now_seconds(),
+                    outer_limit_secs,
+                    command_limit_secs,
+                    run_remaining_ms,
+                );
+            }
+            StageEvent::Finished {
+                kind,
+                state,
+                elapsed_ms,
+            } => {
+                slot.record.stage_finished(kind, state, elapsed_ms);
+                slot.stage_clock = None;
+            }
+            StageEvent::Aborted { state, reason } => {
+                let elapsed_ms = slot
+                    .stage_clock
+                    .map(|started| started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+                slot.record.stage_aborted(state, reason, elapsed_ms);
+                slot.stage_clock = None;
+            }
+        });
+    }
     fn declared(&mut self, listing: &str) {
         let jobs = select_jobs(parse_act_list(listing), self.job.as_deref());
         self.parser = ActParser::new(RunTree::declared(&jobs));
