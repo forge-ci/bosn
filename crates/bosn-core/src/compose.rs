@@ -7,7 +7,6 @@
 //! start a process.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 
 use serde::Serialize;
 use serde_yaml::{Mapping, Value};
@@ -53,18 +52,25 @@ const NETWORK_KEYS: &[&str] = &[
     "name",
 ];
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, strum::Display)]
 #[serde(rename_all = "snake_case")]
 pub enum ComposeErrorCode {
+    #[strum(serialize = "malformed_yaml")]
     MalformedYaml,
+    #[strum(serialize = "invalid_shape")]
     InvalidShape,
+    #[strum(serialize = "unsupported")]
     Unsupported,
+    #[strum(serialize = "invalid_value")]
     InvalidValue,
+    #[strum(serialize = "unsafe_path")]
     UnsafePath,
+    #[strum(serialize = "ambiguous")]
     Ambiguous,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("{code} at {path}: {message}; remedy: {remedy}")]
 pub struct ComposeError {
     pub code: ComposeErrorCode,
     pub path: String,
@@ -95,27 +101,6 @@ impl ComposeError {
         )
     }
 }
-impl fmt::Display for ComposeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} at {}: {}; remedy: {}",
-            match self.code {
-                ComposeErrorCode::MalformedYaml => "malformed_yaml",
-                ComposeErrorCode::InvalidShape => "invalid_shape",
-                ComposeErrorCode::Unsupported => "unsupported",
-                ComposeErrorCode::InvalidValue => "invalid_value",
-                ComposeErrorCode::UnsafePath => "unsafe_path",
-                ComposeErrorCode::Ambiguous => "ambiguous",
-            },
-            self.path,
-            self.message,
-            self.remedy
-        )
-    }
-}
-impl std::error::Error for ComposeError {}
-
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct RelativePath(String);
 impl RelativePath {

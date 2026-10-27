@@ -148,14 +148,9 @@ pub struct ActDeclaredPlan {
     /// transformed into local success by this pure declaration resolver.
     pub github_only_required: Vec<String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
 pub struct ActAdapterError(pub &'static str);
-impl std::fmt::Display for ActAdapterError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-impl std::error::Error for ActAdapterError {}
 fn refuse(message: &'static str) -> ActAdapterError {
     ActAdapterError(message)
 }

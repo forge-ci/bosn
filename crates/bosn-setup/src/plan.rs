@@ -193,22 +193,13 @@ pub struct SetupPlan {
 }
 
 /// Planning stops before side effects outside Bosn-owned cache/asset state.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SetupPlanError {
+    #[error("setup acquisition: {0}")]
     Acquisition(SetupAcquireError),
+    #[error("setup materialization: {0}")]
     Materialization(SetupMaterializeError),
 }
-
-impl std::fmt::Display for SetupPlanError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Acquisition(error) => write!(formatter, "setup acquisition: {error}"),
-            Self::Materialization(error) => write!(formatter, "setup materialization: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for SetupPlanError {}
 
 impl From<SetupAcquireError> for SetupPlanError {
     fn from(error: SetupAcquireError) -> Self {

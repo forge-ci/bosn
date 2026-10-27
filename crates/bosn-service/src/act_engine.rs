@@ -11,7 +11,7 @@ use bosn_registry::act::{
     ActEngineCreationProfile, ActEngineIntent, ActEngineObservation, ActEngineTmpfsPolicy,
 };
 use serde_json::Value;
-use std::{collections::BTreeMap, fmt};
+use std::collections::BTreeMap;
 
 /// The engine image every new engine is created from: the publisher's
 /// `docker:29.7.2` linux/amd64 manifest, with its config, both shipped below.

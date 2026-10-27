@@ -40,60 +40,39 @@ impl Default for CollectorLimits {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CollectorError {
+    #[error("context I/O: {0}")]
     Io(std::io::Error),
+    #[error("invalid context path {0:?}")]
     InvalidPath(String),
+    #[error("context collector limit exceeded: {0}")]
     Limit(&'static str),
+    #[error(
+        "context has more than {limit} selected entries (walked {walked} raw entries; {selected} selected before stopping)"
+    )]
     EntryCount {
         limit: usize,
         walked: usize,
         selected: usize,
     },
+    #[error(
+        "context walk exceeded {limit} raw entries (walked {walked}; {selected} selected); narrow the context or ignore a whole directory"
+    )]
     WalkCount {
         limit: usize,
         walked: usize,
         selected: usize,
     },
+    #[error("selected context path is not a regular file, directory, or link: {0:?}")]
     SpecialFile(String),
+    #[error("context root changed while it was collected")]
     Mutation,
+    #[error("{0}")]
     Dockerfile(dockerfile::DockerfileError),
+    #[error("duplicate context path {0:?}")]
     Duplicate(String),
 }
-impl std::fmt::Display for CollectorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(e) => write!(f, "context I/O: {e}"),
-            Self::InvalidPath(x) => write!(f, "invalid context path {x:?}"),
-            Self::Limit(x) => write!(f, "context collector limit exceeded: {x}"),
-            Self::EntryCount {
-                limit,
-                walked,
-                selected,
-            } => write!(
-                f,
-                "context has more than {limit} selected entries (walked {walked} raw entries; {selected} selected before stopping)"
-            ),
-            Self::WalkCount {
-                limit,
-                walked,
-                selected,
-            } => write!(
-                f,
-                "context walk exceeded {limit} raw entries (walked {walked}; {selected} selected); narrow the context or ignore a whole directory"
-            ),
-            Self::SpecialFile(x) => write!(
-                f,
-                "selected context path is not a regular file, directory, or link: {x:?}"
-            ),
-            Self::Mutation => f.write_str("context root changed while it was collected"),
-            Self::Dockerfile(e) => e.fmt(f),
-            Self::Duplicate(x) => write!(f, "duplicate context path {x:?}"),
-        }
-    }
-}
-impl std::error::Error for CollectorError {}
-
 impl CollectorError {
     /// The refusal a user reads: which of bosn's limits was hit, with its
     /// value, and the remedy (#657). Other errors keep their own text.

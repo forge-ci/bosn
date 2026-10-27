@@ -74,7 +74,8 @@ CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, kin
  detail TEXT NOT NULL DEFAULT '');
 "#;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{self:?}")]
 pub enum Error {
     Sql(SqlError),
     Io(std::io::Error),
@@ -115,12 +116,6 @@ impl From<std::io::Error> for Error {
         Self::Io(v)
     }
 }
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-impl std::error::Error for Error {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Resource {

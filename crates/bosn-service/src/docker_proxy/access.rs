@@ -18,7 +18,7 @@
 
 use std::{
     collections::BTreeMap,
-    fmt, io,
+    io,
     io::{Read, Write},
     path::Path,
 };
@@ -32,7 +32,9 @@ use super::{INSPECT_DEADLINE, MAX_INSPECT_BYTES, rewrite::api_path, rewrite::dec
 use crate::docker_api::LABEL_RUN;
 
 /// A request the proxy answers itself instead of forwarding.
-#[derive(Debug)]
+/// Displays as Docker's error body, `{"message": ...}`.
+#[derive(Debug, thiserror::Error)]
+#[error("{}", serde_json::json!({ "message": message }))]
 pub(super) struct Refusal {
     pub status: u16,
     pub message: String,
@@ -50,14 +52,6 @@ impl Refusal {
         }
     }
 }
-/// Displays as Docker's error body, `{"message": ...}`.
-impl fmt::Display for Refusal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let body = serde_json::json!({ "message": self.message });
-        write!(f, "{body}")
-    }
-}
-impl std::error::Error for Refusal {}
 
 /// The HTTP status a refused request is answered with.
 pub(super) fn refusal_status(error: &io::Error) -> u16 {

@@ -381,45 +381,26 @@ pub struct SetupEnsureResult {
 }
 
 /// Why a setup app ensure was refused or failed.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SetupEnsureError {
+    #[error("invalid setup ensure request: {0}")]
     InvalidRequest(&'static str),
+    #[error("existing container is not the expected Bosn-managed setup app")]
     OwnershipMismatch,
+    #[error("setup app ensure was cancelled")]
     Cancelled,
+    #[error("setup app ensure exceeded its deadline")]
     Deadline,
+    #[error("setup app ensure engine transport: {0}")]
     Transport(CommandError),
+    #[error("Docker {action} failed: {detail}")]
     ActionFailed {
         action: &'static str,
         detail: String,
     },
+    #[error("setup app ensure engine protocol: {0}")]
     EngineProtocol(&'static str),
 }
-
-impl std::fmt::Display for SetupEnsureError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidRequest(reason) => {
-                write!(formatter, "invalid setup ensure request: {reason}")
-            }
-            Self::OwnershipMismatch => {
-                formatter.write_str("existing container is not the expected Bosn-managed setup app")
-            }
-            Self::Cancelled => formatter.write_str("setup app ensure was cancelled"),
-            Self::Deadline => formatter.write_str("setup app ensure exceeded its deadline"),
-            Self::Transport(error) => {
-                write!(formatter, "setup app ensure engine transport: {error}")
-            }
-            Self::ActionFailed { action, detail } => {
-                write!(formatter, "Docker {action} failed: {detail}")
-            }
-            Self::EngineProtocol(reason) => {
-                write!(formatter, "setup app ensure engine protocol: {reason}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for SetupEnsureError {}
 
 impl From<CommandError> for SetupEnsureError {
     fn from(error: CommandError) -> Self {

@@ -13,7 +13,8 @@ pub enum ResolutionPolicy {
     ReadOnly,
     PullIfMissing,
 }
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{self:?}")]
 pub enum ResolutionError {
     Transport(CommandError),
     InvalidInput {
@@ -178,12 +179,6 @@ fn expand_platform_value(
     out.push_str(rest);
     Ok(out)
 }
-impl std::fmt::Display for ResolutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-impl std::error::Error for ResolutionError {}
 
 pub fn resolve_images(
     engine: &DockerEngine,
