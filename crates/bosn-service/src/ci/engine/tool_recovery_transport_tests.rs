@@ -71,7 +71,8 @@ fn ci_stage_timeouts_bound_real_reservation_transport_and_keep_intent() {
         let receipt = serde_json::json!({"schema_version":1,"root":"/bosn/cache/toolstore-v1","pin":pin,"published":true,"reused":false,"partial":false});
         std::fs::write(dir.path().join("receipt.json"), receipt.to_string()).unwrap();
         let script = format!(
-            "set -eu\ncase \" $* \" in *\" --timeout-secs \"*) ;; *) exit 42 ;; esac\nsleep 1.5\ncat '{}'\n",
+            "set -eu\ncase \" $* \" in *\" --timeout-secs \"*) ;; *) exit 42 ;; esac\nprintf '%s\\n' \"$*\" >> '{}'\nsleep 1.5\ncat '{}'\n",
+            dir.path().join("commands.log").display(),
             dir.path().join("receipt.json").display()
         );
         std::fs::write(dir.path().join("docker.sh"), script).unwrap();
@@ -107,5 +108,10 @@ fn ci_stage_timeouts_bound_real_reservation_transport_and_keep_intent() {
         };
         assert_eq!(still_pending.tool_recovery.as_ref(), Some(&frozen));
         assert_eq!(still_pending.tool_recovery_reserved_at, None);
+        let commands = std::fs::read_to_string(dir.path().join("commands.log")).unwrap();
+        let commands: Vec<_> = commands.lines().collect();
+        assert_eq!(commands.len(), 2);
+        assert!(commands[0].contains("--timeout-secs 1"));
+        assert!(commands[1].contains("--timeout-secs 3"));
     });
 }
