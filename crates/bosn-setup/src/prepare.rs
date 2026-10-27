@@ -126,46 +126,26 @@ pub struct PreparedImage {
 }
 
 /// Why image preparation failed without escalating into container execution.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SetupPrepareError {
+    #[error("invalid setup image plan: {0}")]
     InvalidPlan(&'static str),
+    #[error("setup build assets changed: {0}")]
     AssetIntegrity(crate::SetupMaterializeError),
+    #[error("setup image preparation was cancelled")]
     Cancelled,
+    #[error("setup image preparation exceeded its deadline")]
     Deadline,
+    #[error("setup image engine transport: {0}")]
     Transport(CommandError),
+    #[error("Docker {action} failed: {detail}")]
     ActionFailed {
         action: &'static str,
         detail: String,
     },
-    MissingIdentity {
-        reference: String,
-        observed: String,
-    },
+    #[error("Docker did not return a stable image identity for {reference}: {observed:?}")]
+    MissingIdentity { reference: String, observed: String },
 }
-
-impl std::fmt::Display for SetupPrepareError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidPlan(reason) => write!(formatter, "invalid setup image plan: {reason}"),
-            Self::AssetIntegrity(error) => write!(formatter, "setup build assets changed: {error}"),
-            Self::Cancelled => formatter.write_str("setup image preparation was cancelled"),
-            Self::Deadline => formatter.write_str("setup image preparation exceeded its deadline"),
-            Self::Transport(error) => write!(formatter, "setup image engine transport: {error}"),
-            Self::ActionFailed { action, detail } => {
-                write!(formatter, "Docker {action} failed: {detail}")
-            }
-            Self::MissingIdentity {
-                reference,
-                observed,
-            } => write!(
-                formatter,
-                "Docker did not return a stable image identity for {reference}: {observed:?}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for SetupPrepareError {}
 
 impl From<CommandError> for SetupPrepareError {
     fn from(error: CommandError) -> Self {

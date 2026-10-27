@@ -24,6 +24,7 @@ path = "src/bin/migration-import-test.rs"
 required-features = ["migration-test-helper"]
 
 [dependencies]
+thiserror = "=2.0.20"
 bosn-core = { path = "../bosn-core" }
 serde = { version = "=1.0.229", features = ["derive"] }
 # Immutable Act ownership labels include the exact persisted f64 timestamp.

@@ -268,48 +268,26 @@ pub struct SetupAppTaskRequest<'a> {
 }
 
 /// Why a single setup task was refused or did not complete successfully.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SetupTaskError {
+    #[error("invalid setup task request: {0}")]
     InvalidRequest(&'static str),
+    #[error("setup task is not declared by this plan")]
     UnknownTask,
+    #[error("setup task was cancelled")]
     Cancelled,
+    #[error("setup task exceeded its deadline")]
     Deadline,
+    #[error("setup task engine transport: {0}")]
     Transport(CommandError),
-    TaskFailed {
-        exit_code: i32,
-        detail: String,
-    },
+    #[error("declared setup task exited with {exit_code}: {detail}")]
+    TaskFailed { exit_code: i32, detail: String },
     /// The exec client ended without the task's exit status (the boxed
     /// cause), and a follow-up stop confirmed that none of the task's
     /// processes remain in the container.
+    #[error("{0}; bosn stopped the task's processes in the container")]
     RemoteStopped(Box<SetupTaskError>),
 }
-
-impl std::fmt::Display for SetupTaskError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidRequest(reason) => {
-                write!(formatter, "invalid setup task request: {reason}")
-            }
-            Self::UnknownTask => formatter.write_str("setup task is not declared by this plan"),
-            Self::Cancelled => formatter.write_str("setup task was cancelled"),
-            Self::Deadline => formatter.write_str("setup task exceeded its deadline"),
-            Self::Transport(error) => write!(formatter, "setup task engine transport: {error}"),
-            Self::TaskFailed { exit_code, detail } => {
-                write!(
-                    formatter,
-                    "declared setup task exited with {exit_code}: {detail}"
-                )
-            }
-            Self::RemoteStopped(cause) => write!(
-                formatter,
-                "{cause}; bosn stopped the task's processes in the container"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for SetupTaskError {}
 
 impl From<CommandError> for SetupTaskError {
     fn from(error: CommandError) -> Self {

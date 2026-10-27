@@ -101,14 +101,9 @@ pub struct ActEngineLimits {
     pub pids: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
 pub struct ActEngineError(pub String);
-impl fmt::Display for ActEngineError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-impl std::error::Error for ActEngineError {}
 
 impl ActEngineLimits {
     pub(crate) fn validate(self) -> Result<(), ActEngineError> {

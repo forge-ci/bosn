@@ -370,15 +370,21 @@ pub enum OwnershipClass {
 }
 
 /// What an unowned artifact is, and therefore how it may be treated.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, strum::IntoStaticStr)]
 pub enum UnmanagedClass {
     // Tier 1 — reclaimable.
+    #[strum(serialize = "dangling-image")]
     DanglingImage,
+    #[strum(serialize = "stopped-container")]
     StoppedContainer,
+    #[strum(serialize = "anonymous-volume")]
     AnonymousVolume,
+    #[strum(serialize = "build-cache")]
     BuildCache,
     // Tier 2 — never swept; `--include` only.
+    #[strum(serialize = "unreferenced-image")]
     UnreferencedImage,
+    #[strum(serialize = "named-volume")]
     NamedVolume,
 }
 
@@ -396,14 +402,7 @@ impl UnmanagedClass {
 
     #[must_use]
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::DanglingImage => "dangling-image",
-            Self::StoppedContainer => "stopped-container",
-            Self::AnonymousVolume => "anonymous-volume",
-            Self::BuildCache => "build-cache",
-            Self::UnreferencedImage => "unreferenced-image",
-            Self::NamedVolume => "named-volume",
-        }
+        self.into()
     }
 }
 
@@ -418,33 +417,32 @@ pub enum Tier {
 /// Why an artifact is excluded from reclamation.
 ///
 /// Every one of these is a *keep*. Missing information is never a reason to reclaim.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, strum::IntoStaticStr)]
 pub enum ProtectedReason {
     /// Owned by this registry. Owned lifecycle has its own GC.
+    #[strum(serialize = "owned-by-this-registry")]
     OwnedByThisRegistry,
     /// Complete labels naming another registry.
+    #[strum(serialize = "foreign-registry")]
     ForeignRegistry,
     /// Incomplete label set: ownership cannot be proven either way.
+    #[strum(serialize = "incomplete-labels")]
     IncompleteLabels,
     /// Attached to, or is, a running or in-use resource.
+    #[strum(serialize = "in-use")]
     InUse,
     /// Size could not be measured. Fail closed.
+    #[strum(serialize = "unmeasured")]
     Unmeasured,
     /// No classification rule applies to this shape.
+    #[strum(serialize = "unclassified")]
     Unclassified,
 }
 
 impl ProtectedReason {
     #[must_use]
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::OwnedByThisRegistry => "owned-by-this-registry",
-            Self::ForeignRegistry => "foreign-registry",
-            Self::IncompleteLabels => "incomplete-labels",
-            Self::InUse => "in-use",
-            Self::Unmeasured => "unmeasured",
-            Self::Unclassified => "unclassified",
-        }
+        self.into()
     }
 }
 

@@ -2,31 +2,21 @@
 //! observed tree; this module never opens a host path.
 use crate::{ContextEntry, ExternalImageIdentity};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DockerfileError {
+    #[error("Dockerfile {0:?} does not exist")]
     MissingDockerfile(String),
+    #[error("Dockerfile {0:?} is not UTF-8")]
     InvalidUtf8(String),
+    #[error("{0}")]
     Parse(String),
+    #[error("Docker build source {0:?} does not exist")]
     MissingSource(String),
+    #[error("{0}")]
     UnpinnedRemote(String),
+    #[error("Docker context matcher resource limit exceeded: {0}")]
     ResourceLimit(String),
 }
-impl std::fmt::Display for DockerfileError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MissingDockerfile(x) => write!(f, "Dockerfile {x:?} does not exist"),
-            Self::InvalidUtf8(x) => write!(f, "Dockerfile {x:?} is not UTF-8"),
-            Self::Parse(x) => f.write_str(x),
-            Self::MissingSource(x) => write!(f, "Docker build source {x:?} does not exist"),
-            Self::UnpinnedRemote(x) => f.write_str(x),
-            Self::ResourceLimit(x) => {
-                write!(f, "Docker context matcher resource limit exceeded: {x}")
-            }
-        }
-    }
-}
-impl std::error::Error for DockerfileError {}
-
 #[derive(Clone, Debug)]
 pub(crate) struct Rule {
     pub(crate) pattern: String,

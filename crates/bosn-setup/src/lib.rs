@@ -208,56 +208,33 @@ impl SetupRemoteTransport for KernalHttpTransport {
 
 /// Why setup acquisition stopped.  Display text deliberately does not include
 /// caller-controlled local paths, URLs, response bodies, or cache bytes.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SetupAcquireError {
+    #[error("setup config locator is invalid")]
     InvalidLocator,
+    #[error("setup config cache is unavailable offline")]
     OfflineCacheUnavailable,
+    #[error("setup config cache record is corrupt")]
     CacheCorrupt,
+    #[error("setup config input exceeds its byte limit")]
     InputTooLarge,
+    #[error("setup config input is not UTF-8")]
     InputNotUtf8,
+    #[error("setup config document is invalid")]
     DocumentInvalid,
+    #[error("setup config resolved locator is invalid")]
     ResolvedLocatorInvalid,
+    #[error("setup config HTTPS transport is unavailable")]
     TransportUnavailable,
+    #[error("setup config HTTPS request returned status {0}")]
     TransportStatus(u16),
+    #[error("setup config HTTPS response was rejected")]
     TransportRejected,
+    #[error("setup config cache filesystem operation failed")]
     Filesystem(io::Error),
+    #[error("setup config blocking operation did not complete")]
     BlockingTask,
 }
-
-impl std::fmt::Display for SetupAcquireError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidLocator => formatter.write_str("setup config locator is invalid"),
-            Self::OfflineCacheUnavailable => {
-                formatter.write_str("setup config cache is unavailable offline")
-            }
-            Self::CacheCorrupt => formatter.write_str("setup config cache record is corrupt"),
-            Self::InputTooLarge => formatter.write_str("setup config input exceeds its byte limit"),
-            Self::InputNotUtf8 => formatter.write_str("setup config input is not UTF-8"),
-            Self::DocumentInvalid => formatter.write_str("setup config document is invalid"),
-            Self::ResolvedLocatorInvalid => {
-                formatter.write_str("setup config resolved locator is invalid")
-            }
-            Self::TransportUnavailable => {
-                formatter.write_str("setup config HTTPS transport is unavailable")
-            }
-            Self::TransportStatus(status) => write!(
-                formatter,
-                "setup config HTTPS request returned status {status}"
-            ),
-            Self::TransportRejected => {
-                formatter.write_str("setup config HTTPS response was rejected")
-            }
-            Self::Filesystem(_) => {
-                formatter.write_str("setup config cache filesystem operation failed")
-            }
-            Self::BlockingTask => {
-                formatter.write_str("setup config blocking operation did not complete")
-            }
-        }
-    }
-}
-impl std::error::Error for SetupAcquireError {}
 impl From<io::Error> for SetupAcquireError {
     fn from(error: io::Error) -> Self {
         Self::Filesystem(error)

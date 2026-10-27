@@ -7,7 +7,6 @@
 //! higher layers.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 
 use serde::Serialize;
 
@@ -88,14 +87,9 @@ pub enum SetupConfigLocator {
     HttpsUrl(String),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("{0}")]
 pub struct SetupDocumentError(pub String);
-impl fmt::Display for SetupDocumentError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-impl std::error::Error for SetupDocumentError {}
 
 fn err<T>(message: impl Into<String>) -> Result<T, SetupDocumentError> {
     Err(SetupDocumentError(message.into()))

@@ -1,7 +1,6 @@
 //! Inert manifest declarations.  Path spelling is preserved; resolving paths is kernel work.
 
 use std::collections::BTreeMap;
-use std::fmt;
 
 use crate::{Retention, Scope};
 
@@ -139,14 +138,9 @@ pub struct Guest {
     pub payload_destination: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("{0}")]
 pub struct ManifestError(pub String);
-impl fmt::Display for ManifestError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-impl std::error::Error for ManifestError {}
 fn err<T>(message: impl Into<String>) -> Result<T, ManifestError> {
     Err(ManifestError(message.into()))
 }

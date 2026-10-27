@@ -256,97 +256,45 @@ impl CommandResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CommandError {
+    #[error("Docker CLI could not start: {0}")]
     Spawn(io::Error),
+    #[error("Docker CLI exceeded its deadline{}", outcome_suffix(*reaped_pid, cleanup))]
     Deadline {
         reaped_pid: Option<u32>,
         cleanup: Option<String>,
     },
+    #[error("Docker CLI was cancelled{}", outcome_suffix(*reaped_pid, cleanup))]
     Cancelled {
         reaped_pid: Option<u32>,
         cleanup: Option<String>,
     },
+    #[error("Docker CLI output exceeded {limit} bytes{}", outcome_suffix(*reaped_pid, cleanup))]
     OutputLimit {
         limit: usize,
         reaped_pid: Option<u32>,
         cleanup: Option<String>,
     },
+    #[error("Docker CLI output did not complete cleanly: {detail}{}", outcome_suffix(*reaped_pid, cleanup))]
     OutputCompletion {
         detail: String,
         reaped_pid: Option<u32>,
         cleanup: Option<String>,
     },
+    #[error("Docker CLI output consumer was too slow{}", outcome_suffix(*reaped_pid, cleanup))]
     OutputConsumerSlow {
         reaped_pid: Option<u32>,
         cleanup: Option<String>,
     },
+    #[error("Docker CLI output consumer closed{}", outcome_suffix(*reaped_pid, cleanup))]
     OutputConsumerClosed {
         reaped_pid: Option<u32>,
         cleanup: Option<String>,
     },
+    #[error("{0}")]
     Io(io::Error),
 }
-
-impl std::fmt::Display for CommandError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Spawn(error) => write!(f, "Docker CLI could not start: {error}"),
-            Self::Deadline {
-                reaped_pid,
-                cleanup,
-            } => write!(
-                f,
-                "Docker CLI exceeded its deadline{}",
-                outcome_suffix(*reaped_pid, cleanup)
-            ),
-            Self::Cancelled {
-                reaped_pid,
-                cleanup,
-            } => write!(
-                f,
-                "Docker CLI was cancelled{}",
-                outcome_suffix(*reaped_pid, cleanup)
-            ),
-            Self::OutputLimit {
-                limit,
-                reaped_pid,
-                cleanup,
-            } => write!(
-                f,
-                "Docker CLI output exceeded {limit} bytes{}",
-                outcome_suffix(*reaped_pid, cleanup)
-            ),
-            Self::OutputCompletion {
-                detail,
-                reaped_pid,
-                cleanup,
-            } => write!(
-                f,
-                "Docker CLI output did not complete cleanly: {detail}{}",
-                outcome_suffix(*reaped_pid, cleanup)
-            ),
-            Self::OutputConsumerSlow {
-                reaped_pid,
-                cleanup,
-            } => write!(
-                f,
-                "Docker CLI output consumer was too slow{}",
-                outcome_suffix(*reaped_pid, cleanup)
-            ),
-            Self::OutputConsumerClosed {
-                reaped_pid,
-                cleanup,
-            } => write!(
-                f,
-                "Docker CLI output consumer closed{}",
-                outcome_suffix(*reaped_pid, cleanup)
-            ),
-            Self::Io(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for CommandError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEvent {

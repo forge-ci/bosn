@@ -55,57 +55,54 @@ pub struct ExternalImageIdentity {
     pub identity: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum GenerationError {
-    ContextRootMismatch {
-        expected: String,
-        observed: String,
-    },
+    #[error("selected context was observed at {observed:?}, not materialization root {expected:?}")]
+    ContextRootMismatch { expected: String, observed: String },
+    #[error("invalid selected context path {0:?}")]
     InvalidContextPath(String),
+    #[error("duplicate selected context path {0:?}")]
     DuplicateContextPath(String),
+    #[error("external image {reference:?} for platform {platform:?} has no resolved identity")]
     MissingExternalIdentity {
         reference: String,
         platform: Option<String>,
     },
-    InvalidExternalIdentity {
-        reference: String,
-        identity: String,
-    },
+    #[error("external image {reference:?} has invalid immutable identity {identity:?}")]
+    InvalidExternalIdentity { reference: String, identity: String },
+    #[error("duplicate external image {reference:?} for platform {platform:?}")]
     DuplicateExternalImage {
         reference: String,
         platform: Option<String>,
     },
+    #[error(
+        "missing resolver observation for external image {reference:?} for platform {platform:?}"
+    )]
     MissingExternalImage {
         reference: String,
         platform: Option<String>,
     },
+    #[error(
+        "unexpected resolver observation for external image {reference:?} for platform {platform:?}"
+    )]
     UnexpectedExternalImage {
         reference: String,
         platform: Option<String>,
     },
 }
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum StackGenerationError {
+    #[error("{0}")]
     Collector(collector::CollectorError),
+    #[error("{0}")]
     Generation(GenerationError),
+    #[error("{0}")]
     Dockerfile(dockerfile::DockerfileError),
+    #[error("manifest materialization root does not name the selected root")]
     RootMismatch,
+    #[error("generation blocking task failed: {0}")]
     BlockingTask(String),
 }
-impl std::fmt::Display for StackGenerationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Collector(e) => e.fmt(f),
-            Self::Generation(e) => e.fmt(f),
-            Self::Dockerfile(e) => e.fmt(f),
-            Self::RootMismatch => {
-                f.write_str("manifest materialization root does not name the selected root")
-            }
-            Self::BlockingTask(e) => write!(f, "generation blocking task failed: {e}"),
-        }
-    }
-}
-
 /// Run bounded filesystem observation and generation hashing on the kernel
 /// blocking lane. This awaits the blocking task to settlement: dropping the
 /// caller is not reported as cancellation of an in-progress filesystem walk.
@@ -128,7 +125,6 @@ pub async fn stack_generation_async(
     .await
     .map_err(|e| StackGenerationError::BlockingTask(e.to_string()))?
 }
-impl std::error::Error for StackGenerationError {}
 impl From<collector::CollectorError> for StackGenerationError {
     fn from(e: collector::CollectorError) -> Self {
         Self::Collector(e)
@@ -144,55 +140,6 @@ impl From<dockerfile::DockerfileError> for StackGenerationError {
         Self::Dockerfile(e)
     }
 }
-impl std::fmt::Display for GenerationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ContextRootMismatch { expected, observed } => write!(
-                f,
-                "selected context was observed at {observed:?}, not materialization root {expected:?}"
-            ),
-            Self::InvalidContextPath(p) => write!(f, "invalid selected context path {p:?}"),
-            Self::DuplicateContextPath(p) => write!(f, "duplicate selected context path {p:?}"),
-            Self::MissingExternalIdentity {
-                reference,
-                platform,
-            } => write!(
-                f,
-                "external image {reference:?} for platform {platform:?} has no resolved identity"
-            ),
-            Self::InvalidExternalIdentity {
-                reference,
-                identity,
-            } => write!(
-                f,
-                "external image {reference:?} has invalid immutable identity {identity:?}"
-            ),
-            Self::DuplicateExternalImage {
-                reference,
-                platform,
-            } => write!(
-                f,
-                "duplicate external image {reference:?} for platform {platform:?}"
-            ),
-            Self::MissingExternalImage {
-                reference,
-                platform,
-            } => write!(
-                f,
-                "missing resolver observation for external image {reference:?} for platform {platform:?}"
-            ),
-            Self::UnexpectedExternalImage {
-                reference,
-                platform,
-            } => write!(
-                f,
-                "unexpected resolver observation for external image {reference:?} for platform {platform:?}"
-            ),
-        }
-    }
-}
-impl std::error::Error for GenerationError {}
-
 /// Content identity.  Bind-source *contents*, tasks, and workdir are excluded;
 /// env, guest/create-time fields and volume retention are included.
 pub fn content_digest(

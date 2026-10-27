@@ -306,44 +306,26 @@ impl MaterializedSetupPlan {
 }
 
 /// Why setup materialization stopped without invoking any engine.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SetupMaterializeError {
+    #[error("setup workspace is not a usable local directory")]
     InvalidWorkspace,
+    #[error("setup provenance content hash is invalid")]
     InvalidContentHash,
+    #[error("setup generated asset path is invalid")]
     InvalidAssetPath,
+    #[error("existing setup assets conflict with the validated receipt")]
     ExistingAssetsConflict,
+    #[error("existing setup assets are incomplete and were not repaired")]
     IncompleteAssets,
     /// The pinned kernal-api revision has no public, safe private-root link
     /// creation facade. Manifest link transport must remain fail-closed until
     /// that facade exists.
+    #[error("kernal-api does not provide safe private-root symlink creation")]
     SymlinkCreationUnavailable,
+    #[error("setup asset filesystem operation failed")]
     Filesystem(io::Error),
 }
-
-impl std::fmt::Display for SetupMaterializeError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidWorkspace => {
-                formatter.write_str("setup workspace is not a usable local directory")
-            }
-            Self::InvalidContentHash => {
-                formatter.write_str("setup provenance content hash is invalid")
-            }
-            Self::InvalidAssetPath => formatter.write_str("setup generated asset path is invalid"),
-            Self::ExistingAssetsConflict => {
-                formatter.write_str("existing setup assets conflict with the validated receipt")
-            }
-            Self::IncompleteAssets => {
-                formatter.write_str("existing setup assets are incomplete and were not repaired")
-            }
-            Self::SymlinkCreationUnavailable => formatter
-                .write_str("kernal-api does not provide safe private-root symlink creation"),
-            Self::Filesystem(_) => formatter.write_str("setup asset filesystem operation failed"),
-        }
-    }
-}
-
-impl std::error::Error for SetupMaterializeError {}
 
 fn validate_workspace(path: &Path) -> Result<PathBuf, SetupMaterializeError> {
     if !path.is_absolute() {

@@ -199,39 +199,38 @@ impl RetentionPolicy {
 }
 
 /// Why a Bosn-owned object is being kept despite being past its age gate.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, strum::IntoStaticStr)]
 pub enum HoldReason {
     /// Running, or mounted by a container that exists.
+    #[strum(serialize = "in-use")]
     InUse,
     /// `Retention::Pinned`: an explicit promise no age gate overrides.
+    #[strum(serialize = "pinned")]
     Pinned,
     /// Still within its age gate.
+    #[strum(serialize = "within-ttl")]
     WithinTtl,
     /// The engine did not report an age, so eligibility cannot be proven. Fail closed.
+    #[strum(serialize = "age-unknown")]
     AgeUnknown,
     /// Complete labels naming a different registry.
+    #[strum(serialize = "foreign-registry")]
     ForeignRegistry,
     /// Bosn labels present but incomplete: ownership cannot be proven.
+    #[strum(serialize = "incomplete-labels")]
     IncompleteLabels,
     /// Carries no Bosn label at all. Not ours to reclaim.
+    #[strum(serialize = "not-bosn-owned")]
     NotBosnOwned,
     /// A network or builder record: outside this policy's scope.
+    #[strum(serialize = "unsupported-kind")]
     UnsupportedKind,
 }
 
 impl HoldReason {
     #[must_use]
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::InUse => "in-use",
-            Self::Pinned => "pinned",
-            Self::WithinTtl => "within-ttl",
-            Self::AgeUnknown => "age-unknown",
-            Self::ForeignRegistry => "foreign-registry",
-            Self::IncompleteLabels => "incomplete-labels",
-            Self::NotBosnOwned => "not-bosn-owned",
-            Self::UnsupportedKind => "unsupported-kind",
-        }
+        self.into()
     }
 
     /// Every reason, in report order.
