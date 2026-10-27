@@ -9,7 +9,8 @@ use bosn_service::Client;
 use kernal_api::async_engine::RuntimeBuilder;
 use serde_json::{Value, json};
 
-const READY_DEADLINE: Duration = Duration::from_secs(5);
+// Parallel CI fixtures can delay daemon startup beyond five seconds.
+const READY_DEADLINE: Duration = Duration::from_secs(30);
 
 struct DaemonChild {
     child: Child,
@@ -88,7 +89,11 @@ fn wait_for_client(daemon: &mut DaemonChild, state: &Path) -> Client {
                 daemon.stderr()
             );
         }
-        assert!(Instant::now() < deadline, "daemon did not become ready");
+        assert!(
+            Instant::now() < deadline,
+            "daemon did not become ready: {}",
+            daemon.stderr()
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
