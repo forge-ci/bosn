@@ -10,6 +10,26 @@ use kernal_api::platform::fs::TemporaryDirectory;
 const RUN: &str = "11111111-2222-4333-8444-555555555508";
 const CLAIM: &str = "11111111-2222-4333-8444-555555555509";
 
+fn slow_backend(
+    frozen: &bosn_registry::act::ActToolRecoveryIntent,
+) -> (TemporaryDirectory, DockerActBackend) {
+    let pin = RecoveryPin::from_intent(frozen).unwrap();
+    let dir = TemporaryDirectory::new().unwrap();
+    let receipt = serde_json::json!({"schema_version":1,"root":"/bosn/cache/toolstore-v1","pin":pin,"published":true,"reused":false,"partial":false});
+    std::fs::write(dir.path().join("receipt.json"), receipt.to_string()).unwrap();
+    let script = format!(
+        "set -eu\ncase \" $* \" in *\" --timeout-secs \"*) ;; *) exit 42 ;; esac\nprintf '%s\\n' \"$*\" >> '{}'\nsleep 1.5\ncat '{}'\n",
+        dir.path().join("commands.log").display(),
+        dir.path().join("receipt.json").display()
+    );
+    std::fs::write(dir.path().join("docker.sh"), script).unwrap();
+    let backend = DockerActBackend::new(bosn_engine::DockerEngine::synthetic_for_test(
+        "sh",
+        vec![dir.path().join("docker.sh").to_string_lossy().into_owned()],
+    ));
+    (dir, backend)
+}
+
 #[test]
 fn ci_stage_timeouts_bound_real_reservation_transport_and_keep_intent() {
     with_registry(|registry, _dir| async move {
@@ -66,20 +86,7 @@ fn ci_stage_timeouts_bound_real_reservation_transport_and_keep_intent() {
             panic!("pending record missing")
         };
         let frozen = record.tool_recovery.clone().unwrap();
-        let pin = RecoveryPin::from_intent(&frozen).unwrap();
-        let dir = TemporaryDirectory::new().unwrap();
-        let receipt = serde_json::json!({"schema_version":1,"root":"/bosn/cache/toolstore-v1","pin":pin,"published":true,"reused":false,"partial":false});
-        std::fs::write(dir.path().join("receipt.json"), receipt.to_string()).unwrap();
-        let script = format!(
-            "set -eu\ncase \" $* \" in *\" --timeout-secs \"*) ;; *) exit 42 ;; esac\nprintf '%s\\n' \"$*\" >> '{}'\nsleep 1.5\ncat '{}'\n",
-            dir.path().join("commands.log").display(),
-            dir.path().join("receipt.json").display()
-        );
-        std::fs::write(dir.path().join("docker.sh"), script).unwrap();
-        let backend = DockerActBackend::new(bosn_engine::DockerEngine::synthetic_for_test(
-            "sh",
-            vec![dir.path().join("docker.sh").to_string_lossy().into_owned()],
-        ));
+        let (dir, backend) = slow_backend(&frozen);
         assert!(
             backend
                 .reserve_tool_recovery(&record, Duration::from_secs(1))
