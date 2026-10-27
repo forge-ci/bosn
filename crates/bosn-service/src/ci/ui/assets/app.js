@@ -5,6 +5,9 @@
 "use strict";
 
 let selected = runFromPath();
+let currentRun = null;
+let detailRun = null;
+let detailRequest = 0;
 
 function runFromPath() {
   const m = location.pathname.match(/^\/ci\/runs\/([0-9a-f-]{36})$/);
@@ -56,7 +59,10 @@ function select(run) {
 
 async function showRun() {
   if (!selected) return;
+  const requestId = ++detailRequest;
   const run = await api(`/v1/runs/${selected}`);
+  if (requestId !== detailRequest || run.id !== selected) return;
+  currentRun = run;
   if (run.id === selected && run.state === "done") {
     runFinished = true;
     if (runSource) runSource.close();
@@ -64,11 +70,12 @@ async function showRun() {
     runRetry = null;
   }
   const report = run.state === "done" ? await api(`/v1/runs/${selected}/report?tail=40`) : null;
+  if (requestId !== detailRequest || run.id !== selected) return;
   const parts = [
-    el("h2", {}, `Run ${run.id}`),
-    el("p", {}, badge(runWord(run)), " ", `exit ${run.exit_code ?? "–"} · ${run.workflow} · ${run.sha}${run.dirty ? " +dirty" : ""}`),
-    el("p", { class: "meta" }, `${run.trigger}/${run.mode} · ${run.actor} · cleanup: ${run.cleanup || "–"}`),
-    el("div", { class: "controls" },
+    el("h2", { "data-key": "title" }, `Run ${run.id}`),
+    el("p", { "data-key": "state" }, badge(runWord(run)), " ", `exit ${run.exit_code ?? "–"} · ${run.workflow} · ${run.sha}${run.dirty ? " +dirty" : ""}`),
+    el("p", { class: "meta", "data-key": "meta" }, `${run.trigger}/${run.mode} · ${run.actor} · cleanup: ${run.cleanup || "–"}`),
+    el("div", { class: "controls", "data-key": "controls" },
       run.state === "done"
         ? el("button", { type: "button", onclick: () => post(`/v1/runs/${run.id}/retry`).then((r) => select(r.run)) }, "Retry")
         : runWord(run) === "cancelling"
@@ -76,22 +83,65 @@ async function showRun() {
           : confirmButton("Cancel", () => post(`/v1/runs/${run.id}/cancel`), showRun),
     ),
   ];
-  if (run.reason) parts.push(el("p", { class: "meta" }, run.reason));
+  if (run.reason) parts.push(el("p", { class: "meta", "data-key": "reason" }, run.reason));
   if (report && report.first_failure) {
     const f = report.first_failure;
-    parts.push(el("div", { class: "failure-box" },
+    parts.push(el("div", { class: "failure-box", "data-key": "failure" },
       el("strong", {}, `First failure: ${f.job} — ${f.step || "?"} (exit ${f.exit_code ?? "?"})`),
       el("pre", {}, f.tail.join("\n"))));
   }
-  parts.push(el("h3", {}, "Jobs"), tree(run));
+  parts.push(el("h3", { "data-key": "jobs-title" }, "Jobs"), tree(run));
   parts.push(logDetails("Full log", "full", {}, run));
-  $("detail").replaceChildren(...parts);
+  if (detailRun !== run.id) {
+    $("detail").replaceChildren(...parts);
+    detailRun = run.id;
+  } else reconcile($("detail"), parts);
+  refreshOpenLogs($("detail"), run);
 }
 
-// Expanded jobs and steps survive the live re-render; a finished run's logs
-// are fetched once per row, a live run's on every re-render.
+function refreshOpenLogs(root, run) {
+  for (const details of root.querySelectorAll("details[data-log-key][open]")) {
+    if (details.parentElement.closest("details:not([open])")) continue;
+    loadLog(details.querySelector("pre.log"), JSON.parse(details.dataset.filter), run).catch(() => {});
+  }
+}
+
+// Keep keyed live nodes mounted while updating their status and job structure.
+function reconcile(parent, fresh) {
+  const keyed = new Map([...parent.children].filter((n) => n.dataset.key)
+    .map((n) => [n.dataset.key, n]));
+  let position = parent.firstChild;
+  for (const next of fresh) {
+    const old = next.dataset?.key ? keyed.get(next.dataset.key) : position;
+    const node = old && old.nodeType === next.nodeType && old.nodeName === next.nodeName
+      ? patchNode(old, next) : next;
+    if (node !== position) parent.insertBefore(node, position);
+    position = node.nextSibling;
+  }
+  while (position) { const next = position.nextSibling; position.remove(); position = next; }
+}
+
+function patchNode(old, next) {
+  if (old.nodeType === Node.TEXT_NODE) {
+    if (old.textContent !== next.textContent) old.textContent = next.textContent;
+    return old;
+  }
+  if (old.matches("pre.log")) return old;
+  if (old.nodeName === "BUTTON") return next; // handlers can change with run state
+  for (const name of old.getAttributeNames()) {
+    if (name !== "open" && !next.hasAttribute(name)) old.removeAttribute(name);
+  }
+  for (const name of next.getAttributeNames()) {
+    if (name !== "open" && old.getAttribute(name) !== next.getAttribute(name))
+      old.setAttribute(name, next.getAttribute(name));
+  }
+  reconcile(old, [...next.childNodes]);
+  return old;
+}
+
+// Expanded jobs, steps, and their log nodes survive live updates.
 const opened = new Set();
-const logCache = new Map();
+const logState = new WeakMap();
 const seen = new Set(); // rows already shown once: a failure opens itself only the first time
 let openedRun = null;
 
@@ -119,62 +169,101 @@ function jobHeader(job) {
 
 const FAILED = new Set(["failure", "error", "timed_out"]);
 
-function collapsible(key, summary, body, onOpen, failed) {
-  const details = el("details", {}, summary, body);
+function collapsible(key, summary, body, filter, failed) {
+  const details = el("details", { "data-key": key }, summary, body);
+  if (filter) {
+    details.dataset.logKey = key;
+    details.dataset.filter = JSON.stringify(filter);
+  }
   if (failed && !seen.has(key)) opened.add(key);
   seen.add(key);
   details.addEventListener("toggle", () => {
-    if (details.open) { opened.add(key); if (onOpen) onOpen(); } else opened.delete(key);
+    if (details.open) {
+      opened.add(key);
+      if (currentRun) {
+        if (filter) loadLog(body, filter, currentRun).catch(() => {});
+        else refreshOpenLogs(details, currentRun);
+      }
+    } else opened.delete(key);
   });
-  if (opened.has(key)) { details.open = true; if (onOpen) onOpen(); }
+  if (opened.has(key)) details.open = true;
   return details;
 }
 
 function logDetails(title, key, filter, run) {
   const pre = el("pre", { class: "log" }, "");
-  return el("div", { class: "full-log" },
-    collapsible(key, el("summary", {}, el("strong", {}, title)), pre, () => loadLog(pre, key, filter, run)));
+  return el("div", { class: "full-log", "data-key": "full-log" },
+    collapsible(key, el("summary", {}, el("strong", {}, title)), pre, filter));
 }
 
 function tree(run) {
-  if (openedRun !== run.id) { opened.clear(); logCache.clear(); seen.clear(); openedRun = run.id; }
+  if (openedRun !== run.id) { opened.clear(); seen.clear(); openedRun = run.id; }
   const jobs = ((run.tree && run.tree.groups) || []).flatMap((group) => group.jobs);
   if (!jobs.length) return el("p", { class: "hint" }, "No jobs yet.");
-  return el("div", { class: "jobs" }, ...jobs.map((job) => {
+  return el("div", { class: "jobs", "data-key": "jobs" }, ...jobs.map((job) => {
     const steps = job.sections.map((s) => {
       const key = `step ${job.key} ${s.stage}:${s.id}`;
       const name = s.stage === "Pre" || s.stage === "Post" ? `${s.stage} ${s.name}` : s.name;
       const pre = el("pre", { class: "log" }, "");
       const filter = { job: job.key, section: `${s.stage}:${s.id}` };
       return collapsible(key, row(s.conclusion || s.status, name, s.duration_ms), pre,
-        () => loadLog(pre, key, filter, run), FAILED.has(s.conclusion));
+        filter, FAILED.has(s.conclusion));
     });
     const body = el("div", { class: "steps" },
       job.reason ? el("p", { class: "meta" }, job.reason) : "", ...steps);
-    return el("section", { class: "job" },
+    return el("section", { class: "job", "data-key": `section ${job.key}` },
       collapsible(`job ${job.key}`, jobHeader(job), body, null, FAILED.has(job.conclusion)));
   }));
 }
 
-// Cursor-paged log for one job step (or the whole run) into `pre`.
-async function loadLog(pre, key, filter, run) {
-  const done = run.state === "done";
-  if (done && logCache.has(key)) { pre.replaceChildren(logCache.get(key).cloneNode(true)); return; }
-  const all = document.createDocumentFragment();
-  let since = 0;
-  for (let page = 0; page < 40; page++) {
-    const q = new URLSearchParams({ since_seq: since, limit: 1000, ...filter });
-    const logs = await api(`/v1/runs/${run.id}/logs?${q}`);
-    for (const record of logs.records) {
-      const stream = record.stream === "stderr" ? "stderr" : record.stream === "stdout" ? "stdout" : "bosn";
-      all.append(el("span", { class: `log-line ${stream}` }, record.text.replace(/\n$/, "")));
-    }
-    since = logs.next_seq;
-    if (!logs.more) break;
+// Cursor-paged log. Retain rendered lines and ask only for records after the
+// last cursor. The reader's position is unchanged unless they were following.
+async function loadLog(pre, filter, run) {
+  if (!pre || !pre.isConnected || selected !== run.id) return;
+  let state = logState.get(pre);
+  if (!state) {
+    state = { since: 0, polled: false, placeholder: false, done: false, pending: false, loading: false };
+    logState.set(pre, state);
   }
-  if (!all.childNodes.length) all.append(el("span", { class: "log-line bosn" }, "No output."));
-  if (done) logCache.set(key, all.cloneNode(true));
-  pre.replaceChildren(all);
+  if (state.done) return;
+  if (state.polled && typeof run.log_records === "number" && state.since >= run.log_records) {
+    if (run.state === "done") state.done = true;
+    return;
+  }
+  if (state.loading) { state.pending = true; return; }
+  state.loading = true;
+  try {
+    do {
+      state.pending = false;
+      let more;
+      do {
+        const before = state.since;
+        const q = new URLSearchParams({ since_seq: before, limit: 1000, ...filter });
+        const logs = await api(`/v1/runs/${run.id}/logs?${q}`);
+        if (!pre.isConnected || selected !== run.id) return;
+        const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
+        if (logs.records.length && state.placeholder) {
+          pre.replaceChildren();
+          state.placeholder = false;
+        }
+        const lines = document.createDocumentFragment();
+        for (const record of logs.records) {
+          const stream = record.stream === "stderr" ? "stderr" : record.stream === "stdout" ? "stdout" : "bosn";
+          lines.append(el("span", { class: `log-line ${stream}` }, record.text.replace(/\n$/, "")));
+        }
+        pre.append(lines);
+        if (atBottom) pre.scrollTop = pre.scrollHeight;
+        state.since = logs.next_seq;
+        state.polled = true;
+        more = logs.more && state.since > before;
+      } while (more);
+      if (!pre.childNodes.length) {
+        pre.append(el("span", { class: "log-line bosn" }, "No output."));
+        state.placeholder = true;
+      }
+      state.done = run.state === "done" && !state.pending;
+    } while (state.pending);
+  } finally { state.loading = false; }
 }
 
 // Live feed: debounce refreshes; a resync refetches everything.
