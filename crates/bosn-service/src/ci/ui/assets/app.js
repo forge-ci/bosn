@@ -8,6 +8,7 @@ let selected = runFromPath();
 let currentRun = null;
 let detailRun = null;
 let detailRequest = 0;
+let stageRefresh = null;
 
 function runFromPath() {
   const m = location.pathname.match(/^\/ci\/runs\/([0-9a-f-]{36})$/);
@@ -50,6 +51,8 @@ async function refreshList() {
 }
 
 function select(run) {
+  if (stageRefresh) clearTimeout(stageRefresh);
+  stageRefresh = null;
   selected = run;
   connectRun(run);
   history.replaceState(null, "", `/ci/runs/${run}`);
@@ -86,7 +89,7 @@ async function showRun() {
   if (run.reason) parts.push(el("p", { class: "meta", "data-key": "reason" }, run.reason));
   if (run.stages && run.stages.length) {
     parts.push(el("section", { "data-key": "setup" }, el("h3", {}, "Setup"), el("ul", {}, ...run.stages.map((stage) =>
-      el("li", {}, `${stage.kind.replaceAll("_", " ")}: ${stage.state.replaceAll("_", " ")} · ${stage.elapsed_ms == null ? "elapsed unavailable" : seconds(stage.elapsed_ms)} · outer limit ${stage.outer_limit_secs}s${stage.command_limit_secs == null ? "" : ` · command limit ${stage.command_limit_secs}s`}${stage.run_remaining_ms == null ? "" : ` · run budget at start ${seconds(stage.run_remaining_ms)}`}${stage.reason == null ? "" : ` · ${stage.reason.replaceAll("_", " ")}`}`)))));
+      el("li", {}, `${stage.kind.replaceAll("_", " ")}: ${stage.state.replaceAll("_", " ")} · ${stage.elapsed_ms == null ? "elapsed unavailable" : seconds(stage.elapsed_ms)} · outer limit ${stage.outer_limit_secs}s${stage.command_limit_secs == null ? "" : ` · command limit ${stage.command_limit_secs}s`}${stage.act2_operation_limit_secs == null ? "" : ` · act2 limit ${stage.act2_operation_limit_secs}s`}${stage.shorter_internal_limits_possible ? " · shorter internal limits possible" : ""}${stage.run_remaining_ms == null ? "" : ` · run budget at start ${seconds(stage.run_remaining_ms)}`}${stage.reason == null ? "" : ` · ${stage.reason.replaceAll("_", " ")}`}`)))));
   }
   if (report && report.first_failure) {
     const f = report.first_failure;
@@ -101,6 +104,19 @@ async function showRun() {
     detailRun = run.id;
   } else reconcile($("detail"), parts);
   refreshOpenLogs($("detail"), run);
+  scheduleStageRefresh(run);
+}
+
+// Resample a quiet live phase without emitting persisted progress events.
+function scheduleStageRefresh(run) {
+  if (stageRefresh) clearTimeout(stageRefresh);
+  stageRefresh = null;
+  if (run.id !== selected || run.state !== "running" || !run.stages?.some((stage) => stage.state === "running")) return;
+  const id = run.id;
+  stageRefresh = setTimeout(() => {
+    stageRefresh = null;
+    if (selected === id) showRun().catch(() => scheduleStageRefresh(run));
+  }, 1000);
 }
 
 function refreshOpenLogs(root, run) {

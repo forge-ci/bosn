@@ -307,6 +307,12 @@ pub struct StageTiming {
     /// Separately bounded command inside the phase, if applicable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_limit_secs: Option<u64>,
+    /// The act2 operation deadline; nested lock probes can be shorter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub act2_operation_limit_secs: Option<u64>,
+    /// A sub-operation may stop earlier than any reported outer deadline.
+    #[serde(default)]
+    pub shorter_internal_limits_possible: bool,
     /// Whole-run budget left at phase start, when observed by a live runner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_remaining_ms: Option<u64>,
@@ -579,6 +585,14 @@ impl RunRecord {
             reason: None,
             outer_limit_secs,
             command_limit_secs,
+            act2_operation_limit_secs: match kind {
+                StageKind::EnrollmentFence | StageKind::EnrollmentComplete => {
+                    Some(outer_limit_secs)
+                }
+                StageKind::RecoveryReservation => command_limit_secs,
+                StageKind::EnginePrepare => None,
+            },
+            shorter_internal_limits_possible: kind != StageKind::EnginePrepare,
             run_remaining_ms,
         });
     }
@@ -761,6 +775,8 @@ mod tests {
         record.stage_started(StageKind::EnrollmentFence, 123.0, 30, None, None);
         assert_eq!(record.stages.len(), 1);
         assert_eq!(record.stages[0].elapsed_ms, None);
+        assert_eq!(record.stages[0].act2_operation_limit_secs, Some(30));
+        assert!(record.stages[0].shorter_internal_limits_possible);
         let report = crate::ci::report::report(&record, None, |_, _| Vec::new());
         assert_eq!(report.stages, record.stages);
         let encoded = serde_json::to_value(&report).unwrap();

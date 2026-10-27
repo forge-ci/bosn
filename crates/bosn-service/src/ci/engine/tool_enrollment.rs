@@ -99,6 +99,10 @@ impl DockerActBackend {
         .map(String::from)
         .collect();
         args.extend([max.to_string(), "--apply".into()]);
+        // Preserve act2's historical nested defaults unless an operator changes the budget.
+        if timeout != Duration::from_secs(900) {
+            args.extend(["--timeout-secs".into(), timeout.as_secs().to_string()]);
+        }
         match phase {
             EnrollmentPhase::Fence => args.push("--fence-only".into()),
             EnrollmentPhase::Complete => {

@@ -2306,6 +2306,15 @@
     "StageTiming": {
       "description": "A bounded stage observation. Wall-clock start is informational; completed\ndurations are measured with a monotonic clock. Interrupted observations have\nno elapsed duration because that clock does not survive daemon restart.",
       "properties": {
+        "act2_operation_limit_secs": {
+          "description": "The act2 operation deadline; nested lock probes can be shorter.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "command_limit_secs": {
           "description": "Separately bounded command inside the phase, if applicable.",
           "format": "uint64",
@@ -2350,6 +2359,11 @@
             "integer",
             "null"
           ]
+        },
+        "shorter_internal_limits_possible": {
+          "default": false,
+          "description": "A sub-operation may stop earlier than any reported outer deadline.",
+          "type": "boolean"
         },
         "started_at": {
           "format": "double",

@@ -16,6 +16,9 @@ pub(super) mod worker;
 #[cfg(test)]
 #[path = "tool_recovery_receipt_tests.rs"]
 mod receipt_tests;
+#[cfg(test)]
+#[path = "tool_recovery_transport_tests.rs"]
+mod transport_tests;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -265,8 +268,14 @@ impl DockerActBackend {
             .ok_or("tool recovery generation missing")?
             .max_payload_bytes;
         let encoded_len = encoded.len();
+        // Preserve act2's historical nested defaults unless an operator changes the budget.
+        let timeout_flag = if timeout == Duration::from_secs(180) {
+            String::new()
+        } else {
+            format!(" --timeout-secs {}", timeout.as_secs())
+        };
         let script = format!(
-            "record={path}; expected='{encoded}'; if [ -e \"$record\" ] || [ -L \"$record\" ]; then [ -f \"$record\" ] && [ ! -L \"$record\" ] && [ \"$(wc -c <\"$record\")\" -eq {encoded_len} ] && [ \"$(cat \"$record\")\" = \"$expected\" ] || {{ echo 'tool recovery record differs or is unsafe' >&2; exit 1; }}; else (set -C; printf '%s' \"$expected\" >\"$record\"); fi; exec {ENGINE_WORK}/bin/act --cache-server-path {root} cache tool-recovery reserve --record \"$record\" --max-bytes {max} --apply"
+            "record={path}; expected='{encoded}'; if [ -e \"$record\" ] || [ -L \"$record\" ]; then [ -f \"$record\" ] && [ ! -L \"$record\" ] && [ \"$(wc -c <\"$record\")\" -eq {encoded_len} ] && [ \"$(cat \"$record\")\" = \"$expected\" ] || {{ echo 'tool recovery record differs or is unsafe' >&2; exit 1; }}; else (set -C; printf '%s' \"$expected\" >\"$record\"); fi; exec {ENGINE_WORK}/bin/act --cache-server-path {root} cache tool-recovery reserve --record \"$record\" --max-bytes {max} --apply{timeout_flag}"
         );
         let receipt = self
             .checked(

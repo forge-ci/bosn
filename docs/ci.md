@@ -41,9 +41,12 @@ reservation_secs = 180  # native recovery reservation command
 
 Each value must be between 1 and 43200 seconds. Restart the daemon after
 changing its configuration. These settings bound Bosn's commands; they do not
-replace the overall run deadline. Act2 and its storage operations also have
-independent limits, including short lock probes, so raising an outer limit does
-not guarantee that a nested operation can wait for that full duration. Error
+replace the overall run deadline. Bosn forwards a changed enrollment or reservation setting to act2; unchanged
+values retain act2's historical defaults (900 seconds for enrollment and 180
+seconds for reservation). The operation limit is reported separately from the
+whole-run and outer limits. Some act2 sub-operations still use shorter limits,
+including lock probes, so the operation limit is not a guarantee that every
+nested operation can wait for that full duration. Error
 messages include measured phase duration and the outer limit when available.
 Stage durations use the daemon's monotonic clock. A live duration is sampled
 for status and is not persisted; if the daemon stops mid-stage, that duration
