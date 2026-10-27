@@ -751,11 +751,20 @@ pub(crate) fn valid_name(value: &str, max: usize) -> bool {
 
 /// A fresh random v4 UUID (lowercase).
 pub async fn new_uuid() -> Result<String, CiError> {
-    let bytes = kernal_api::random::SecureRandom::new(1, Duration::from_secs(3))
-        .map_err(|_| CiError::new("internal", "randomness unavailable"))?
-        .bytes(16)
+    uuid_from(crate::secure_random::bytes(
+        "secure identifier",
+        crate::secure_random::RandomBudget::Short,
+        16,
+    ))
+    .await
+}
+
+pub(crate) async fn uuid_from(
+    random: impl std::future::Future<Output = Result<Vec<u8>, String>>,
+) -> Result<String, CiError> {
+    let bytes = random
         .await
-        .map_err(|_| CiError::new("internal", "randomness unavailable"))?;
+        .map_err(|message| CiError::new("internal", message))?;
     Ok(crate::uuid(&bytes))
 }
 

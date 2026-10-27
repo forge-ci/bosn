@@ -65,11 +65,13 @@ pub async fn start(state_dir: &Path) -> io::Result<RunHttpServer> {
 }
 
 async fn random_token() -> io::Result<String> {
-    let bytes = kernal_api::random::SecureRandom::new(1, Duration::from_secs(3))
-        .map_err(io::Error::other)?
-        .bytes(32)
-        .await
-        .map_err(io::Error::other)?;
+    let bytes = crate::secure_random::bytes(
+        "run HTTP token",
+        crate::secure_random::RandomBudget::Short,
+        32,
+    )
+    .await
+    .map_err(io::Error::other)?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 

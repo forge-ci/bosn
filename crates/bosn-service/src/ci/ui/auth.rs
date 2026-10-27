@@ -25,11 +25,12 @@ pub struct Auth {
 }
 
 async fn random_token() -> Result<String, String> {
-    let bytes = kernal_api::random::SecureRandom::new(1, Duration::from_secs(3))
-        .map_err(|_| "secure random unavailable".to_string())?
-        .bytes(32)
-        .await
-        .map_err(|_| "secure random unavailable".to_string())?;
+    let bytes = crate::secure_random::bytes(
+        "UI authentication token",
+        crate::secure_random::RandomBudget::Short,
+        32,
+    )
+    .await?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 

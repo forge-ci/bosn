@@ -407,6 +407,15 @@ impl CiRuntime {
         request: SubmitRequest,
         owner: Option<crate::ClientOwner>,
     ) -> Result<SubmitReply, CiError> {
+        self.submit_with_id(request, owner, new_uuid()).await
+    }
+
+    pub(super) async fn submit_with_id(
+        &self,
+        request: SubmitRequest,
+        owner: Option<crate::ClientOwner>,
+        id: impl std::future::Future<Output = Result<String, CiError>>,
+    ) -> Result<SubmitReply, CiError> {
         let staging = self.store.staging(&request.staging);
         let admitted = async {
             request.validate()?;
@@ -439,7 +448,7 @@ impl CiRuntime {
                 &request.params,
             );
             let payload = serde_json::to_vec_pretty(&payload).unwrap_or_default();
-            let record = RunRecord::queued(new_uuid().await?, &request, event, &payload);
+            let record = RunRecord::queued(id.await?, &request, event, &payload);
             self.admit(record, staging.clone(), payload, owner).await
         }
         .await;

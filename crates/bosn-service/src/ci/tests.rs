@@ -992,3 +992,5 @@ mod source_identity;
 
 mod execution;
 mod stage;
+
+mod random_diagnostics;

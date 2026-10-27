@@ -91,6 +91,9 @@ pub mod github_proxy;
 #[cfg(target_os = "linux")]
 pub mod github_relay;
 mod handoff;
+mod secure_random;
+#[cfg(test)]
+mod secure_random_tests;
 pub use handoff::IdleHandoff;
 mod job_api;
 mod job_loop;

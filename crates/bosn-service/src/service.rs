@@ -230,11 +230,16 @@ impl Service {
                         );
                     }
                 }
-                let bytes = kernal_api::random::SecureRandom::new(1, IO_DEADLINE)
-                    .map_err(|_| Error::Random)?
-                    .bytes(16)
-                    .await
-                    .map_err(|_| Error::Random)?;
+                let bytes = crate::secure_random::bytes(
+                    "registry identity",
+                    crate::secure_random::RandomBudget::Short,
+                    16,
+                )
+                .await
+                .map_err(|message| {
+                    daemon_log!("bosn: {message}");
+                    Error::Random
+                })?;
                 async_engine::launch_blocking(move || Registry::create_writer(&db, &uuid(&bytes)))
                     .await
                     .map_err(|_| Error::ActorClosed)??

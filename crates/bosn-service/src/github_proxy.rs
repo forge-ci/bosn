@@ -336,11 +336,13 @@ impl GithubApiProxy {
         logs: Option<async_engine::Sender<String>>,
         policy: Option<CiPolicy>,
     ) -> io::Result<Self> {
-        let nonce_bytes = kernal_api::random::SecureRandom::new(1, Duration::from_secs(5))
-            .map_err(|_| io::Error::other("secure random unavailable"))?
-            .bytes(24)
-            .await
-            .map_err(|_| io::Error::other("secure random unavailable"))?;
+        let nonce_bytes = crate::secure_random::bytes(
+            "GitHub proxy nonce",
+            crate::secure_random::RandomBudget::Long,
+            24,
+        )
+        .await
+        .map_err(io::Error::other)?;
         let nonce: String = nonce_bytes.iter().map(|b| format!("{b:02x}")).collect();
         let limits = http_server::Limits {
             max_connections: 64,
