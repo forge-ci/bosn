@@ -77,6 +77,7 @@ impl DockerActBackend {
         engine: &str,
         phase: EnrollmentPhase,
         max: u64,
+        timeout: Duration,
     ) -> Result<Option<ActToolGenerationBinding>, String> {
         if max == 0 || max > i64::MAX as u64 {
             return Err("invalid native payload bound".into());
@@ -105,10 +106,7 @@ impl DockerActBackend {
             }
         }
         let result = self
-            .run_bounded(
-                args,
-                RunOptions::bounded(Duration::from_secs(15 * 60), 4096),
-            )
+            .run_bounded(args, RunOptions::bounded(timeout, 4096))
             .await?;
         if !result.ok() {
             return Err(format!(

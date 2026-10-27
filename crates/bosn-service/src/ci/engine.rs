@@ -218,6 +218,7 @@ pub trait ActEngineBackend: Send + Sync {
         _engine: &'a str,
         _phase: EnrollmentPhase,
         _max: u64,
+        _timeout: Duration,
     ) -> BoxFuture<'a, Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>> {
         Box::pin(async { Err("backend cannot enroll native tools".into()) })
     }
@@ -237,6 +238,7 @@ pub trait ActEngineBackend: Send + Sync {
         _token: &'a str,
         _created: i64,
         _expires: i64,
+        _timeout: Duration,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async { Err("backend cannot reserve native recovery".into()) })
     }
@@ -685,8 +687,9 @@ impl ActEngineBackend for DockerActBackend {
         engine: &'a str,
         phase: EnrollmentPhase,
         max: u64,
+        timeout: Duration,
     ) -> BoxFuture<'a, Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>> {
-        Box::pin(self.enroll_tools(engine, phase, max))
+        Box::pin(self.enroll_tools(engine, phase, max, timeout))
     }
 
     fn reserve_native_recovery<'a>(
@@ -696,8 +699,11 @@ impl ActEngineBackend for DockerActBackend {
         token: &'a str,
         created: i64,
         expires: i64,
+        timeout: Duration,
     ) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(self.reserve_claimed_tool_recovery(registry, run, token, created, expires))
+        Box::pin(
+            self.reserve_claimed_tool_recovery(registry, run, token, created, expires, timeout),
+        )
     }
 
     fn prepare_engine<'a>(

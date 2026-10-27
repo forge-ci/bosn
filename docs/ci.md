@@ -30,6 +30,27 @@ wire record keeps `state: running` during that interval and adds the optional
 starts: resolving and pulling images, preparing the engine and running act. A
 run that exceeds it ends `timed_out`, and its engine is still removed.
 
+Engine setup has separate outer limits in the daemon's `<state>/config.toml`:
+
+```toml
+[ci_timeouts]
+prepare_secs = 1800     # engine preparation and reservation outer limit
+enrollment_secs = 900   # each native enrollment phase
+reservation_secs = 180  # native recovery reservation command
+```
+
+Each value must be between 1 and 43200 seconds. Restart the daemon after
+changing its configuration. These settings bound Bosn's commands; they do not
+replace the overall run deadline. Act2 and its storage operations also have
+independent limits, including short lock probes, so raising an outer limit does
+not guarantee that a nested operation can wait for that full duration. Error
+messages include measured phase duration and the outer limit when available.
+Stage durations use the daemon's monotonic clock. A live duration is sampled
+for status and is not persisted; if the daemon stops mid-stage, that duration
+is unavailable after restart. `bosn ci wait --deadline-ms` only bounds the observation; it does not stop a
+detached run. Cleanup and recovery have their own safety limits and retain
+unacknowledged resources for reconciliation.
+
 ## A run lives as long as its client
 
 `bosn ci run` and `bosn ci retry` wait for the run, and the run belongs to that

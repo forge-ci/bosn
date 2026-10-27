@@ -1628,6 +1628,12 @@
         "sha": {
           "type": "string"
         },
+        "stages": {
+          "items": {
+            "$ref": "#/$defs/StageTiming"
+          },
+          "type": "array"
+        },
         "state": {
           "$ref": "#/$defs/RunState"
         },
@@ -1864,6 +1870,13 @@
         },
         "sha": {
           "type": "string"
+        },
+        "stages": {
+          "description": "Latest bounded setup phase observations; absent in legacy records.",
+          "items": {
+            "$ref": "#/$defs/StageTiming"
+          },
+          "type": "array"
         },
         "started_at": {
           "format": "double",
@@ -2257,6 +2270,100 @@
         "name",
         "stage",
         "status"
+      ],
+      "type": "object"
+    },
+    "StageKind": {
+      "enum": [
+        "engine_prepare",
+        "recovery_reservation",
+        "enrollment_fence",
+        "enrollment_complete"
+      ],
+      "type": "string"
+    },
+    "StageReason": {
+      "enum": [
+        "outer_deadline",
+        "backend_error",
+        "cancelled",
+        "run_deadline",
+        "interrupted"
+      ],
+      "type": "string"
+    },
+    "StageState": {
+      "enum": [
+        "running",
+        "succeeded",
+        "failed",
+        "timed_out",
+        "cancelled",
+        "interrupted"
+      ],
+      "type": "string"
+    },
+    "StageTiming": {
+      "description": "A bounded stage observation. Wall-clock start is informational; completed\ndurations are measured with a monotonic clock. Interrupted observations have\nno elapsed duration because that clock does not survive daemon restart.",
+      "properties": {
+        "command_limit_secs": {
+          "description": "Separately bounded command inside the phase, if applicable.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "elapsed_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/StageKind"
+        },
+        "outer_limit_secs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StageReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Bounded classification, never raw command output."
+        },
+        "run_remaining_ms": {
+          "description": "Whole-run budget left at phase start, when observed by a live runner.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "started_at": {
+          "format": "double",
+          "type": "number"
+        },
+        "state": {
+          "$ref": "#/$defs/StageState"
+        }
+      },
+      "required": [
+        "kind",
+        "state",
+        "started_at",
+        "outer_limit_secs"
       ],
       "type": "object"
     },

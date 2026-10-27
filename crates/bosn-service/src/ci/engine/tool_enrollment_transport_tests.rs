@@ -2,6 +2,7 @@
 use super::{DockerActBackend, EnrollmentPhase};
 use bosn_engine::DockerEngine;
 use kernal_api::{async_engine::RuntimeBuilder, platform::fs::TemporaryDirectory};
+use std::time::Duration;
 
 #[test]
 fn enrollment_executes_the_verified_private_act_binary() {
@@ -24,7 +25,12 @@ printf '%s\n' '{"schema_version":1,"source":"/bosn/cache/toolcache","root":"/bos
         .enable_all()
         .build()
         .unwrap()
-        .run(backend.enroll_tools("immutable-engine-id", EnrollmentPhase::Fence, 1024));
+        .run(backend.enroll_tools(
+            "immutable-engine-id",
+            EnrollmentPhase::Fence,
+            1024,
+            Duration::from_secs(900),
+        ));
     assert!(result.unwrap().is_none());
 }
 
@@ -44,27 +50,47 @@ fn actual_docker_enrollment_transport_preserves_warm_selection() {
             let max = 64 << 20;
             assert!(
                 backend
-                    .enroll_tools(&engine, EnrollmentPhase::Fence, max)
+                    .enroll_tools(
+                        &engine,
+                        EnrollmentPhase::Fence,
+                        max,
+                        Duration::from_secs(900)
+                    )
                     .await
                     .unwrap()
                     .is_none()
             );
             // The harness owns this private source and starts no legacy writer.
             let binding = backend
-                .enroll_tools(&engine, EnrollmentPhase::Complete, max)
+                .enroll_tools(
+                    &engine,
+                    EnrollmentPhase::Complete,
+                    max,
+                    Duration::from_secs(900),
+                )
                 .await
                 .unwrap()
                 .unwrap();
             assert!(
                 backend
-                    .enroll_tools(&engine, EnrollmentPhase::Fence, max)
+                    .enroll_tools(
+                        &engine,
+                        EnrollmentPhase::Fence,
+                        max,
+                        Duration::from_secs(900)
+                    )
                     .await
                     .unwrap()
                     .is_none()
             );
             assert_eq!(
                 backend
-                    .enroll_tools(&engine, EnrollmentPhase::Complete, max)
+                    .enroll_tools(
+                        &engine,
+                        EnrollmentPhase::Complete,
+                        max,
+                        Duration::from_secs(900)
+                    )
                     .await
                     .unwrap(),
                 Some(binding.clone())

@@ -43,11 +43,15 @@ impl SharedEngine {
         want: &SparePlan,
         _identity: &EngineIdentity,
         cancellation: &CancellationToken,
+        progress: &mut (dyn FnMut(super::LeaseUpdate) + Send),
     ) -> Result<Result<Held, Step>, String> {
         let machine = self.machine()?;
         let owner = super::super::lifecycle::registry_owner(&self.registry).await?;
         match machine.claim().await? {
-            None => self.make(machine, want, &owner, cancellation).await,
+            None => {
+                self.make(machine, want, &owner, cancellation, progress)
+                    .await
+            }
             Some(claim) if claim.ours(&owner) => {
                 // Retry the durable cleanup, including uncertain creates, before
                 // another preparation can hold the machine's claim.
@@ -72,6 +76,7 @@ impl SharedEngine {
         want: &SparePlan,
         owner: &str,
         cancellation: &CancellationToken,
+        progress: &mut (dyn FnMut(super::LeaseUpdate) + Send),
     ) -> Result<Result<Held, Step>, String> {
         want.validate_native_policy()?;
         let busy = self.drain_legacy(machine, None).await?;
@@ -127,10 +132,19 @@ impl SharedEngine {
             self.backend.as_ref(),
             want.clone(),
             cancellation,
+            progress,
         )
         .await?;
         if let Some(max) = want.native_tools {
-            return Box::pin(self.enroll_prepared(want, engine, guard, max, cancellation)).await;
+            return Box::pin(self.enroll_prepared(
+                want,
+                engine,
+                guard,
+                max,
+                cancellation,
+                progress,
+            ))
+            .await;
         }
         // Runs of other daemons wait until now: the engine is prepared.
         if let Err(error) = machine.mark_ready(&engine.observed.engine_id).await {

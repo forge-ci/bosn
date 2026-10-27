@@ -234,7 +234,11 @@ fn require_reservation(text: &str, expected: &RecoveryPin, root: &str) -> Result
 impl DockerActBackend {
     /// The durable intent must be committed before this call. An error never
     /// proves reservation absence and must not authorize stopping source writers.
-    pub async fn reserve_tool_recovery(&self, record: &ActEngineRecord) -> Result<(), String> {
+    pub async fn reserve_tool_recovery(
+        &self,
+        record: &ActEngineRecord,
+        timeout: Duration,
+    ) -> Result<(), String> {
         let intent = record
             .tool_recovery
             .as_ref()
@@ -268,7 +272,7 @@ impl DockerActBackend {
             .checked(
                 "tool recovery reserve",
                 Self::exec(&intent.engine_id, &script),
-                Duration::from_secs(180),
+                timeout,
             )
             .await?;
         require_reservation(&receipt, &pin, &root)
@@ -285,6 +289,7 @@ impl DockerActBackend {
         token: &str,
         created: i64,
         expires: i64,
+        timeout: Duration,
     ) -> Result<(), String> {
         use crate::act_registry::{ActRegistryCommand, ActRegistryReply};
         let before = crate::ci::lifecycle::record(registry, run)
@@ -314,7 +319,7 @@ impl DockerActBackend {
         if record.execution_claim.as_deref() != Some(token) || record.execution.is_some() {
             return Err("tool recovery claim changed before reservation".into());
         }
-        self.reserve_tool_recovery(&record).await?;
+        self.reserve_tool_recovery(&record, timeout).await?;
         self.ensure_native_source_context(&record).await?;
         let intent = record
             .tool_recovery

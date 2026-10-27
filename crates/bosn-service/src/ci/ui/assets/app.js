@@ -84,6 +84,10 @@ async function showRun() {
     ),
   ];
   if (run.reason) parts.push(el("p", { class: "meta", "data-key": "reason" }, run.reason));
+  if (run.stages && run.stages.length) {
+    parts.push(el("section", { "data-key": "setup" }, el("h3", {}, "Setup"), el("ul", {}, ...run.stages.map((stage) =>
+      el("li", {}, `${stage.kind.replaceAll("_", " ")}: ${stage.state.replaceAll("_", " ")} · ${stage.elapsed_ms == null ? "elapsed unavailable" : seconds(stage.elapsed_ms)} · outer limit ${stage.outer_limit_secs}s${stage.command_limit_secs == null ? "" : ` · command limit ${stage.command_limit_secs}s`}${stage.run_remaining_ms == null ? "" : ` · run budget at start ${seconds(stage.run_remaining_ms)}`}${stage.reason == null ? "" : ` · ${stage.reason.replaceAll("_", " ")}`}`)))));
+  }
   if (report && report.first_failure) {
     const f = report.first_failure;
     parts.push(el("div", { class: "failure-box", "data-key": "failure" },

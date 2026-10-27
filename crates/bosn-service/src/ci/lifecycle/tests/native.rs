@@ -21,6 +21,121 @@ fn native_plan() -> SparePlan {
 }
 
 #[test]
+fn ci_stage_timeouts_control_native_enrollment() {
+    with_registry(|registry, _dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            enrollment_phase: Some(crate::ci::engine::EnrollmentPhase::Fence),
+            enrollment_delay: Duration::from_millis(1500),
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry, backend);
+        let mut plan = shared_plan(&run_id(0x5090));
+        plan.intent.created_at = now_seconds();
+        plan.native_tools = Some(64 << 30);
+        plan.timeouts.enrollment_secs = 1;
+        let mut stages = Vec::new();
+        let result = shared
+            .lease_observed(
+                &run_id(0x5091),
+                plan,
+                &CancellationSource::new().token(),
+                &mut |event| {
+                    if let crate::ci::shared_engine::LeaseUpdate::Stage(stage) = event {
+                        stages.push(stage);
+                    }
+                },
+            )
+            .await;
+        assert!(stages.iter().any(|stage| matches!(
+            stage,
+            crate::ci::wire::StageEvent::Started {
+                kind: crate::ci::wire::StageKind::EnrollmentFence,
+                outer_limit_secs: 1,
+                ..
+            }
+        )));
+        assert!(stages.iter().any(|stage| matches!(stage,
+            crate::ci::wire::StageEvent::Finished { kind: crate::ci::wire::StageKind::EnrollmentFence, state: crate::ci::wire::StageState::TimedOut, elapsed_ms } if *elapsed_ms >= 1000)));
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("enrollment") && error.contains("1"),
+            "{error}"
+        );
+        shared.close().await;
+    });
+    with_registry(|registry, _dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            enrollment_phase: Some(crate::ci::engine::EnrollmentPhase::Fence),
+            enrollment_delay: Duration::from_millis(1500),
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry, backend);
+        let mut plan = shared_plan(&run_id(0x5092));
+        plan.intent.created_at = now_seconds();
+        plan.native_tools = Some(64 << 30);
+        plan.timeouts.enrollment_secs = 3;
+        let acquired = shared
+            .lease(
+                &run_id(0x5093),
+                plan,
+                &CancellationSource::new().token(),
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        shared.release(acquired).await;
+        shared.close().await;
+    });
+}
+
+#[test]
+fn ci_stage_timeouts_control_native_reservation() {
+    with_registry(|registry, _dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            reserve_delay: Duration::from_millis(1500),
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry, backend);
+        let mut plan = native_plan();
+        plan.timeouts.reservation_secs = 1;
+        let error = shared
+            .lease(
+                &run_id(0x5094),
+                plan,
+                &CancellationSource::new().token(),
+                &mut |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            error.contains("reservation") && error.contains("1"),
+            "{error}"
+        );
+        shared.close().await;
+    });
+    with_registry(|registry, _dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            reserve_delay: Duration::from_millis(1500),
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry, backend);
+        let mut plan = native_plan();
+        plan.timeouts.reservation_secs = 3;
+        let acquired = shared
+            .lease(
+                &run_id(0x5095),
+                plan,
+                &CancellationSource::new().token(),
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        shared.release(acquired).await;
+        shared.close().await;
+    });
+}
+
+#[test]
 fn ordinary_template_selects_native_tools_before_first_admission() {
     with_registry(|registry, _dir| async move {
         let backend = Arc::new(FakeBackend::with(Faults::default()));

@@ -291,6 +291,113 @@ impl CiRequest {
     }
 }
 
+/// A bounded stage observation. Wall-clock start is informational; completed
+/// durations are measured with a monotonic clock. Interrupted observations have
+/// no elapsed duration because that clock does not survive daemon restart.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct StageTiming {
+    pub kind: StageKind,
+    pub state: StageState,
+    pub started_at: f64,
+    pub elapsed_ms: Option<u64>,
+    /// Bounded classification, never raw command output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<StageReason>,
+    pub outer_limit_secs: u64,
+    /// Separately bounded command inside the phase, if applicable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_limit_secs: Option<u64>,
+    /// Whole-run budget left at phase start, when observed by a live runner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_remaining_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StageKind {
+    EnginePrepare,
+    RecoveryReservation,
+    EnrollmentFence,
+    EnrollmentComplete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StageState {
+    Running,
+    Succeeded,
+    Failed,
+    TimedOut,
+    Cancelled,
+    Interrupted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StageReason {
+    OuterDeadline,
+    BackendError,
+    Cancelled,
+    RunDeadline,
+    Interrupted,
+}
+
+impl StageReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OuterDeadline => "outer_deadline",
+            Self::BackendError => "backend_error",
+            Self::Cancelled => "cancelled",
+            Self::RunDeadline => "run_deadline",
+            Self::Interrupted => "interrupted",
+        }
+    }
+}
+
+impl StageKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::EnginePrepare => "engine_prepare",
+            Self::RecoveryReservation => "recovery_reservation",
+            Self::EnrollmentFence => "enrollment_fence",
+            Self::EnrollmentComplete => "enrollment_complete",
+        }
+    }
+}
+
+impl StageState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::TimedOut => "timed_out",
+            Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
+        }
+    }
+}
+
+/// In-process observation; elapsed values are measured by the phase producer.
+#[derive(Clone, Copy, Debug)]
+pub enum StageEvent {
+    Started {
+        kind: StageKind,
+        outer_limit_secs: u64,
+        command_limit_secs: Option<u64>,
+        run_remaining_ms: Option<u64>,
+    },
+    Finished {
+        kind: StageKind,
+        state: StageState,
+        elapsed_ms: u64,
+    },
+    Aborted {
+        state: StageState,
+        reason: StageReason,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RunRecord {
     pub schema_version: u32,
@@ -341,6 +448,9 @@ pub struct RunRecord {
     pub submitters: u32,
     pub retry_of: Option<String>,
     pub timeout_secs: u64,
+    /// Latest bounded setup phase observations; absent in legacy records.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stages: Vec<StageTiming>,
     /// Opt-in secret names; values never leave the daemon's secret store.
     #[serde(default)]
     pub secrets: Vec<String>,
@@ -394,6 +504,7 @@ impl RunRecord {
             submitters: 1,
             retry_of: None,
             timeout_secs: request.timeout().as_secs(),
+            stages: Vec::new(),
             secrets: request.secrets.clone(),
             github_proxy: request.github_proxy,
             log_records: 0,
@@ -421,6 +532,7 @@ impl RunRecord {
             retry_of: Some(self.id.clone()),
             log_records: 0,
             tree: RunTree::default(),
+            stages: Vec::new(),
             act_version: super::engine::ACT_VERSION.into(),
             execution_pins: super::pins::execution_pins(),
             runner_image: super::engine::RUNNER_IMAGE.into(),
@@ -439,6 +551,73 @@ impl RunRecord {
         sha256_hex(identity.as_bytes())[..16].to_string()
     }
 
+    pub(crate) fn stage_started(
+        &mut self,
+        kind: StageKind,
+        started_at: f64,
+        outer_limit_secs: u64,
+        command_limit_secs: Option<u64>,
+        run_remaining_ms: Option<u64>,
+    ) {
+        if let Some(previous) = self
+            .stages
+            .last_mut()
+            .filter(|stage| stage.state == StageState::Running)
+        {
+            previous.state = StageState::Interrupted;
+            previous.reason = Some(StageReason::Interrupted);
+        }
+        // The setup path can repeat after retirement; cap records independent of run duration.
+        if self.stages.len() == 16 {
+            self.stages.remove(0);
+        }
+        self.stages.push(StageTiming {
+            kind,
+            state: StageState::Running,
+            started_at,
+            elapsed_ms: None,
+            reason: None,
+            outer_limit_secs,
+            command_limit_secs,
+            run_remaining_ms,
+        });
+    }
+
+    pub(crate) fn stage_finished(&mut self, kind: StageKind, state: StageState, elapsed_ms: u64) {
+        if let Some(stage) = self
+            .stages
+            .last_mut()
+            .filter(|stage| stage.kind == kind && stage.state == StageState::Running)
+        {
+            stage.state = state;
+            stage.reason = match state {
+                StageState::TimedOut => Some(StageReason::OuterDeadline),
+                StageState::Failed => Some(StageReason::BackendError),
+                StageState::Cancelled => Some(StageReason::Cancelled),
+                StageState::Interrupted => Some(StageReason::Interrupted),
+                StageState::Running | StageState::Succeeded => None,
+            };
+            stage.elapsed_ms = Some(elapsed_ms);
+        }
+    }
+
+    pub(crate) fn stage_aborted(
+        &mut self,
+        state: StageState,
+        reason: StageReason,
+        elapsed_ms: Option<u64>,
+    ) {
+        if let Some(stage) = self
+            .stages
+            .last_mut()
+            .filter(|stage| stage.state == StageState::Running)
+        {
+            stage.state = state;
+            stage.reason = Some(reason);
+            stage.elapsed_ms = elapsed_ms;
+        }
+    }
+
     /// Mark the run done. Unfinished jobs and steps are cancelled.
     pub fn finish(&mut self, conclusion: Conclusion, reason: Option<String>) {
         self.state = RunState::Done;
@@ -446,6 +625,14 @@ impl RunRecord {
         self.reason = reason;
         self.finished_at = Some(super::lifecycle::now_seconds());
         self.tree.cancel_unfinished();
+        if let Some(stage) = self
+            .stages
+            .last_mut()
+            .filter(|stage| stage.state == StageState::Running)
+        {
+            stage.state = StageState::Interrupted;
+            stage.reason = Some(StageReason::Interrupted);
+        }
     }
 
     /// The visible state distinguishes teardown after a cancel request while
@@ -567,6 +754,22 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ci_stage_timeouts_interrupted_stage_does_not_fabricate_elapsed() {
+        let mut record = crate::ci::tests::sample_record("stage-test");
+        record.stage_started(StageKind::EnrollmentFence, 123.0, 30, None, None);
+        assert_eq!(record.stages.len(), 1);
+        assert_eq!(record.stages[0].elapsed_ms, None);
+        let report = crate::ci::report::report(&record, None, |_, _| Vec::new());
+        assert_eq!(report.stages, record.stages);
+        let encoded = serde_json::to_value(&report).unwrap();
+        assert_eq!(encoded["stages"][0]["kind"], "enrollment_fence");
+        record.finish(Conclusion::Error, Some("daemon interrupted".into()));
+        assert_eq!(record.stages[0].state, StageState::Interrupted);
+        assert_eq!(record.stages[0].elapsed_ms, None);
+        assert!(record.retry("new-run".into(), None).stages.is_empty());
+    }
 
     #[test]
     fn slow_requests_get_the_long_reply_deadline() {

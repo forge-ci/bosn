@@ -20,6 +20,7 @@ pub struct Faults {
     pub enrollment_delay: Duration,
     /// The external native reservation fails after its intent commits.
     pub reserve: bool,
+    pub reserve_delay: Duration,
     pub exit_code: i32,
     pub hang: bool,
     pub remove: bool,
@@ -169,6 +170,7 @@ impl ActEngineBackend for FakeBackend {
         token: &'a str,
         created: i64,
         expires: i64,
+        timeout: Duration,
     ) -> crate::ci::engine::BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             registry
@@ -180,6 +182,14 @@ impl ActEngineBackend for FakeBackend {
                 })
                 .await
                 .map_err(|error| error.to_string())?;
+            async_engine::timeout(timeout, async_engine::sleep(self.faults().reserve_delay))
+                .await
+                .map_err(|_| {
+                    format!(
+                        "native reservation timed out (limit {}s)",
+                        timeout.as_secs()
+                    )
+                })?;
             if self.faults().reserve {
                 return Err("synthetic native reservation failure".into());
             }
@@ -414,6 +424,7 @@ impl ActEngineBackend for FakeBackend {
         engine: &'a str,
         phase: crate::ci::engine::EnrollmentPhase,
         max: u64,
+        _timeout: Duration,
     ) -> crate::ci::engine::BoxFuture<
         'a,
         Result<Option<bosn_registry::act::ActToolGenerationBinding>, String>,

@@ -58,6 +58,65 @@ async fn waits(shared: &SharedEngine, n: u32, plan: SparePlan) -> Vec<String> {
 }
 
 #[test]
+fn ci_stage_timeouts_control_prepare_deadline() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            prepare_delay: Duration::from_millis(1500),
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry, backend);
+        let mut plan = want(1, &dir, 8);
+        plan.timeouts.prepare_secs = 1;
+        let error = lease(&shared, 1, plan).await.unwrap_err();
+        assert!(
+            error.contains("preparation") && error.contains("1"),
+            "{error}"
+        );
+        shared.close().await;
+    });
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            prepare_delay: Duration::from_millis(1500),
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry, backend);
+        let mut plan = want(2, &dir, 8);
+        plan.timeouts.prepare_secs = 3;
+        let acquired = lease(&shared, 2, plan).await.unwrap();
+        shared.release(acquired).await;
+        shared.close().await;
+    });
+}
+
+#[test]
+fn ci_stage_timeouts_do_not_claim_unconfirmed_cleanup() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::with(Faults {
+            prepare_delay: Duration::from_millis(1500),
+            ..Default::default()
+        }));
+        let shared = SharedEngine::new(registry, backend.clone());
+        let mut request = want(21, &dir, 8);
+        request.timeouts.prepare_secs = 1;
+        let report = super::super::shared::run_on_shared(
+            backend.as_ref(),
+            &shared,
+            request,
+            &plan(&run_id(21), Duration::from_secs(5)),
+            &CancellationSource::new().token(),
+            &mut Collect::default(),
+        )
+        .await;
+        assert_ne!(
+            report.cleanup,
+            CleanupEnd::Removed,
+            "a failed lease cannot prove that asynchronous preparation cleanup is complete"
+        );
+        shared.close().await;
+    });
+}
+
+#[test]
 fn concurrent_leases_share_one_engine_on_distinct_slots() {
     with_registry(|registry, dir| async move {
         let backend = Arc::new(FakeBackend::with(Faults::default()));

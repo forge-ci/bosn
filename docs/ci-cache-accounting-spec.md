@@ -7356,3 +7356,20 @@ that SHA. Linux archive `cbcb24de...b910` matches `checksums.txt`; executable
   failed so before any test ran. Writers with an operation context now retry
   contention until that context ends, as generation updates already did; the
   context-free admission keeps the short probe.
+
+
+### act2.34: recovery reservation contention and enrollment diagnostics
+
+Act2 PRs #95 and #96 merged on master at `5fbd948ce73d4f548f81aa8e316d9a6960fb9b64`.
+Full act2 checks on that exact SHA passed in run `40456325205`; the tag-triggered
+release run `40457499039` published `v0.2.89-act2.34`. The Linux x86_64
+archive SHA-256 `4e81c4d65fe0ac27fccf5ff761c6d6380c6ab901beca7aeca987c9049a813d32`
+matched the published checksums and GitHub asset digest. Its extracted `act`
+binary SHA-256 is `c776fab31bc7baf72567947601df161b7cd133f79947fae8a0423bd3860180aa`
+and reports `act version 0.2.89-act2.34`.
+
+Initial recovery reservation catalog acquisition now retries ordinary contention
+within its existing deadline before holding any generation reader lease. The
+later reacquisition keeps its short fail-closed probe. Enrollment selection
+errors identify their existing short catalog probe without changing lock order.
+Bosn adoption is pending its own review, full CI and release gate.

@@ -64,6 +64,8 @@ pub enum ExecutionEnd {
 pub enum CleanupEnd {
     /// The engine was removed (or never existed) and its absence proven.
     Removed,
+    /// Lease acquisition ended without proving preparation cleanup complete.
+    Unconfirmed,
     Failed(String),
 }
 
@@ -80,6 +82,7 @@ pub struct EngineReport {
 /// Receives the declared-job listing and every output line, in order.
 pub trait EngineObserver: Send {
     fn note(&mut self, text: &str);
+    fn stage(&mut self, _event: super::wire::StageEvent) {}
     fn declared(&mut self, listing: &str);
     fn line(&mut self, line: EngineLine);
     /// Called every [`PROGRESS_TICK`] while no line arrives, so a silent

@@ -135,9 +135,11 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // VolumesFrom, Links) to the run-keyed names its proxy gave them (#449).
             // act2.33 makes tool-store writers wait for a busy catalog instead of
             // failing with a bare bbolt timeout (act2#91, #747).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.33/act_Linux_x86_64.tar.gz",
-            sha256: "cbcb24de5d3f5b04b2a12e2324684cca15e4396e51654c40b194d6de57bdb910",
-            binary_sha256: "5762fd5fba6c9f9031f861698071f084d756b05a0268da25392164ba22d35127",
+            // act2.34 waits for initial recovery catalog contention and names
+            // the short enrollment selection catalog probe (act2#95, #96).
+            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.34/act_Linux_x86_64.tar.gz",
+            sha256: "4e81c4d65fe0ac27fccf5ff761c6d6380c6ab901beca7aeca987c9049a813d32",
+            binary_sha256: "c776fab31bc7baf72567947601df161b7cd133f79947fae8a0423bd3860180aa",
         }),
         _ => None,
     }

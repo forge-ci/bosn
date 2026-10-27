@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::{
     model::{ItemConclusion, ItemStatus, LogRecord},
     provider::{Mode, Provider, Trigger},
-    wire::{Conclusion, RunRecord, RunState},
+    wire::{Conclusion, RunRecord, RunState, StageTiming},
 };
 
 /// Any typed reply as one line of JSON (`--json` output), without callers
@@ -423,6 +423,8 @@ pub struct RunReport {
     pub mode: Mode,
     pub actor: String,
     pub cleanup: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stages: Vec<StageTiming>,
     pub first_failure: Option<FailureReport>,
     pub jobs: JobOutcomes,
     /// False when any job needed a runner bosn cannot supervise.

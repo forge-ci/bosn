@@ -459,12 +459,15 @@ fn restart_marks_unfinished_runs_interrupted_and_keeps_finished_ones() {
         stuck.id = "00000000-0000-4000-8000-000000000001".into();
         stuck.state = RunState::Running;
         stuck.conclusion = None;
+        stuck.stage_started(StageKind::EnrollmentFence, 100.0, 30, None, None);
         runtime.save(&stuck);
         let restarted = CiRuntime::start(&dir, registry, backend, 1);
         let record = restarted.record(&stuck.id).unwrap();
         assert_eq!(record.state, RunState::Done);
         assert_eq!(record.conclusion, Some(Conclusion::Error));
         assert!(record.reason.unwrap().contains("interrupted"));
+        assert_eq!(record.stages.last().unwrap().state, StageState::Interrupted);
+        assert_eq!(record.stages.last().unwrap().elapsed_ms, None);
         assert_eq!(
             restarted.record(&done).unwrap().conclusion,
             Some(Conclusion::Success)
@@ -988,3 +991,4 @@ mod owners;
 mod source_identity;
 
 mod execution;
+mod stage;

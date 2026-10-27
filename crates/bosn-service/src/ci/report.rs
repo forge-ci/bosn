@@ -161,6 +161,7 @@ pub fn report(
         mode: record.mode,
         actor: record.actor.clone(),
         cleanup: record.cleanup.clone(),
+        stages: record.stages.clone(),
         first_failure,
         jobs: JobOutcomes {
             succeeded: count(ItemConclusion::Success),
