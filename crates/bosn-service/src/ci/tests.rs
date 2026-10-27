@@ -60,12 +60,18 @@ async fn call<T: serde::de::DeserializeOwned>(runtime: &CiRuntime, request: CiRe
 }
 
 async fn submit(runtime: &CiRuntime, sha_byte: char) -> SubmitReply {
+    submit_with_timeout(runtime, sha_byte, 5).await
+}
+
+async fn submit_with_timeout(runtime: &CiRuntime, sha_byte: char, secs: u64) -> SubmitReply {
     let staging = new_uuid().await.unwrap();
     staged(runtime, &staging);
+    let mut submission = request(&staging, sha_byte);
+    submission.timeout_secs = Some(secs);
     call(
         runtime,
         CiRequest::Submit {
-            request: Box::new(request(&staging, sha_byte)),
+            request: Box::new(submission),
         },
     )
     .await
@@ -128,11 +134,11 @@ fn identical_submissions_coalesce_and_distinct_ones_queue_behind_the_limit() {
             ..Faults::default()
         }));
         let runtime = CiRuntime::start(&dir, registry, backend.clone(), 1);
-        let first = submit(&runtime, 'a').await;
-        let again = submit(&runtime, 'a').await;
+        let first = submit_with_timeout(&runtime, 'a', 30).await;
+        let again = submit_with_timeout(&runtime, 'a', 30).await;
         assert_eq!(first.run, again.run, "same key, same run ID");
         assert!(again.coalesced);
-        let other = submit(&runtime, 'b').await;
+        let other = submit_with_timeout(&runtime, 'b', 30).await;
         assert!(!other.coalesced);
         async_engine::sleep(Duration::from_millis(100)).await;
         let (a, b) = (first.run, other.run);
@@ -162,9 +168,7 @@ fn identical_submissions_coalesce_and_distinct_ones_queue_behind_the_limit() {
                 .map(|r| (r.conclusion, r.reason, r.cleanup))
         );
         assert_eq!(runtime.record(&a).unwrap().submitters, 2);
-        while *backend.executions.lock().unwrap() < 2 {
-            async_engine::sleep(Duration::from_millis(5)).await;
-        }
+        execution::wait_for_executions(&runtime, &backend, &[&a, &b]).await;
         // Request both cancellations before waiting on either one's cleanup.
         for run in [&a, &b] {
             let cancelled: CancelReply =
@@ -839,7 +843,7 @@ fn a_run_whose_client_went_away_still_ends_and_is_cleaned() {
         let mut submission = request(&staging, 'd');
         // Long enough that the timeout cannot land in preparation on a loaded
         // host (the run must time out mid-execution, owning a scope to close).
-        submission.timeout_secs = Some(5);
+        submission.timeout_secs = Some(30);
         let run = call::<SubmitReply>(
             &runtime,
             CiRequest::Submit {
@@ -851,13 +855,13 @@ fn a_run_whose_client_went_away_still_ends_and_is_cleaned() {
         // A client waiting on the run, killed mid-run: nothing else waits.
         let waiter = {
             let (runtime, run) = (runtime.clone(), run.clone());
-            async_engine::launch(async move { wait_done(&runtime, &run).await })
+            async_engine::launch(async move {
+                wait_done_with_budget(&runtime, &run, Duration::from_secs(45)).await
+            })
         };
-        while *backend.executions.lock().unwrap() == 0 {
-            async_engine::sleep(Duration::from_millis(20)).await;
-        }
+        execution::wait_for_executions(&runtime, &backend, &[&run]).await;
         drop(waiter);
-        let record = wait_done(&runtime, &run).await;
+        let record = wait_done_with_budget(&runtime, &run, Duration::from_secs(45)).await;
         assert_eq!(record.conclusion, Some(Conclusion::TimedOut));
         assert_eq!(
             backend.closed_scopes.lock().unwrap().len(),
@@ -982,3 +986,5 @@ mod doctor;
 #[cfg(unix)]
 mod owners;
 mod source_identity;
+
+mod execution;
