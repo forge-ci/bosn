@@ -63,66 +63,23 @@ pub async fn recover_startup_act_engines(
         // Engine work gets four fifths of the guarded window. The rest is headroom for marking
         // and deferring every remaining record once the budget is spent, so an exhausted budget
         // defers work instead of reaching the outer guard, which would stop the daemon (#555).
-        let budget = recovery_window(options.deadline) / 5 * 4;
-        let mut report = ActStartupRecoveryReport::default();
-        let mut cursor = None;
-        loop {
-            if cancellation.is_cancelled() {
-                return Err(error("startup recovery cancelled"));
-            }
-            let reply = registry
-                .act_registry(ActRegistryCommand::Pending {
-                    after_run_id: cursor.clone(),
-                    limit: options.page_size,
-                })
-                .await
-                .map_err(|e| error(e.to_string()))?;
-            let ActRegistryReply::Recovery(page) = reply else {
-                return Err(error("startup recovery page reply mismatch"));
-            };
-            if report.runs.len().saturating_add(page.items.len()) > options.max_runs {
-                return Err(error("startup recovery active-run ceiling exceeded"));
-            }
-            for record in page.items {
-                registry
-                    .act_registry(ActRegistryCommand::StartupInterrupt {
-                        run: record.intent.run_id.clone(),
-                        at: now().max(record.updated_at),
-                    })
-                    .await
-                    .map_err(|e| error(e.to_string()))?;
-                let reply = registry
-                    .act_registry(ActRegistryCommand::Get {
-                        run: record.intent.run_id.clone(),
-                    })
-                    .await
-                    .map_err(|e| error(e.to_string()))?;
-                let ActRegistryReply::Record(Some(updated)) = reply else {
-                    return Err(error("startup interrupted record is missing"));
-                };
-                let remaining = budget.saturating_sub(started.elapsed());
-                let result = retire_engine(
-                    registry,
-                    engine,
-                    owner,
-                    proofs,
-                    &updated,
-                    remaining,
-                    cancellation,
-                )
-                .await;
-                report.runs.push(ActStartupRecoveryResult {
-                    run_id: record.intent.run_id,
-                    engine_removed: result.is_ok(),
-                    deferred_reason: result.err().map(|e| e.to_string()),
-                });
-            }
-            match page.next_run_id {
-                Some(next) if cursor.as_ref().is_none_or(|old| old < &next) => cursor = Some(next),
-                Some(_) => return Err(error("startup recovery cursor did not advance")),
-                None => return Ok(report),
-            }
-        }
+        let budget_deadline = started + recovery_window(options.deadline) / 5 * 4;
+        // Every interrupt lands before any engine is retired. Retirement issues
+        // admission-class commands (`HelperBegin`, tool-recovery reservations),
+        // and the first of those closes the startup window for good; interleaving
+        // the phases made a backlog of two or more stale runs fail on the second
+        // interrupt and stop the daemon on every restart.
+        let interrupted = interrupt_pending(registry, options, cancellation).await?;
+        retire_interrupted(
+            registry,
+            engine,
+            owner,
+            proofs,
+            interrupted,
+            budget_deadline,
+            cancellation,
+        )
+        .await
     };
     let result = async_engine::timeout(recovery_window(options.deadline), work)
         .await
@@ -141,6 +98,93 @@ pub async fn recover_startup_act_engines(
     seal.0 = None;
     result
 }
+/// Interrupt every stale record, paging through the queue, before any engine work.
+pub(super) async fn interrupt_pending(
+    registry: &RegistryActor,
+    options: ActStartupRecoveryOptions,
+    cancellation: &async_engine::CancellationToken,
+) -> std::io::Result<Vec<bosn_registry::act::ActEngineRecord>> {
+    let mut interrupted = Vec::new();
+    let mut cursor = None;
+    loop {
+        if cancellation.is_cancelled() {
+            return Err(error("startup recovery cancelled"));
+        }
+        let reply = registry
+            .act_registry(ActRegistryCommand::Pending {
+                after_run_id: cursor.clone(),
+                limit: options.page_size,
+            })
+            .await
+            .map_err(|e| error(e.to_string()))?;
+        let ActRegistryReply::Recovery(page) = reply else {
+            return Err(error("startup recovery page reply mismatch"));
+        };
+        if interrupted.len().saturating_add(page.items.len()) > options.max_runs {
+            return Err(error("startup recovery active-run ceiling exceeded"));
+        }
+        for record in page.items {
+            registry
+                .act_registry(ActRegistryCommand::StartupInterrupt {
+                    run: record.intent.run_id.clone(),
+                    at: now().max(record.updated_at),
+                })
+                .await
+                .map_err(|e| error(e.to_string()))?;
+            let reply = registry
+                .act_registry(ActRegistryCommand::Get {
+                    run: record.intent.run_id.clone(),
+                })
+                .await
+                .map_err(|e| error(e.to_string()))?;
+            let ActRegistryReply::Record(Some(updated)) = reply else {
+                return Err(error("startup interrupted record is missing"));
+            };
+            interrupted.push(*updated);
+        }
+        match page.next_run_id {
+            Some(next) if cursor.as_ref().is_none_or(|old| old < &next) => cursor = Some(next),
+            Some(_) => return Err(error("startup recovery cursor did not advance")),
+            None => return Ok(interrupted),
+        }
+    }
+}
+
+/// Retire the engines of already-interrupted records, reporting per-run outcomes.
+pub(super) async fn retire_interrupted(
+    registry: &RegistryActor,
+    engine: &DockerEngine,
+    owner: &str,
+    proofs: &BTreeMap<String, crate::act_engine::VerifiedEngineManifest>,
+    interrupted: Vec<bosn_registry::act::ActEngineRecord>,
+    budget_deadline: Instant,
+    cancellation: &async_engine::CancellationToken,
+) -> std::io::Result<ActStartupRecoveryReport> {
+    let mut report = ActStartupRecoveryReport::default();
+    for updated in interrupted {
+        if cancellation.is_cancelled() {
+            return Err(error("startup recovery cancelled"));
+        }
+        let remaining = budget_deadline.saturating_duration_since(Instant::now());
+        let result = retire_engine(
+            registry,
+            engine,
+            owner,
+            proofs,
+            &updated,
+            remaining,
+            cancellation,
+        )
+        .await;
+        report.runs.push(ActStartupRecoveryResult {
+            run_id: updated.intent.run_id,
+            engine_removed: result.is_ok(),
+            deferred_reason: result.err().map(|e| e.to_string()),
+        });
+    }
+    Ok(report)
+}
+
 /// The part of the deadline recovery may use; the last five seconds are the seal's.
 fn recovery_window(deadline: Duration) -> Duration {
     deadline.saturating_sub(Duration::from_secs(5))
