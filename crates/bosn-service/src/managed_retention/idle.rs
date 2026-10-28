@@ -189,13 +189,18 @@ fn stop_if_still_idle(
 
 /// The exact keepalive launcher argv, never a declared command that merely ends in one.
 pub(super) fn is_keepalive(entry: &ContainerDetail) -> bool {
-    entry
-        .config
-        .as_ref()
-        .and_then(|config| config.cmd.as_deref())
-        .is_some_and(|cmd| {
-            cmd == bosn_setup::login_shell_args(crate::MANIFEST_LINUX_IDLE_COMMAND).as_slice()
-        })
+    let Some(config) = entry.config.as_ref() else {
+        return false;
+    };
+    let Some(cmd) = config.cmd.as_deref() else {
+        return false;
+    };
+    let expected = bosn_setup::login_shell_args(crate::MANIFEST_LINUX_IDLE_COMMAND);
+    match config.entrypoint.as_deref() {
+        None | Some([]) => cmd == expected.as_slice(),
+        Some([shell]) if shell == "sh" => cmd == &expected[1..],
+        _ => false,
+    }
 }
 
 /// Whether `docker top` shows only the keepalive right now. Unreadable is `false`.

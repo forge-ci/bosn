@@ -393,3 +393,35 @@ fn live_docker_small_output_limit_keeps_private_inspection_independent() {
     );
     assert!(text.len() < 16384, "exposed output must remain bounded");
 }
+
+/// Image entrypoints must not run when a Linux manifest stack starts its
+/// daemon-owned keepalive; task commands still run via docker exec.
+fn entrypoint_is_not_run(script: &str) {
+    let stack = StackWorkspace::new(&stack_manifest(
+        &test_unique_suffix(),
+        &[(
+            "probe",
+            "test ! -e /state/entrypoint-ran && echo keepalive-ok",
+        )],
+    ));
+    std::fs::write(
+        stack.workspace.join("live.Dockerfile"),
+        format!("FROM {PINNED_ALPINE}\nRUN printf '%s\\n' '#!/bin/sh' '{script}' > /entrypoint.sh && chmod +x /entrypoint.sh\nENTRYPOINT [\"/entrypoint.sh\"]\n"),
+    ).unwrap();
+    let output = stack.run_task("probe");
+    assert!(output.contains("keepalive-ok"), "{output}");
+    let again = stack.run_task("probe");
+    assert!(again.contains("keepalive-ok"), "{again}");
+}
+
+#[test]
+#[ignore = "requires an isolated Docker daemon and the pinned Alpine image"]
+fn live_docker_manifest_bypasses_non_forwarding_image_entrypoint() {
+    entrypoint_is_not_run("echo started > /state/entrypoint-ran; while :; do sleep 3600; done");
+}
+
+#[test]
+#[ignore = "requires an isolated Docker daemon and the pinned Alpine image"]
+fn live_docker_manifest_bypasses_forwarding_image_entrypoint() {
+    entrypoint_is_not_run("echo started > /state/entrypoint-ran; exec \"$@\"");
+}

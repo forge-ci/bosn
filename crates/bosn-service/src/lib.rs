@@ -162,8 +162,7 @@ const SETUP_PREPARE_MAX_OUTPUT: usize = 8 * 1024 * 1024;
 /// PID 1 of every Linux manifest container: idle until stopped, and exit
 /// promptly on `docker stop`. It is a fixed daemon constant, never manifest
 /// or caller text.
-const MANIFEST_LINUX_IDLE_COMMAND: &str =
-    "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done";
+const MANIFEST_LINUX_IDLE_COMMAND: &str = bosn_setup::MANIFEST_LINUX_IDLE_COMMAND;
 /// Declared manifest operations run whole build/CI workloads (a cold
 /// Dockerfile build, or `act` driving a CI job), so their caller-selected
 /// budget may exceed the five-minute setup-document bound. The budget is

@@ -190,6 +190,9 @@ pub struct SetupPlan {
     /// A macOS KVM guest derived by the native manifest runtime. Ordinary
     /// setup documents leave this absent.
     pub macos_guest: Option<SetupMacosGuest>,
+    /// A Linux manifest task host uses Bosn's fixed shell keepalive as PID 1.
+    /// Setup documents and macOS guests retain their image entrypoint.
+    pub manifest_keepalive: bool,
 }
 
 /// Planning stops before side effects outside Bosn-owned cache/asset state.
@@ -269,5 +272,6 @@ pub async fn plan_setup_with_transport<T: SetupRemoteTransport>(
         tmpfs: Vec::new(),
         host_docker_socket: None,
         macos_guest: None,
+        manifest_keepalive: false,
     })
 }

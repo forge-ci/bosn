@@ -153,17 +153,13 @@ pub(super) fn recovery_fixture_proof(
             .collect::<Vec<_>>()
     );
     config["Labels"] = serde_json::json!(labels);
-    // Exact five-argument shell carrier used by Docker creation.
+    // Docker receives the shell as ENTRYPOINT for manifest task hosts.
     if let Some(command) = &plan.app.command {
-        config["Cmd"] = serde_json::json!([
-            "sh",
-            "-c",
-            "BOSN_IMAGE_PATH=\"$PATH\"; export BOSN_IMAGE_PATH; exec sh -lc \"$1\"",
-            "sh",
-            format!(
-                "PATH=\"${{BOSN_IMAGE_PATH:+$BOSN_IMAGE_PATH:}}$PATH\"; export PATH; unset BOSN_IMAGE_PATH\n{command}"
-            )
-        ]);
+        let shell = bosn_setup::login_shell_args(command);
+        config["Cmd"] = serde_json::json!(&shell[usize::from(plan.manifest_keepalive)..]);
+        if plan.manifest_keepalive {
+            config["Entrypoint"] = serde_json::json!(["sh"]);
+        }
     }
     let mut actual_mounts = Vec::new();
     let mut declared_mounts = Vec::new();

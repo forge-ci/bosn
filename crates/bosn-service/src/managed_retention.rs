@@ -842,6 +842,9 @@ struct LabelledConfig {
     /// A container's own command; `null` for an image without one.
     #[serde(rename = "Cmd", default)]
     cmd: Option<Vec<String>>,
+    /// Actual Docker entrypoint, used to distinguish the fixed keepalive.
+    #[serde(rename = "Entrypoint", default)]
+    entrypoint: Option<Vec<String>>,
 }
 
 impl ContainerDetail {

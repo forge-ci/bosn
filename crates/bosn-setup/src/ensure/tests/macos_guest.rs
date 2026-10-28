@@ -86,6 +86,7 @@ fn typed_macos_guest_emits_only_its_fixed_privileged_runtime_shape() {
         host_docker_socket: Box::new(None),
         environment: BTreeMap::new(),
         workdir: None,
+        manifest_keepalive: false,
         command: Some("must-not-be-emitted".into()),
         labels: BTreeMap::new(),
         macos_guest: Box::new(Some(SetupEnsureMacosGuest {

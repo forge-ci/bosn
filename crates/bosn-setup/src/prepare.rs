@@ -487,6 +487,7 @@ mod tests {
             tmpfs: Vec::new(),
             host_docker_socket: None,
             macos_guest: None,
+            manifest_keepalive: false,
         }
     }
 
@@ -531,6 +532,7 @@ mod tests {
                 tmpfs: Vec::new(),
                 host_docker_socket: None,
                 macos_guest: None,
+                manifest_keepalive: false,
             },
         )
     }

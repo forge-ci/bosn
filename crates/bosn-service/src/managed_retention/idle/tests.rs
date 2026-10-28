@@ -240,3 +240,25 @@ fn process_tables_other_than_the_bare_keepalive_are_protected() {
     assert!(!only_keepalive_processes(b"PID COMMAND\n"));
     assert!(!only_keepalive_processes(b"COMMAND\nsh\n"));
 }
+
+#[test]
+fn keepalive_detection_checks_the_effective_entrypoint() {
+    let command = bosn_setup::login_shell_args(crate::MANIFEST_LINUX_IDLE_COMMAND);
+    let detail =
+        |entrypoint: serde_json::Value, cmd: serde_json::Value| -> super::super::ContainerDetail {
+            serde_json::from_value(serde_json::json!({
+                "Id": "test", "Name": "/test", "Created": "2020-01-01T00:00:00Z",
+                "Config": {"Labels": {}, "Entrypoint": entrypoint, "Cmd": cmd}
+            }))
+            .unwrap()
+        };
+    let modern = detail(serde_json::json!(["sh"]), serde_json::json!(&command[1..]));
+    assert!(super::is_keepalive(&modern));
+    let legacy = detail(serde_json::Value::Null, serde_json::json!(command));
+    assert!(super::is_keepalive(&legacy));
+    let foreign = detail(
+        serde_json::json!(["/entrypoint.sh"]),
+        serde_json::json!(command),
+    );
+    assert!(!super::is_keepalive(&foreign));
+}
