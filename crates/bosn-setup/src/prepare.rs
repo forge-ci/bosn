@@ -97,11 +97,18 @@ impl SetupImageEngine for DockerEngine {
         cancellation: &'a CancellationToken,
         events: &'a Sender<EngineEvent>,
     ) -> Self::StreamFuture<'a> {
+        let private = matches!(command, SetupImageCommand::Inspect { .. });
         let mut engine = self.with_args(command.docker_args());
         if let SetupImageCommand::Build { asset_root, .. } = command {
             engine = engine.current_dir(asset_root);
         }
-        Box::pin(async move { engine.stream(options, Some(cancellation), events).await })
+        Box::pin(async move {
+            if private {
+                crate::ensure::private_observation(&engine, options, cancellation).await
+            } else {
+                engine.stream(options, Some(cancellation), events).await
+            }
+        })
     }
 }
 
@@ -208,7 +215,7 @@ pub async fn prepare_setup_image<E: SetupImageEngine>(
     if !action_result.ok() {
         return Err(SetupPrepareError::ActionFailed {
             action: action_name,
-            detail: failure_detail(&action_result),
+            detail: format!("command exited with status {}", action_result.exit_code),
         });
     }
 
@@ -227,13 +234,13 @@ pub async fn prepare_setup_image<E: SetupImageEngine>(
     if !inspected.ok() {
         return Err(SetupPrepareError::ActionFailed {
             action: "image inspect",
-            detail: failure_detail(&inspected),
+            detail: "private image inspection failed".into(),
         });
     }
     let observed_identity =
         stable_identity(&inspected.stdout).ok_or_else(|| SetupPrepareError::MissingIdentity {
             reference: reference.clone(),
-            observed: String::from_utf8_lossy(&inspected.stdout).trim().to_owned(),
+            observed: "<invalid private image identity>".into(),
         })?;
     Ok(PreparedImage {
         setup_content_sha256: plan.content_sha256.clone(),
@@ -329,23 +336,31 @@ async fn stream_command<E: SetupImageEngine>(
     if remaining.is_zero() {
         return Err(SetupPrepareError::Deadline);
     }
+    let private = matches!(command, SetupImageCommand::Inspect { .. });
+    let limit = if private {
+        crate::creation::MAX_OBSERVATION_BYTES
+    } else {
+        *remaining_output
+    };
     let result = engine
         .stream(
             command,
-            RunOptions::streaming(remaining, *remaining_output),
+            RunOptions::streaming(remaining, limit),
             cancellation,
             events,
         )
         .await?;
     let used = result.stdout.len().saturating_add(result.stderr.len());
-    if used > *remaining_output {
+    if used > limit {
         return Err(SetupPrepareError::Transport(CommandError::OutputLimit {
-            limit: *remaining_output,
+            limit,
             reaped_pid: None,
             cleanup: None,
         }));
     }
-    *remaining_output -= used;
+    if !private {
+        *remaining_output -= used;
+    }
     Ok(result)
 }
 
@@ -374,19 +389,6 @@ fn stable_identity(bytes: &[u8]) -> Option<String> {
     let identity = std::str::from_utf8(bytes).ok()?.trim();
     (identity.len() == 71 && identity.starts_with("sha256:") && valid_hash(&identity[7..]))
         .then(|| identity.to_owned())
-}
-
-fn failure_detail(result: &CommandResult) -> String {
-    let detail = if result.stderr.is_empty() {
-        &result.stdout
-    } else {
-        &result.stderr
-    };
-    String::from_utf8_lossy(detail)
-        .trim()
-        .chars()
-        .take(4096)
-        .collect()
 }
 
 #[cfg(test)]
@@ -733,5 +735,78 @@ mod tests {
                 "{escaped:?}"
             );
         }
+    }
+    #[test]
+    fn image_inspection_does_not_consume_public_output_budget() {
+        let engine = FakeEngine::with_results([result(vec![b'x'; 8192])]);
+        let cancellation = CancellationSource::new();
+        let (events, _receiver) = channel(8);
+        let mut remaining = 1;
+        let result = runtime().run(stream_command(
+            &engine,
+            SetupImageCommand::Inspect {
+                image: "private".into(),
+            },
+            Deadline::after(Duration::from_secs(2)),
+            &mut remaining,
+            &cancellation.token(),
+            &events,
+        ));
+        assert_eq!(result.unwrap().stdout.len(), 8192);
+        assert_eq!(remaining, 1);
+    }
+
+    #[cfg(all(unix, feature = "native-test-helper"))]
+    #[test]
+    fn image_inspection_events_are_private() {
+        let engine = DockerEngine::synthetic_for_test(
+            "/bin/sh",
+            ["-c", "printf private-image-canary", "sh"],
+        );
+        let cancellation = CancellationSource::new();
+        let (events, mut receiver) = channel(8);
+        let result = runtime()
+            .run(SetupImageEngine::stream(
+                &engine,
+                SetupImageCommand::Inspect {
+                    image: "ignored".into(),
+                },
+                RunOptions::streaming(Duration::from_secs(2), 4096),
+                &cancellation.token(),
+                &events,
+            ))
+            .unwrap();
+        assert_eq!(result.stdout, b"private-image-canary");
+        drop(events);
+        assert!(runtime().run(receiver.recv()).is_none());
+    }
+    #[test]
+    fn failed_private_image_command_does_not_expose_output() {
+        let image = format!("registry.example/team/app@sha256:{HASH}");
+        let engine = FakeEngine::with_results([Ok(CommandResult {
+            exit_code: 7,
+            stdout: Vec::new(),
+            stderr: b"private-secret-canary".to_vec(),
+        })]);
+        let cancel = CancellationSource::new();
+        let error = run(&engine, &pinned(&image), &cancel.token())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("status 7"));
+        assert!(!error.contains("private-secret-canary"));
+    }
+    #[test]
+    fn malformed_private_image_identity_does_not_expose_output() {
+        let image = format!("registry.example/team/app@sha256:{HASH}");
+        let engine = FakeEngine::with_results([
+            result(Vec::new()),
+            result(b"private-identity-canary".to_vec()),
+        ]);
+        let cancel = CancellationSource::new();
+        let error = run(&engine, &pinned(&image), &cancel.token())
+            .unwrap_err()
+            .to_string();
+        assert!(!error.contains("private-identity-canary"));
+        assert!(error.contains("stable image identity"));
     }
 }

@@ -63,7 +63,17 @@ app-task`, their MCP tools, and `bosn run`) accept a deadline of up to four
 hours and an output budget of up to 64 MiB, because a declared stack builds
 and runs whole CI workloads. Setup-document operations keep their five-minute
 and 8 MiB bounds. Task output is held in daemon memory until the exec ends, so
-the output ceiling remains finite.
+the output ceiling remains finite. For ordinary container tasks, `--output-limit`
+bounds task output independently from setup: internal Docker receipts are private
+and capped at 256 KiB per command, while pull/build progress is privately drained
+under a separate 8 MiB limit and retained in the private raw run log for
+failure diagnosis. Private progress also refreshes the stall watchdog without
+adding task log lines. Setup still obeys the same deadline, and an
+oversized internal response fails rather than accepting incomplete ownership
+or configuration evidence. An output-limited task is stopped and reports the
+limit; its user-visible output is not silently accepted as complete. macOS
+guest tasks continue to divide their budget between SSH readiness, any SCP
+upload, and the remote task.
 
 The same bounded semantic operation is available as
 `Client.submit_manifest_ensure(...)` in the Python wheel and the

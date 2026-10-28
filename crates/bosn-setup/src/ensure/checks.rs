@@ -239,25 +239,11 @@ pub(crate) fn is_windows_absolute(path: &str) -> bool {
         && (bytes[2] == b'/' || bytes[2] == b'\\')
 }
 
-pub(crate) fn failure_detail(result: &CommandResult) -> String {
-    let detail = if result.stderr.is_empty() {
-        &result.stdout
-    } else {
-        &result.stderr
-    };
-    String::from_utf8_lossy(detail)
-        .trim()
-        .chars()
-        .take(4096)
-        .collect()
-}
-
 pub(crate) async fn verify_configuration<E: SetupEnsureEngine>(
     engine: &E,
     observed: &SetupEnsureObservedContainer,
     expected: &DerivedEnsure,
     deadline: &Deadline,
-    remaining_output: &mut usize,
     request: &SetupEnsureRequest<'_>,
 ) -> Result<(), SetupEnsureError> {
     let response = invoke(
@@ -266,7 +252,6 @@ pub(crate) async fn verify_configuration<E: SetupEnsureEngine>(
             image_identity: expected.image_identity.clone(),
         },
         deadline,
-        remaining_output,
         request,
     )
     .await?;
@@ -275,7 +260,6 @@ pub(crate) async fn verify_configuration<E: SetupEnsureEngine>(
             "image configuration observation protocol mismatch",
         ));
     };
-    consume_output(&result, remaining_output, request.options.output_limit)?;
     if !result.ok() {
         return Err(SetupEnsureError::EngineProtocol(
             "private image configuration inspect failed",
@@ -291,7 +275,6 @@ pub(crate) async fn verify_configuration<E: SetupEnsureEngine>(
                 volume_name: volume.name.clone(),
             },
             deadline,
-            remaining_output,
             request,
         )
         .await?;
@@ -300,7 +283,6 @@ pub(crate) async fn verify_configuration<E: SetupEnsureEngine>(
                 "private volume observation protocol mismatch",
             ));
         };
-        consume_output(&result, remaining_output, request.options.output_limit)?;
         if !result.ok() {
             return Err(SetupEnsureError::OwnershipMismatch);
         }
