@@ -71,6 +71,16 @@ is unavailable after restart. `bosn ci wait --deadline-ms` only bounds the
 observation; it does not stop a detached run. Cleanup and recovery have their own safety limits and retain
 unacknowledged resources for reconciliation.
 
+A newer client requests automatic daemon handoff only through a recovery-aware
+operation. Daemons that do not support that operation stay running; a supported
+daemon also defers handoff while its recovery journal or helper records are
+pending. If recovery reports that a source volume is missing, inspect the daemon
+logs for the engine ID and preserve its registry and Docker resources. On Linux
+with the user service, `journalctl --user -u com.zackees.bosn.service` shows
+those logs. A missing volume is not proof that its data can be recovered; there
+is currently no supported force-clear procedure for this state. Docker access
+and ownership errors are distinct from a confirmed missing volume.
+
 ## A run lives as long as its client
 
 `bosn ci run` and `bosn ci retry` wait for the run, and the run belongs to that

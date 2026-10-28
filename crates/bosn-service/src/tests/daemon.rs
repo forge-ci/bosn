@@ -246,6 +246,11 @@ fn a_busy_daemon_is_never_stopped_for_a_handoff() {
             panic!("a daemon with a running job agreed to stop");
         };
         assert!(reason.contains("1 unfinished job(s)"), "{reason}");
+        assert!(matches!(
+            client.call(Request::operation(39)).await.unwrap(),
+            Reply::Busy(_)
+        ));
+
         assert_eq!(client.job_status(job).await.unwrap().state, "Running");
         client.shutdown().await.unwrap();
         stopped(server).await;

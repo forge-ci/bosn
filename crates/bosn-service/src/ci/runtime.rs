@@ -29,6 +29,7 @@ use super::{
     workflow,
 };
 use crate::{RegistryActor, secrets::SecretMasker};
+mod admission;
 mod cancel;
 mod capacity;
 mod cleanup;
@@ -132,6 +133,8 @@ impl CiState {
 pub struct CiRuntime {
     /// The daemon state directory (secrets are read from it per run).
     state_dir: std::path::PathBuf,
+    admission: Arc<async_engine::Mutex<()>>,
+    admission_closed: Arc<std::sync::atomic::AtomicBool>,
     store: Store,
     writer: RecordWriter,
     state: Arc<Mutex<CiState>>,
@@ -218,6 +221,8 @@ impl CiRuntime {
         let (kick, kicked) = async_engine::channel(64);
         let runtime = Self {
             state_dir: state_dir.to_path_buf(),
+            admission: Arc::new(async_engine::Mutex::new(())),
+            admission_closed: Arc::default(),
             writer,
             store,
             state: Arc::new(Mutex::new(state)),
@@ -262,6 +267,7 @@ impl CiRuntime {
         request: CiRequest,
         owner: Option<crate::ClientOwner>,
     ) -> Result<Value, CiError> {
+        let _admission_guard = self.admission_guard(&request).await?;
         match request {
             CiRequest::Submit { request } => wire(self.submit(*request, owner).await),
             CiRequest::List {

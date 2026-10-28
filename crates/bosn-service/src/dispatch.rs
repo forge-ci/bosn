@@ -13,6 +13,7 @@ pub(crate) struct ConnectionContext {
     pub(crate) state_dir: PathBuf,
     pub(crate) identity: Arc<DaemonIdentity>,
     pub(crate) ci: ci::CiRuntime,
+    pub(crate) admission: Arc<async_engine::Mutex<()>>,
 }
 
 pub(crate) fn ci_error_wire(code: &str, message: String) -> ReplyWire {
@@ -62,6 +63,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
         state_dir,
         identity,
         ci,
+        admission,
     } = context;
     if !peer_is_authorized(&s.peer_identity()?.user_id, &ipc::current_user_id()?) {
         return Err(Error::Unauthorized);
@@ -74,6 +76,16 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
         return Err(Error::Protocol("request frame"));
     }
     let r = Request::decode(f.payload()).map_err(|_| Error::Protocol("request decode"))?;
+    let changes_admission = matches!(r.operation, 4 | 8 | 9 | 10 | 21 | 22 | 23 | 24 | 39 | 40);
+    let _admission_guard = if changes_admission {
+        Some(admission.lock().await)
+    } else {
+        None
+    };
+    if changes_admission && stop.is_cancelled() {
+        return Err(Error::Protocol("daemon handoff in progress"));
+    }
+
     let reply = if r.protocol_version != PROTOCOL_VERSION {
         ReplyWire {
             code: 1,
@@ -110,7 +122,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                     ..Default::default()
                 }
             }
-            crate::handoff::OP_STOP_IF_IDLE => {
+            crate::handoff::OP_STOP_IF_IDLE | crate::handoff::OP_STOP_IF_IDLE_LEGACY => {
                 crate::handoff::stop_if_idle(&actor, &jobs, &ci, &stop).await
             }
             4 => match jobs.submit(r.workspace, r.stack, r.digest).await {

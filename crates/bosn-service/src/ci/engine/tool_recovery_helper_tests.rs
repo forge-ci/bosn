@@ -741,6 +741,12 @@ if args[:2]==['image','inspect']:
 elif args[:2]==['volume','inspect']:
     assert args[-1] in [data['source'],data['cache']]
     if release: assert args[-1]==data['cache']
+    if mode=='source-missing' and args[-1]==data['source']:
+        print('Error response from daemon: get '+data['source']+': no such volume', file=sys.stderr); sys.exit(1)
+    if mode=='source-ambiguous' and args[-1]==data['source']:
+        print('permission denied; no such volume', file=sys.stderr); sys.exit(1)
+    if mode=='source-unavailable' and args[-1]==data['source']:
+        print('permission denied', file=sys.stderr); sys.exit(1)
     if mode=='cache-changed' and (root/'created').exists():
         row=json.loads((root/'cache.json').read_text());row[0]['Labels']={};print(json.dumps(row))
     elif mode=='source-path-changed' and (root/'created').exists() and args[-1]==data['source']:
@@ -904,4 +910,42 @@ async fn assert_disposal_removed(
         .await
         .unwrap();
     helper
+}
+
+#[test]
+fn missing_recovery_source_is_diagnosed_without_mutation() {
+    with_registry(|actor, state| async move {
+        let record = seed_source(&actor, false).await;
+        for mode in ["source-missing", "source-unavailable", "source-ambiguous"] {
+            let (dir, backend) = backend(&record, &state, mode);
+            let error = backend
+                .verify_recovery_source(&record, OWNER)
+                .await
+                .unwrap_err();
+            if mode == "source-missing" {
+                assert!(
+                    error.contains("source volume")
+                        && error.contains("is missing")
+                        && error.contains("preserve its journal"),
+                    "{error}"
+                );
+            } else {
+                assert!(!error.contains("is missing"), "{error}");
+            }
+            assert!(
+                commands(dir.path())
+                    .iter()
+                    .all(|command| !command.iter().any(|arg| arg == "rm" || arg == "create"))
+            );
+        }
+        let reader = Registry::open_read_only(state.join("registry.sqlite3")).unwrap();
+        assert!(
+            reader
+                .act_engine(&record.intent.run_id)
+                .unwrap()
+                .unwrap()
+                .tool_recovery
+                .is_some()
+        );
+    });
 }

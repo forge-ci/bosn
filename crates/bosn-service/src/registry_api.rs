@@ -548,6 +548,11 @@ pub struct RegistryActor {
     pub(crate) sender: async_engine::Sender<DbCommand>,
 }
 pub(crate) enum DbCommand {
+    RecoveryHandoff {
+        closed: Arc<std::sync::atomic::AtomicBool>,
+        stop: async_engine::CancellationSource,
+        reply: async_engine::OneshotSender<Result<Option<String>, Error>>,
+    },
     StorageCheckpointer(async_engine::OneshotSender<Option<bosn_registry::RegistryCheckpointer>>),
     ActRegistry {
         command: Box<act_registry::ActRegistryCommand>,
