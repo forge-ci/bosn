@@ -396,3 +396,25 @@ fn a_joined_owner_keeps_shared_work_alive_and_finished_jobs_forget_owners() {
     jobs.own(id, Some(client(12)), false);
     assert!(jobs.owners.is_empty(), "a finished job gains no owner");
 }
+
+#[test]
+fn private_activity_prevents_stall_without_emitting_a_log_line() {
+    let mut jobs = Jobs::new(1);
+    let id = started(
+        jobs.submit_class("workspace", "stack", "digest", JobClass::Runner)
+            .unwrap(),
+    );
+    let now = Instant::now();
+    jobs.jobs.get_mut(&id).unwrap().last_progress = Some(now - Duration::from_secs(10));
+    assert_eq!(
+        jobs.stalled(now, Duration::from_secs(1), |_| None),
+        vec![id]
+    );
+    let clock = jobs.private_activity(id);
+    *clock.lock().unwrap() = Some(Instant::now());
+    assert!(
+        jobs.stalled(Instant::now(), Duration::from_secs(1), |_| None)
+            .is_empty()
+    );
+    assert!(jobs.logs(id, 0).unwrap().1.is_empty());
+}

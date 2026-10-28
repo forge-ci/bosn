@@ -683,6 +683,7 @@ pub(crate) fn launch_started_setup_jobs(
         let token = cancellation.token();
         cancellations.insert(id, cancellation);
         let task_sender = sender.clone();
+        let private_activity = jobs.private_activity(id);
         let session_recorder = ActorSetupAppTaskSessionRecorder {
             actor: registry.clone(),
             job_id: id,
@@ -763,6 +764,7 @@ pub(crate) fn launch_started_setup_jobs(
             } else {
                 crate::raw_run_log::JobLogSink::transient(text_logs)
             };
+            let logs = logs.with_progress(private_activity);
             let log_sender = task_sender.clone();
             let forwarder = async_engine::launch(async move {
                 while let Some(line) = log_receiver.recv().await {

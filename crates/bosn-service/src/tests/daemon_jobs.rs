@@ -991,3 +991,5 @@ fn a_silent_task_is_torn_down_as_stalled_and_a_chatty_one_is_not() {
             stopped(server).await;
         });
 }
+
+mod private_activity;

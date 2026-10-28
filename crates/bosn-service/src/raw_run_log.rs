@@ -74,18 +74,41 @@ pub struct RunEnd {
 pub struct JobLogSink {
     sender: async_engine::Sender<String>,
     raw: Option<Arc<Mutex<RawRunLog>>>,
+    progress: Option<Arc<Mutex<Option<std::time::Instant>>>>,
 }
 
 impl JobLogSink {
     pub fn transient(sender: async_engine::Sender<String>) -> Self {
-        Self { sender, raw: None }
+        Self {
+            sender,
+            raw: None,
+            progress: None,
+        }
     }
 
     pub fn durable(sender: async_engine::Sender<String>, raw: RawRunLog) -> Self {
         Self {
             sender,
             raw: Some(Arc::new(Mutex::new(raw))),
+            progress: None,
         }
+    }
+
+    pub(crate) fn with_progress(mut self, clock: Arc<Mutex<Option<std::time::Instant>>>) -> Self {
+        self.progress = Some(clock);
+        self
+    }
+
+    pub(crate) fn has_raw(&self) -> bool {
+        self.raw.is_some()
+    }
+
+    pub(crate) async fn activity(&self) -> Result<(), String> {
+        if let Some(clock) = &self.progress {
+            *clock.lock().unwrap_or_else(|error| error.into_inner()) =
+                Some(std::time::Instant::now());
+        }
+        Ok(())
     }
 
     pub fn append(&self, event: &EngineEvent) -> Result<(), String> {

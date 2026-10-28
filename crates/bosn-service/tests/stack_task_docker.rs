@@ -22,7 +22,11 @@ impl StackWorkspace {
     fn new(manifest: &str) -> Self {
         let engine = DockerEngine::docker();
         pinned_alpine_identity(&engine);
-        let root = tempfile::tempdir().expect("temporary test root");
+        let root = if let Some(dir) = std::env::var_os("BOSN_LIVE_TEST_ROOT") {
+            tempfile::tempdir_in(dir).expect("temporary test root")
+        } else {
+            tempfile::tempdir().expect("temporary test root")
+        };
         let workspace = root.path().join("workspace");
         let state = root.path().join("state");
         std::fs::create_dir(&workspace).expect("create workspace");
@@ -344,4 +348,48 @@ fn live_docker_a_retired_generation_keeps_running_until_its_last_task_ends() {
         !stack.running(&retired[0]),
         "retired container still running"
     );
+}
+
+/// The caller's log cap must not limit private Docker inspection JSON.
+#[test]
+#[ignore = "requires a local Docker daemon and the pinned Alpine image"]
+fn live_docker_small_output_limit_keeps_private_inspection_independent() {
+    let manifest = format!(
+        "[stack.live]\nimage = '{PINNED_ALPINE}'\ndefault_target_volume = false\n\
+         [task.quiet]\nstack = 'live'\ncmd = 'printf output-limit-ok'\n\
+         [task.medium]\nstack = 'live'\ncmd = 'printf medium-start; printf %02048d 1; printf medium-end'\n\
+         [task.noisy]\nstack = 'live'\ncmd = 'yes x | head -c 100000'\n"
+    );
+    let workspace = StackWorkspace::new(&manifest);
+    let quiet = workspace
+        .bosn_run("quiet")
+        .args(["--deadline-ms", "60000", "--output-limit", "4096"])
+        .output()
+        .expect("run quiet task");
+    let quiet = StackWorkspace::output_of("quiet", quiet);
+    assert!(quiet.contains("output-limit-ok"));
+    let medium = workspace
+        .bosn_run("medium")
+        .args(["--deadline-ms", "60000", "--output-limit", "4096"])
+        .output()
+        .expect("run medium-output task");
+    let medium = StackWorkspace::output_of("medium", medium);
+    assert!(medium.contains("medium-start"));
+    assert!(medium.contains("medium-end"));
+    let noisy = workspace
+        .bosn_run("noisy")
+        .args(["--deadline-ms", "60000", "--output-limit", "4096"])
+        .output()
+        .expect("run noisy task");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&noisy.stdout),
+        String::from_utf8_lossy(&noisy.stderr)
+    );
+    assert!(!noisy.status.success(), "large output must be bounded");
+    assert!(
+        text.contains("output exceeded"),
+        "missing output-limit error: {text}"
+    );
+    assert!(text.len() < 16384, "exposed output must remain bounded");
 }

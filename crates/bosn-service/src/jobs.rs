@@ -20,6 +20,7 @@
 use crate::{ClientOwner, Liveness, owner::Owners};
 use std::{
     collections::{BTreeMap, VecDeque},
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -164,6 +165,8 @@ pub struct Jobs {
     running: BTreeMap<JobClass, usize>,
     closing: bool,
     jobs: BTreeMap<u64, Job>,
+    /// Shared private-output timestamps bypass a backlogged actor queue.
+    private_activity: BTreeMap<u64, Arc<Mutex<Option<Instant>>>>,
     slots: BTreeMap<(String, String), Slot>,
     /// Admissible queued jobs per class, per workspace, FIFO within one
     /// workspace; see [`Self::pump`].
@@ -545,6 +548,7 @@ impl Jobs {
         self.finish_at(id, state, error, Instant::now());
     }
     fn finish_at(&mut self, id: u64, state: JobState, error: Option<String>, now: Instant) {
+        self.private_activity.remove(&id);
         let key = self.jobs[&id].key();
         let was_running = matches!(
             self.jobs[&id].state,
@@ -644,12 +648,26 @@ impl Jobs {
             .values()
             .filter(|job| job.state == JobState::Running && job.class == JobClass::Runner)
             .filter(|job| {
-                let last = job.last_progress.into_iter().chain(activity(job.id)).max();
+                let private = self
+                    .private_activity
+                    .get(&job.id)
+                    .and_then(|clock| *clock.lock().unwrap_or_else(|error| error.into_inner()));
+                let last = job
+                    .last_progress
+                    .into_iter()
+                    .chain(activity(job.id))
+                    .chain(private)
+                    .max();
                 last.is_some_and(|last| now.saturating_duration_since(last) > after)
             })
             .map(|job| job.id)
             .collect()
     }
+    /// Give a running job a bounded private-output activity clock.
+    pub(crate) fn private_activity(&mut self, id: u64) -> Arc<Mutex<Option<Instant>>> {
+        self.private_activity.entry(id).or_default().clone()
+    }
+
     pub fn log(&mut self, id: u64, line: String) -> Result<u64, JobError> {
         if line.len() > MAX_LOG_LINE_BYTES {
             return Err(JobError::LogTooLarge);
@@ -726,6 +744,7 @@ impl Default for Jobs {
             running: BTreeMap::new(),
             closing: false,
             jobs: BTreeMap::new(),
+            private_activity: BTreeMap::new(),
             slots: BTreeMap::new(),
             queues: BTreeMap::new(),
             served: BTreeMap::new(),

@@ -704,9 +704,13 @@ fn ensure_pipeline_does_not_reset_budget_and_never_mutates_after_prepare_or_owne
             .await
             .unwrap();
     });
-    // The prepare helper uses its one 1024-byte allocation for pull and
-    // inspect; ensure receives the disjoint 1025-byte remainder, never
-    // the caller's full 2049-byte cap again.
-    assert_eq!(success.image_calls.lock().unwrap()[0].1.output_limit, 1024);
-    assert_eq!(success.ensure_calls.lock().unwrap()[0].1.output_limit, 1025);
+    // Pull progress retains its public budget; private image inspection and
+    // ensure receipts use the independent bounded protocol limit.
+    let image_calls = success.image_calls.lock().unwrap();
+    assert_eq!(image_calls[0].1.output_limit, 1024);
+    assert_eq!(image_calls[1].1.output_limit, 256 * 1024);
+    assert_eq!(
+        success.ensure_calls.lock().unwrap()[0].1.output_limit,
+        256 * 1024
+    );
 }

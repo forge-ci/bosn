@@ -8,46 +8,11 @@ use std::{
 use super::*;
 use kernal_api::async_engine::{CancellationSource, RuntimeBuilder, channel};
 mod macos_guest;
+mod output_limits;
 
 const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const IDENTITY: &str = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const CONTAINER_ID: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-
-#[cfg(all(unix, feature = "native-test-helper"))]
-#[test]
-fn structured_inspection_environment_is_captured_privately_not_forwarded() {
-    let engine = DockerEngine::synthetic_for_test(
-        "/bin/sh",
-        [
-            "-c",
-            "printf '%s' '{\"Config\":{\"Env\":[\"SECRET=private-canary\"]}}'",
-            "sh",
-        ],
-    );
-    let cancellation = CancellationSource::new();
-    let (events, mut receiver) = channel(8);
-    let result = runtime()
-        .run(SetupEnsureEngine::stream(
-            &engine,
-            SetupEnsureCommand::ImageInspect {
-                image_identity: IDENTITY.into(),
-            },
-            RunOptions::streaming(Duration::from_secs(2), 4096),
-            &cancellation.token(),
-            &events,
-        ))
-        .unwrap();
-    let SetupEnsureResponse::Command(result) = result else {
-        panic!("expected private command receipt");
-    };
-    assert!(
-        String::from_utf8(result.stdout)
-            .unwrap()
-            .contains("private-canary")
-    );
-    drop(events);
-    assert!(runtime().run(receiver.recv()).is_none());
-}
 
 #[derive(Default)]
 struct FakeEngine {
@@ -884,7 +849,11 @@ fn cancellation_deadline_output_and_nonzero_never_continue_to_mutation() {
     assert!(deadline.calls.lock().unwrap().is_empty());
     let output = FakeEngine::with_results([Ok(SetupEnsureResponse::Inspection(
         Some(observed(&plan, true)),
-        result(0, b"12345", []),
+        result(
+            0,
+            vec![b'x'; crate::creation::MAX_OBSERVATION_BYTES + 1],
+            [],
+        ),
     ))]);
     let source = CancellationSource::new();
     assert!(matches!(

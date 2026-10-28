@@ -308,20 +308,13 @@ impl SetupEnsureEngine for DockerEngine {
         command: SetupEnsureCommand,
         options: RunOptions,
         cancellation: &'a CancellationToken,
-        events: &'a Sender<EngineEvent>,
+        _events: &'a Sender<EngineEvent>,
     ) -> Self::StreamFuture<'a> {
         let engine = self.with_args(command.docker_args());
         Box::pin(async move {
-            let result = if matches!(
-                command,
-                SetupEnsureCommand::Inspect { .. }
-                    | SetupEnsureCommand::ImageInspect { .. }
-                    | SetupEnsureCommand::VolumeInspect { .. }
-            ) {
-                private_observation(&engine, options, cancellation).await?
-            } else {
-                engine.stream(options, Some(cancellation), events).await?
-            };
+            // Every ensure command is a protocol operation. Its receipt is
+            // consumed internally, including create IDs and collision errors.
+            let result = private_observation(&engine, options, cancellation).await?;
             if !matches!(command, SetupEnsureCommand::Inspect { .. }) {
                 return Ok(SetupEnsureResponse::Command(result));
             }
@@ -339,7 +332,7 @@ impl SetupEnsureEngine for DockerEngine {
 
 /// Raw Config/Env is verifier input, never job-log output. Keep the same
 /// cancellation/deadline/reap path while draining an owned private channel.
-async fn private_observation(
+pub(crate) async fn private_observation(
     engine: &DockerEngine,
     options: RunOptions,
     cancellation: &CancellationToken,
@@ -453,20 +446,17 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
     }
 
     let deadline = Deadline::after(request.options.deadline);
-    let mut remaining_output = request.options.output_limit;
     let inspection = invoke(
         engine,
         SetupEnsureCommand::Inspect {
             container_name: derived.container_name.clone(),
         },
         &deadline,
-        &mut remaining_output,
         request,
     )
     .await?;
     let observed = match inspection {
         SetupEnsureResponse::Inspection(observed, result) => {
-            consume_output(&result, &mut remaining_output, request.options.output_limit)?;
             if observed.is_some() && !result.ok() {
                 return Err(SetupEnsureError::EngineProtocol(
                     "present inspection has a nonzero result",
@@ -485,8 +475,7 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
             }
             observed
         }
-        SetupEnsureResponse::Command(result) => {
-            consume_output(&result, &mut remaining_output, request.options.output_limit)?;
+        SetupEnsureResponse::Command(_) => {
             return Err(SetupEnsureError::ActionFailed {
                 action: "container inspect",
                 detail: "private container observation failed".into(),
@@ -496,15 +485,7 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
 
     if let Some(observed) = observed {
         validate_observed(&observed, &derived)?;
-        verify_configuration(
-            engine,
-            &observed,
-            &derived,
-            &deadline,
-            &mut remaining_output,
-            request,
-        )
-        .await?;
+        verify_configuration(engine, &observed, &derived, &deadline, request).await?;
         if observed.running {
             return Ok(SetupEnsureResult {
                 container_name: derived.container_name,
@@ -521,16 +502,10 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
                 container_name: derived.container_name.clone(),
             },
             &deadline,
-            &mut remaining_output,
             request,
         )
         .await?;
-        require_action_success(
-            "container start",
-            response,
-            &mut remaining_output,
-            request.options.output_limit,
-        )?;
+        require_action_success("container start", response)?;
         return Ok(SetupEnsureResult {
             container_name: derived.container_name,
             container_id: observed.container_id,
@@ -553,7 +528,6 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
                 volume_name: volume.name.clone(),
             },
             &deadline,
-            &mut remaining_output,
             request,
         )
         .await?;
@@ -562,7 +536,6 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
                 "volume inspection returned container response",
             ));
         };
-        consume_output(&result, &mut remaining_output, request.options.output_limit)?;
         if result.ok() {
             let observed = crate::creation::bounded_json(&result.stdout)
                 .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
@@ -574,16 +547,10 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
                     volume: volume.clone(),
                 },
                 &deadline,
-                &mut remaining_output,
                 request,
             )
             .await?;
-            require_action_success(
-                "volume create",
-                response,
-                &mut remaining_output,
-                request.options.output_limit,
-            )?;
+            require_action_success("volume create", response)?;
         } else {
             return Err(SetupEnsureError::EngineProtocol(
                 "private volume inspect failed",
@@ -591,20 +558,8 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
         }
     }
 
-    let response = invoke(
-        engine,
-        derived.create_command(),
-        &deadline,
-        &mut remaining_output,
-        request,
-    )
-    .await?;
-    let created = require_action_success(
-        "container create",
-        response,
-        &mut remaining_output,
-        request.options.output_limit,
-    )?;
+    let response = invoke(engine, derived.create_command(), &deadline, request).await?;
+    let created = require_action_success("container create", response)?;
     let container_id = parse_created_id(&created.stdout)?;
     let response = invoke(
         engine,
@@ -612,43 +567,27 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
             container_name: derived.container_name.clone(),
         },
         &deadline,
-        &mut remaining_output,
         request,
     )
     .await?;
     let SetupEnsureResponse::Inspection(Some(observed), result) = response else {
         return Err(SetupEnsureError::OwnershipMismatch);
     };
-    consume_output(&result, &mut remaining_output, request.options.output_limit)?;
     if !result.ok() || observed.container_id != container_id {
         return Err(SetupEnsureError::OwnershipMismatch);
     }
     validate_observed(&observed, &derived)?;
-    verify_configuration(
-        engine,
-        &observed,
-        &derived,
-        &deadline,
-        &mut remaining_output,
-        request,
-    )
-    .await?;
+    verify_configuration(engine, &observed, &derived, &deadline, request).await?;
     let response = invoke(
         engine,
         SetupEnsureCommand::Start {
             container_name: derived.container_name.clone(),
         },
         &deadline,
-        &mut remaining_output,
         request,
     )
     .await?;
-    require_action_success(
-        "container start",
-        response,
-        &mut remaining_output,
-        request.options.output_limit,
-    )?;
+    require_action_success("container start", response)?;
     Ok(SetupEnsureResult {
         container_name: derived.container_name,
         container_id,
@@ -679,14 +618,12 @@ pub async fn adopt_setup_app<E: SetupEnsureEngine>(
         return Err(SetupEnsureError::InvalidRequest("output budget is zero"));
     }
     let deadline = Deadline::after(request.options.deadline);
-    let mut remaining_output = request.options.output_limit;
     let inspection = invoke(
         engine,
         SetupEnsureCommand::Inspect {
             container_name: derived.container_name.clone(),
         },
         &deadline,
-        &mut remaining_output,
         &request,
     )
     .await?;
@@ -695,7 +632,6 @@ pub async fn adopt_setup_app<E: SetupEnsureEngine>(
             "inspection returned a mutation response",
         ));
     };
-    consume_output(&result, &mut remaining_output, request.options.output_limit)?;
     let observed = match observed {
         Some(observed) if result.ok() => observed,
         Some(_) => {
@@ -717,15 +653,7 @@ pub async fn adopt_setup_app<E: SetupEnsureEngine>(
         }
     };
     validate_observed(&observed, &derived)?;
-    verify_configuration(
-        engine,
-        &observed,
-        &derived,
-        &deadline,
-        &mut remaining_output,
-        &request,
-    )
-    .await?;
+    verify_configuration(engine, &observed, &derived, &deadline, &request).await?;
     Ok(SetupEnsureResult {
         container_name: derived.container_name,
         container_id: observed.container_id,
@@ -740,55 +668,46 @@ async fn invoke<E: SetupEnsureEngine>(
     engine: &E,
     command: SetupEnsureCommand,
     deadline: &Deadline,
-    remaining_output: &mut usize,
     request: &SetupEnsureRequest<'_>,
 ) -> Result<SetupEnsureResponse, SetupEnsureError> {
     if request.cancellation.is_cancelled() {
         return Err(SetupEnsureError::Cancelled);
     }
-    if *remaining_output == 0 {
-        return Err(SetupEnsureError::Transport(CommandError::OutputLimit {
-            limit: request.options.output_limit,
-            reaped_pid: None,
-            cleanup: None,
-        }));
-    }
     let remaining = deadline.remaining();
     if remaining.is_zero() {
         return Err(SetupEnsureError::Deadline);
     }
-    let output_limit = if matches!(
-        command,
-        SetupEnsureCommand::Inspect { .. }
-            | SetupEnsureCommand::ImageInspect { .. }
-            | SetupEnsureCommand::VolumeInspect { .. }
-    ) {
-        (*remaining_output).min(crate::creation::MAX_OBSERVATION_BYTES)
-    } else {
-        *remaining_output
-    };
-    Ok(engine
+    let limit = crate::creation::MAX_OBSERVATION_BYTES;
+    let response = engine
         .stream(
             command,
-            RunOptions::streaming(remaining, output_limit),
+            RunOptions::streaming(remaining, limit),
             request.cancellation,
             request.events,
         )
-        .await?)
+        .await?;
+    let result = match &response {
+        SetupEnsureResponse::Inspection(_, result) | SetupEnsureResponse::Command(result) => result,
+    };
+    if result.stdout.len().saturating_add(result.stderr.len()) > limit {
+        return Err(SetupEnsureError::Transport(CommandError::OutputLimit {
+            limit,
+            reaped_pid: None,
+            cleanup: None,
+        }));
+    }
+    Ok(response)
 }
 
 fn require_action_success(
     action: &'static str,
     response: SetupEnsureResponse,
-    remaining_output: &mut usize,
-    limit: usize,
 ) -> Result<CommandResult, SetupEnsureError> {
     let SetupEnsureResponse::Command(result) = response else {
         return Err(SetupEnsureError::EngineProtocol(
             "mutation returned an inspection response",
         ));
     };
-    consume_output(&result, remaining_output, limit)?;
     if result.ok() {
         Ok(result)
     } else {
@@ -796,28 +715,22 @@ fn require_action_success(
     }
 }
 
-fn consume_output(
-    result: &CommandResult,
-    remaining: &mut usize,
-    limit: usize,
-) -> Result<(), SetupEnsureError> {
-    let used = result.stdout.len().saturating_add(result.stderr.len());
-    if used > *remaining {
-        return Err(SetupEnsureError::Transport(CommandError::OutputLimit {
-            limit,
-            reaped_pid: None,
-            cleanup: None,
-        }));
-    }
-    *remaining -= used;
-    Ok(())
-}
-
 fn action_failed(action: &'static str, result: &CommandResult) -> SetupEnsureError {
-    SetupEnsureError::ActionFailed {
-        action,
-        detail: failure_detail(result),
-    }
+    // Keep the pre-existing create-race classification without exposing private
+    // Docker stderr. A retry re-inspects and proves the winning container.
+    let error_text = if result.stderr.is_empty() {
+        &result.stdout
+    } else {
+        &result.stderr
+    };
+    let detail = if action == "container create"
+        && String::from_utf8_lossy(error_text).contains("is already in use")
+    {
+        "container name is already in use".into()
+    } else {
+        format!("private Docker command failed (exit {})", result.exit_code)
+    };
+    SetupEnsureError::ActionFailed { action, detail }
 }
 
 #[cfg(test)]

@@ -2,6 +2,38 @@
 
 use super::*;
 
+// Engine setup progress is bounded separately and never consumes task output.
+const MANIFEST_SETUP_OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
+
+#[cfg(test)]
+mod private_output_tests;
+
+async fn drain_private_setup_output(
+    mut receiver: async_engine::Receiver<EngineEvent>,
+    logs: &crate::raw_run_log::JobLogSink,
+    mut masker: SecretMasker,
+) -> Result<(), String> {
+    while let Some(event) = receiver.recv().await {
+        logs.append(&mask_engine_event(&mut masker, event))?;
+        logs.activity().await?;
+    }
+    for event in [
+        EngineEvent::Stdout(masker.finish(MaskStream::Stdout)),
+        EngineEvent::Stderr(masker.finish(MaskStream::Stderr)),
+    ] {
+        logs.append(&event)?;
+    }
+    Ok(())
+}
+
+fn setup_failure_with_raw(error: String, logs: &crate::raw_run_log::JobLogSink) -> String {
+    if logs.has_raw() {
+        format!("{error}; setup diagnostics are in the raw run log")
+    } else {
+        error
+    }
+}
+
 pub(crate) fn setup_container_resource_id(kind: &str, stack: &str, creation_name: &str) -> String {
     format!("{kind}:{stack}:{creation_name}")
 }
@@ -32,12 +64,8 @@ impl ManifestEnsureExecutor for DockerManifestEnsureExecutor {
         registry: &'a RegistryActor,
     ) -> Pin<Box<dyn Future<Output = Result<SetupEnsureExecution, String>> + Send + 'a>> {
         Box::pin(async move {
-            let prepare_output = request.output_limit / 2;
-            let ensure_output = request.output_limit.saturating_sub(prepare_output);
-            if prepare_output == 0 || ensure_output == 0 {
-                return Err(
-                    "manifest ensure output budget cannot fund preparation and ensure".into(),
-                );
+            if request.output_limit == 0 {
+                return Err("manifest ensure output budget must be positive".into());
             }
             let deadline = async_engine::Deadline::after(request.deadline);
             let runtime = async_engine::cancellable(
@@ -65,20 +93,23 @@ impl ManifestEnsureExecutor for DockerManifestEnsureExecutor {
                 autostart,
                 ..
             } = runtime;
-            let (events, mut receiver) = async_engine::channel(MANIFEST_ENGINE_EVENT_QUEUE);
-            let forwarded_logs = logs.clone();
+            let (events, receiver) = async_engine::channel(MANIFEST_ENGINE_EVENT_QUEUE);
+            // Pull/build output is retained privately and counts as activity.
+            let setup_logs = logs.clone();
             let forwarder = async_engine::launch(async move {
-                while let Some(event) = receiver.recv().await {
-                    forward_engine_event(&forwarded_logs, event).await?;
-                }
-                Ok::<(), String>(())
+                drain_private_setup_output(
+                    receiver,
+                    &setup_logs,
+                    SecretMasker::new(std::iter::empty::<&str>()),
+                )
+                .await
             });
             let pipeline = SetupEnsurePipeline {
                 plan: &plan,
                 workspace: request.workspace.clone(),
                 deadline: &deadline,
-                prepare_output,
-                ensure_output,
+                prepare_output: MANIFEST_SETUP_OUTPUT_LIMIT,
+                ensure_output: MANIFEST_SETUP_OUTPUT_LIMIT,
             };
             logs.send("[manifest] preparing immutable application image".into())
                 .await
@@ -90,7 +121,7 @@ impl ManifestEnsureExecutor for DockerManifestEnsureExecutor {
             forwarder
                 .await
                 .map_err(|_| "manifest log forwarder stopped".to_owned())??;
-            let result = result?;
+            let result = result.map_err(|error| setup_failure_with_raw(error, logs))?;
             if result.ensured.image_identity != result.prepared.observed_identity {
                 return Err("manifest ensure image receipt does not match ensured app".into());
             }
@@ -168,13 +199,10 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
         session: &'a dyn ManifestAppTaskSessionRecorder,
     ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>> {
         Box::pin(async move {
-            let quarter = request.output_limit / 4;
-            let exec_output = request.output_limit.saturating_sub(quarter * 3);
-            if quarter == 0 || exec_output == 0 {
-                return Err(
-                    "manifest app task output budget cannot fund validation and execution".into(),
-                );
+            if request.output_limit == 0 {
+                return Err("manifest app task output budget must be positive".into());
             }
+            let exec_output = request.output_limit;
             let deadline = async_engine::Deadline::after(request.deadline);
             let runtime = async_engine::cancellable(
                 cancellation,
@@ -234,6 +262,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
             } else {
                 None
             };
+            let setup_masker = SecretMasker::new(masked.iter());
             let error_masker = SecretMasker::new(masked.iter());
             let mut stream_masker = SecretMasker::new(masked.iter());
             let (events, mut receiver) = async_engine::channel(MANIFEST_ENGINE_EVENT_QUEUE);
@@ -283,15 +312,21 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 logs.send("[manifest-app-task] verifying immutable application image".into())
                     .await
                     .map_err(|_| "manifest app task log consumer closed".to_owned())?;
+                let (setup_events, setup_receiver) = async_engine::channel(MANIFEST_ENGINE_EVENT_QUEUE);
+                let setup_logs = logs.clone();
+                let setup_drain = async_engine::launch(async move {
+                    drain_private_setup_output(setup_receiver, &setup_logs, setup_masker).await
+                });
                 let prepared = prepare_setup_image(
                     &self.engine,
                     &plan,
-                    RunOptions::streaming(remaining, quarter),
+                    RunOptions::streaming(remaining, MANIFEST_SETUP_OUTPUT_LIMIT),
                     cancellation,
-                    &events,
-                )
-                .await
-                .map_err(|error| error.to_string())?;
+                    &setup_events,
+                ).await;
+                drop(setup_events);
+                setup_drain.await.map_err(|_| "manifest setup output drain stopped".to_owned())??;
+                let prepared = prepared.map_err(|error| setup_failure_with_raw(error.to_string(), logs))?;
                 let remaining = deadline.remaining();
                 if cancellation.is_cancelled() || remaining.is_zero() {
                     return Err("manifest app task ended before ownership inspection".into());
@@ -305,7 +340,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                         plan: &plan,
                         workspace_root: request.workspace.clone(),
                         prepared_image: &prepared,
-                        options: RunOptions::streaming(remaining, quarter),
+                        options: RunOptions::streaming(remaining, MANIFEST_SETUP_OUTPUT_LIMIT),
                         cancellation,
                         events: &events,
                     },
