@@ -15,6 +15,7 @@ pub(crate) async fn registry_actor(
     // The sole writer lease fences prior daemon owners. This authority expires
     // before any new Act creation/claim and is never restored by reads.
     let mut act_startup_open = true;
+    let mut handoff_sealed = false;
     while let Some(command) = receiver.recv().await {
         match command {
             DbCommand::StorageCheckpointer(reply) => {
@@ -22,7 +23,36 @@ pub(crate) async fn registry_actor(
                     let _ = async_engine::launch_blocking(move || drop(unclaimed)).await;
                 }
             }
+            DbCommand::RecoveryHandoff {
+                closed,
+                stop,
+                reply,
+            } => {
+                let worker = async_engine::launch_blocking(move || {
+                    let result = crate::handoff::recovery_reason(&registry);
+                    (registry, result)
+                });
+                match worker.await {
+                    Ok((returned, result)) => {
+                        registry = returned;
+                        if matches!(&result, Ok(None)) {
+                            handoff_sealed = true;
+                            closed.store(true, std::sync::atomic::Ordering::Release);
+                            stop.cancel();
+                        }
+                        let _ = reply.send(result.map_err(Error::Registry));
+                    }
+                    Err(_) => {
+                        let _ = reply.send(Err(Error::ActorClosed));
+                        return;
+                    }
+                }
+            }
             DbCommand::ActRegistry { command, reply } => {
+                if handoff_sealed {
+                    let _ = reply.send(Err(Error::Protocol("daemon handoff in progress")));
+                    continue;
+                }
                 let worker = async_engine::launch_blocking(move || {
                     let result =
                         act_registry::apply(&mut registry, *command, &mut act_startup_open);

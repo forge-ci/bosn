@@ -302,20 +302,31 @@ impl DockerActBackend {
         self.confirm_measurement_absent(&record.intent.engine_name())
             .await?;
         self.verify_measured_volume(&frozen.cache_volume).await?;
-        let document = self
-            .checked(
-                "recovery source ownership",
+        let result = self
+            .run(
                 owned(&["volume", "inspect", &frozen.source_volume]),
                 CONTROL_DEADLINE,
             )
             .await?;
-        crate::act_engine::retained_source_mountpoint(
-            document.as_bytes(),
-            &record.intent,
-            frozen,
-            owner,
-        )
-        .map_err(|e| e.to_string())
+        if !result.ok() {
+            let detail = String::from_utf8_lossy(&result.stderr);
+            let expected = format!(
+                "Error response from daemon: get {}: no such volume",
+                frozen.source_volume
+            );
+            if detail.trim() == expected {
+                return Err(format!(
+                    "recovery source volume {} is missing; recovery remains pending, preserve its journal and investigate the missing volume",
+                    frozen.source_volume
+                ));
+            }
+            return Err(format!(
+                "recovery source inspection failed: {}",
+                detail.trim()
+            ));
+        }
+        crate::act_engine::retained_source_mountpoint(&result.stdout, &record.intent, frozen, owner)
+            .map_err(|e| e.to_string())
     }
 }
 

@@ -994,3 +994,5 @@ mod execution;
 mod stage;
 
 mod random_diagnostics;
+
+mod handoff_admission;
