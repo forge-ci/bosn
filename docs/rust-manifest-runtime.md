@@ -121,6 +121,18 @@ Cancellation, deadline, and transport uncertainty retain a durable
 execution-session row and `manifest.app-task.uncertain` event so GC and
 recovery protect that container.
 
+**Linux manifest ENTRYPOINT and CMD.** Linux manifest stacks host tasks in a
+Bosn-managed container. Bosn replaces the image ENTRYPOINT with its own shell
+keepalive and supplies the keepalive arguments as CMD; the image's ENTRYPOINT
+and CMD are not started. Declared tasks run separately through `docker exec`.
+A newly ensured container has a different creation identity from a pre-fix
+container, while named volume identity remains unchanged. Ensure does not stop
+or remove existing containers. Idle retention may stop verified idle legacy
+containers with an empty entrypoint; it conservatively retains legacy containers
+with a nonempty entrypoint because their process names do not prove forwarding.
+Ordinary setup app commands and macOS guest stacks retain their existing
+image-entrypoint behavior.
+
 **Login shell and the image's `ENV PATH`.** Every declared command (a setup
 task's `docker run`, the long-running app command, and each app task's
 `docker container exec`) runs in a login shell, so `/etc/profile`,

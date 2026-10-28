@@ -827,6 +827,7 @@ fn pipeline_plan(workspace: &Path) -> SetupPlan {
         tmpfs: Vec::new(),
         host_docker_socket: None,
         macos_guest: None,
+        manifest_keepalive: false,
     }
 }
 fn command_result(exit_code: i32, stdout: impl Into<Vec<u8>>) -> bosn_engine::CommandResult {

@@ -499,12 +499,20 @@ pub(crate) fn verify_actual_configuration(
         }
     }
     let expected_cmd = match (&expected.command, &expected.macos_guest) {
-        (Some(command), None) => crate::shell::login_shell_args(command).to_vec(),
+        (Some(command), None) => crate::shell::login_shell_args(command)
+            .into_iter()
+            .skip(usize::from(expected.manifest_keepalive))
+            .collect(),
         _ => strings(base.get("Cmd"))?,
     };
     if environment != actual_env
         || strings(config.get("Cmd"))? != expected_cmd
-        || strings(config.get("Entrypoint"))? != strings(base.get("Entrypoint"))?
+        || strings(config.get("Entrypoint"))?
+            != if expected.manifest_keepalive {
+                vec!["sh".to_owned()]
+            } else {
+                strings(base.get("Entrypoint"))?
+            }
         || scalar(config.get("User"))? != scalar(base.get("User"))?
         || lexical_container_path(&scalar(config.get("WorkingDir"))?)
             != lexical_container_path(

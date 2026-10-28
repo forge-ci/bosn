@@ -142,6 +142,7 @@ fn plan(workspace: &Path) -> SetupPlan {
         tmpfs: Vec::new(),
         host_docker_socket: None,
         macos_guest: None,
+        manifest_keepalive: false,
     }
 }
 

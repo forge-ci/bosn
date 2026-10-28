@@ -10,6 +10,7 @@ pub(crate) struct DerivedEnsure {
     pub(crate) environment: BTreeMap<String, String>,
     pub(crate) workdir: Option<String>,
     pub(crate) command: Option<String>,
+    pub(crate) manifest_keepalive: bool,
     pub(crate) labels: BTreeMap<String, String>,
     pub(crate) volumes: Vec<SetupEnsureVolume>,
     pub(crate) tmpfs: Vec<SetupEnsureTmpfs>,
@@ -29,6 +30,7 @@ impl DerivedEnsure {
             environment: self.environment.clone(),
             workdir: self.workdir.clone(),
             command: self.command.clone(),
+            manifest_keepalive: self.manifest_keepalive,
             labels: self.labels.clone(),
             macos_guest: Box::new(self.macos_guest.clone()),
         }
@@ -119,6 +121,14 @@ pub(crate) fn derive_creation(
             "declared app command is invalid",
         ));
     }
+    if plan.manifest_keepalive
+        && (plan.macos_guest.is_some()
+            || command.as_deref() != Some(crate::MANIFEST_LINUX_IDLE_COMMAND))
+    {
+        return Err(SetupEnsureError::InvalidRequest(
+            "invalid manifest keepalive profile",
+        ));
+    }
     let volumes = derive_volumes(plan)?;
     let tmpfs = derive_tmpfs(plan)?;
     let macos_guest = plan
@@ -139,6 +149,7 @@ pub(crate) fn derive_creation(
         environment: validated_environment(&plan.app.environment)?,
         workdir,
         command,
+        manifest_keepalive: plan.manifest_keepalive,
         labels: BTreeMap::new(),
         volumes,
         tmpfs,

@@ -137,6 +137,7 @@ fn fixture_configuration(command: &SetupEnsureCommand, running: bool) -> serde_j
         environment,
         workdir,
         command,
+        manifest_keepalive,
         labels,
         macos_guest,
         ..
@@ -160,7 +161,11 @@ fn fixture_configuration(command: &SetupEnsureCommand, running: bool) -> serde_j
         ]);
         config["StopTimeout"] = 120.into();
     } else if let Some(command) = command {
-        config["Cmd"] = serde_json::json!(crate::shell::login_shell_args(command));
+        let shell = crate::shell::login_shell_args(command);
+        config["Cmd"] = serde_json::json!(&shell[usize::from(*manifest_keepalive)..]);
+        if *manifest_keepalive {
+            config["Entrypoint"] = serde_json::json!(["sh"]);
+        }
     }
     config["Env"] = serde_json::json!(
         env.iter()
@@ -240,6 +245,7 @@ fn plan(workspace: &Path) -> SetupPlan {
         tmpfs: Vec::new(),
         host_docker_socket: None,
         macos_guest: None,
+        manifest_keepalive: false,
     }
 }
 
@@ -965,3 +971,6 @@ fn cancellation_deadline_output_and_nonzero_never_continue_to_mutation() {
 mod creation;
 
 mod runtime_options;
+
+#[path = "tests/manifest_keepalive.rs"]
+mod manifest_keepalive;

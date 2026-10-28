@@ -730,3 +730,7 @@ impl<'a> WireReader<'a> {
 
 #[cfg(test)]
 mod tests;
+
+/// Fixed PID 1 command for Linux manifest task hosts.
+pub const MANIFEST_LINUX_IDLE_COMMAND: &str =
+    "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done";

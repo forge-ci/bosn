@@ -104,6 +104,7 @@ pub enum SetupEnsureCommand {
         environment: BTreeMap<String, String>,
         workdir: Option<String>,
         command: Option<String>,
+        manifest_keepalive: bool,
         labels: BTreeMap<String, String>,
         macos_guest: Box<Option<SetupEnsureMacosGuest>>,
     },
@@ -156,6 +157,7 @@ impl SetupEnsureCommand {
                 environment,
                 workdir,
                 command,
+                manifest_keepalive,
                 labels,
                 macos_guest,
             } => {
@@ -248,11 +250,15 @@ impl SetupEnsureCommand {
                         args.push(format!("{key}={value}"));
                     }
                 }
+                if *manifest_keepalive {
+                    args.extend(["--entrypoint".into(), "sh".into()]);
+                }
                 args.push(image_identity.clone());
                 if macos_guest.is_none()
                     && let Some(command) = command
                 {
-                    args.extend(crate::shell::login_shell_args(command));
+                    let shell = crate::shell::login_shell_args(command);
+                    args.extend(shell.into_iter().skip(usize::from(*manifest_keepalive)));
                 }
                 args
             }

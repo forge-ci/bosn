@@ -327,6 +327,7 @@ pub(crate) async fn manifest_stack_plan(
                 .collect(),
             tmpfs,
             host_docker_socket,
+            manifest_keepalive: macos_guest.is_none(),
             macos_guest,
         },
         generation,
