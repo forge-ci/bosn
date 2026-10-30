@@ -169,7 +169,7 @@ jobs:
         uses: zackees/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.32"
+          version: "0.9.45"
           cache: true
           job-status: ${{ job.status }}
           save-cache: auto
@@ -211,7 +211,7 @@ jobs:
         uses: zackees/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.32"
+          version: "0.9.45"
           cache: true
           # Fork the restored Rust foundation so wheel units can be saved too.
           cache-key-suffix: linux-gate
@@ -279,7 +279,7 @@ jobs:
           # soldr has no `verdict` command: the probe resolves it as a missing
           # tool and retries the 404 for 36 s per job (#754, setup-soldr#602).
           verdicts: "off"
-          version: "0.9.32"
+          version: "0.9.45"
           cache: true
           job-status: ${{ job.status }}
           save-cache: auto
@@ -400,7 +400,7 @@ jobs:
         uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.32"
+          version: "0.9.45"
           cache: true
           # Fork the restored Rust foundation so wheel units can be saved too.
           cache-key-suffix: linux-gate
@@ -494,7 +494,7 @@ jobs:
         uses: forge-ci/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
           verdicts: "off"
-          version: "0.9.32"
+          version: "0.9.45"
           toolchain: "1.95.0"
           prebuild-deps: none
 
@@ -670,7 +670,7 @@ jobs:
         uses: forge-ci/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
           verdicts: "off"
-          version: "0.9.32"
+          version: "0.9.45"
           toolchain: "1.95.0"
           prebuild-deps: none
           # clippy is installed on demand after setup; a restored solo

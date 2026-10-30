@@ -151,7 +151,7 @@ jobs:
         uses: forge-ci/setup-soldr@fe965fc7e2c5203570072e1d0fd19d0935d98e39
         with:
           verdicts: "off"
-          version: "0.9.32"
+          version: "0.9.45"
           toolchain: "1.95.0"
           prebuild-deps: none
 
