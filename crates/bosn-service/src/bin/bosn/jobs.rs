@@ -8,7 +8,7 @@
 use std::{
     ffi::OsString,
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use bosn_service::ci::{RunnerAction, RunnersReply, TaskLaneCapacity};
@@ -17,11 +17,12 @@ use kernal_api::async_engine::RuntimeBuilder;
 use serde_json::Value;
 use std::fmt::Write as _;
 
-pub const USAGE: &str = "bosn jobs [--state-dir STATE_DIR] [--json]";
+pub const USAGE: &str = "bosn jobs [--state-dir STATE_DIR] [--json] [--all]";
 
 pub fn run(mut arguments: impl Iterator<Item = OsString>) {
     let mut state_dir: Option<PathBuf> = None;
     let mut json = false;
+    let mut all = false;
     while let Some(argument) = arguments.next() {
         match argument.to_string_lossy().as_ref() {
             "--state-dir" if state_dir.is_none() => match arguments.next() {
@@ -29,6 +30,7 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
                 _ => fail(),
             },
             "--json" if !json => json = true,
+            "--all" if !all => all = true,
             _ => fail(),
         }
     }
@@ -58,7 +60,7 @@ pub fn run(mut arguments: impl Iterator<Item = OsString>) {
         }
         std::process::exit(1);
     };
-    attach_containers(&mut view);
+    attach_containers(&mut view, all);
     if json {
         if let Some(ci) = &ci {
             view["ci"] = serde_json::to_value(ci).unwrap_or(Value::Null);
@@ -81,29 +83,71 @@ fn fail() -> ! {
     std::process::exit(2);
 }
 
-/// Add each running task's live containers (by run label) to its entry.
-fn attach_containers(view: &mut Value) {
-    let Some(api) = DockerApi::from_environment() else {
-        return;
+/// How long `bosn jobs` waits for Docker before reporting without containers.
+const ENRICH_DEADLINE: Duration = Duration::from_secs(3);
+
+/// Add containers (by run label) to queued and running jobs, or to every job
+/// with `--all`. One Docker label census serves every row (#796); if it is
+/// slow or Docker is down, the report still goes out by the deadline and
+/// `container_enrichment` says why the containers are missing.
+fn attach_containers(view: &mut Value, all: bool) {
+    attach_containers_with(view, all, ENRICH_DEADLINE, || {
+        DockerApi::from_environment()
+            .ok_or_else(|| std::io::Error::other("no Docker endpoint"))?
+            .labelled_with_labels("containers", LABEL_RUN)
+    });
+}
+
+type Census = Vec<(String, serde_json::Map<String, Value>)>;
+
+fn attach_containers_with<F>(view: &mut Value, all: bool, deadline: Duration, census: F)
+where
+    F: FnOnce() -> std::io::Result<Census> + Send + 'static,
+{
+    let wanted = |job: &Value| all || matches!(job["state"].as_str(), Some("queued" | "running"));
+    let any = view["jobs"].as_array().is_some_and(|jobs| {
+        jobs.iter()
+            .any(|job| wanted(job) && job.pointer("/run/run").is_some())
+    });
+    let status = if any {
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Detached: on a missed deadline the census thread dies with the process.
+        std::thread::spawn(move || {
+            let _ = tx.send(census());
+        });
+        match rx.recv_timeout(deadline) {
+            Ok(Ok(found)) => {
+                fill_containers(view, &wanted, &found);
+                "complete"
+            }
+            Ok(Err(_)) => "unavailable",
+            Err(_) => "deadline_exceeded",
+        }
+    } else {
+        "skipped"
     };
+    view["container_enrichment"] = Value::from(status);
+}
+
+fn fill_containers(view: &mut Value, wanted: &dyn Fn(&Value) -> bool, found: &Census) {
+    let mut by_run: std::collections::HashMap<&str, Vec<String>> = Default::default();
+    for (id, labels) in found {
+        if let Some(run) = labels.get(LABEL_RUN).and_then(Value::as_str) {
+            by_run
+                .entry(run)
+                .or_default()
+                .push(id[..id.len().min(12)].to_owned());
+        }
+    }
     let Some(jobs) = view.get_mut("jobs").and_then(Value::as_array_mut) else {
         return;
     };
-    for job in jobs {
-        let Some(run) = job
-            .pointer("/run/run")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-        else {
+    for job in jobs.iter_mut().filter(|job| wanted(job)) {
+        let Some(run) = job.pointer("/run/run").and_then(Value::as_str) else {
             continue;
         };
-        if let Ok(ids) = api.labelled("containers", LABEL_RUN, Some(&run)) {
-            job["run"]["containers"] = Value::from(
-                ids.iter()
-                    .map(|id| id[..id.len().min(12)].to_owned())
-                    .collect::<Vec<_>>(),
-            );
-        }
+        let ids = by_run.get(run).cloned().unwrap_or_default();
+        job["run"]["containers"] = Value::from(ids);
     }
 }
 
@@ -230,6 +274,82 @@ fn truncate(value: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn job(id: u64, state: &str, run: &str) -> Value {
+        serde_json::json!({"id": id, "state": state, "run": {"run": run}})
+    }
+
+    fn container(id: &str, run: &str) -> (String, serde_json::Map<String, Value>) {
+        let mut labels = serde_json::Map::new();
+        labels.insert(LABEL_RUN.to_owned(), Value::from(run));
+        (id.to_owned(), labels)
+    }
+
+    #[test]
+    fn enrichment_takes_one_census_for_many_historical_rows() {
+        let mut jobs: Vec<Value> = (0..500)
+            .map(|i| job(i, "succeeded", &format!("old-{i}")))
+            .collect();
+        jobs.push(job(900, "running", "live"));
+        let mut view = serde_json::json!({"jobs": jobs});
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        attach_containers_with(&mut view, false, Duration::from_secs(5), move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![
+                container("aaaaaaaaaaaaaaaaaaaa", "live"),
+                container("bbbbbbbbbbbbbbbbbbbb", "old-3"),
+            ])
+        });
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(view["container_enrichment"], "complete");
+        assert_eq!(view["jobs"][500]["run"]["containers"][0], "aaaaaaaaaaaa");
+        // Finished jobs are not enriched unless asked.
+        assert!(view["jobs"][3]["run"].get("containers").is_none());
+    }
+
+    #[test]
+    fn enrichment_of_finished_jobs_is_available_on_demand() {
+        let mut view = serde_json::json!({"jobs": [job(1, "failed", "old")]});
+        attach_containers_with(&mut view, true, Duration::from_secs(5), || {
+            Ok(vec![container("cccccccccccccccc", "old")])
+        });
+        assert_eq!(view["jobs"][0]["run"]["containers"][0], "cccccccccccc");
+    }
+
+    #[test]
+    fn slow_docker_yields_a_partial_report_within_the_deadline() {
+        let mut view = serde_json::json!({"jobs": [job(1, "running", "live")]});
+        let started = std::time::Instant::now();
+        attach_containers_with(&mut view, false, Duration::from_millis(100), || {
+            std::thread::sleep(Duration::from_secs(10));
+            Ok(Vec::new())
+        });
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(view["container_enrichment"], "deadline_exceeded");
+        assert_eq!(view["jobs"][0]["state"], "running");
+        assert!(view["jobs"][0]["run"].get("containers").is_none());
+    }
+
+    #[test]
+    fn unavailable_docker_is_reported_not_fatal() {
+        let mut view = serde_json::json!({"jobs": [job(1, "queued", "q")]});
+        attach_containers_with(&mut view, false, Duration::from_secs(5), || {
+            Err(std::io::Error::other("no socket"))
+        });
+        assert_eq!(view["container_enrichment"], "unavailable");
+    }
+
+    #[test]
+    fn no_active_jobs_skips_docker_entirely() {
+        let mut view = serde_json::json!({"jobs": [job(1, "succeeded", "old")]});
+        attach_containers_with(&mut view, false, Duration::from_secs(5), || {
+            panic!("census must not run")
+        });
+        assert_eq!(view["container_enrichment"], "skipped");
+    }
 
     #[test]
     fn jobs_capacity_names_task_and_ci_lanes_with_the_engine_ceiling() {

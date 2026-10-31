@@ -105,6 +105,11 @@ control: 0 running, 0 queued
   line or Docker request). A running task also shows its setup container, run
   label, CPU allocation, Docker proxy traffic, leased cache volumes, and the
   containers that carry its run label right now.
+- **Bounded container lookup (#796).** One Docker label census serves every
+  row, and only queued and running jobs get containers unless `--all` is
+  passed. The census has a 3-second deadline: past it, or with Docker down,
+  the report still prints and `container_enrichment` is `deadline_exceeded`
+  or `unavailable` (otherwise `complete`, or `skipped` when no job needs it).
 
 The runs are also written to `<state-dir>/runners/active.json` on every change.
 
