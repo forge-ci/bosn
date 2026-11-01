@@ -57,6 +57,8 @@ def test_exempt_list_is_narrow_and_matches_real_jobs() -> None:
         "full-coverage",
         "lint-no-macos-runners",
         "verify",
+        # Every lane needs it: a failed selector skips them all, and skipped passes.
+        "select-tier",
     ):
         assert CI["jobs"][key]["name"] not in gate.EXEMPT, key
 

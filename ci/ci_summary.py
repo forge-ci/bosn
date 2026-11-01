@@ -30,7 +30,6 @@ EXEMPT = frozenset(
     {
         SELF,
         "Cancel superseded queue runs",
-        "Select CI tier",
         "CI queue timing",
         "End-of-queue cache janitor",
         "ci-pre / Cache janitor",
