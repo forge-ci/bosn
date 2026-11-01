@@ -15,6 +15,15 @@ runs the required `Desktop widget (Linux, WebKitGTK)` job, selected by
 on the exact candidate commit SHA. See [CI tiers and queue cost](docs/ci-queue-slo.md) and the
 [fleet rollout issue](https://github.com/zackees/soldr/issues/3345).
 
+**One required check: `CI summary` (decided 2026-11-01, #803).** Classic branch
+protection on `main` requires only `CI summary` (`ci/ci_summary.py`); the merge-queue
+ruleset carries no `required_status_checks` rule, so the check is declared in exactly
+one place. The job reads its run attempt's full job list and fails on any failed,
+cancelled, timed-out, startup-failed, action-required or unfinished job outside its
+exact-name `EXEMPT` list (bookkeeping, timing, janitors, build-only cache writers).
+A new lane is enforced by existing in `ci.yml` and in `CI summary`'s `needs:`; never
+add it to branch protection, and never add a validating job to `EXEMPT`.
+
 Releases go only through the **pretag release gate** (see "Releasing" below):
 an explicit request for an exact candidate SHA on `main`, refused unless full
 CI already passed on that SHA. Nothing tags or publishes on a version bump or a
