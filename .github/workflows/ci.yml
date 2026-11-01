@@ -755,6 +755,36 @@ jobs:
           python3 ci/ci_queue_timing.py report --run-id "${{ github.run_id }}"
           --summary-file "$GITHUB_STEP_SUMMARY"
 
+  # The one required check (sibling repos: soldr `CI summary`, obs-studio
+  # `CI Gate`). It reads this run attempt's full job list, not needs.*.result
+  # (a reusable-workflow job can end cancelled while its caller reports
+  # success), and fails on any failed, cancelled, timed-out or unfinished job
+  # outside ci/ci_summary.py's narrow EXEMPT list. always(): it must report
+  # even when a lane it needs failed, or the required check would be skipped.
+  ci-summary:
+    name: CI summary
+    if: ${{ always() && github.event_name != 'push' }}
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage, ci-queue-timing]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    # GATE-012: only GitHub can run this job (see full-coverage).
+    env:
+      CI_REMOTE_ONLY: reads this run attempt's job list from the GitHub Actions API, which has no record of a local run
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
+          sparse-checkout: ci/ci_summary.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Fail on any unsuccessful job in this run attempt
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/ci_summary.py --repo "${{ github.repository }}" --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}"
+
   # GEN-022 (forge-ci/ci.yml#405): every merge-queue run ends with the ci-lint
   # cache janitor. It runs after every other job, even failed ones, so the
   # repository stays under [cache].budget by our LRU order instead of GitHub's.
@@ -762,7 +792,7 @@ jobs:
   # non-cancelling `cache-janitor` group, so one sweep runs at a time.
   queue-cache-janitor:
     name: End-of-queue cache janitor
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage, ci-queue-timing]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage, ci-queue-timing, ci-summary]
     if: always() && github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
