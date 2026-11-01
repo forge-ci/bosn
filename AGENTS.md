@@ -16,11 +16,13 @@ on the exact candidate commit SHA. See [CI tiers and queue cost](docs/ci-queue-s
 [fleet rollout issue](https://github.com/zackees/soldr/issues/3345).
 
 **One required check: `CI summary` (decided 2026-11-01, #803).** Classic branch
-protection on `main` requires only `CI summary` (`ci/ci_summary.py`); the merge-queue
-ruleset carries no `required_status_checks` rule, so the check is declared in exactly
-one place. The job reads its run attempt's full job list and fails on any failed,
+protection on `main` requires only `CI summary` (`ci/ci_summary.py`), and the `main merge
+queue` ruleset carries the same single context in its own `required_status_checks` rule
+(added 2026-11-01), so the queue and its gate are one object and dropping either never
+leaves zero required checks. Never require any other context in either place. The job reads its run attempt's full job list and fails on any failed,
 cancelled, timed-out, startup-failed, action-required or unfinished job outside its
-exact-name `EXEMPT` list (bookkeeping, timing, janitors, build-only cache writers).
+exact-name `EXEMPT` list (bookkeeping, timing, janitors, build-only cache writers; never `Select CI tier`, whose
+failure skips every lane).
 A new lane is enforced by existing in `ci.yml` and in `CI summary`'s `needs:`; never
 add it to branch protection, and never add a validating job to `EXEMPT`.
 
