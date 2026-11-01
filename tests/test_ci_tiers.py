@@ -237,7 +237,7 @@ def test_only_run_introspection_jobs_are_remote_only() -> None:
     assert remote_only == {
         name for name, job in CI["jobs"].items() if asks_github_about_this_run(job)
     }
-    assert remote_only == {"full-coverage", "ci-queue-timing"}
+    assert remote_only == {"full-coverage", "ci-queue-timing", "ci-summary"}
     for name in remote_only:
         assert CI["jobs"][name]["env"]["CI_REMOTE_ONLY"].strip(), name
 
@@ -264,6 +264,12 @@ def test_no_job_runs_unconditionally_under_a_cancelled_run() -> None:
     for name, job in CI["jobs"].items():
         if name == "queue-cache-janitor":
             assert job["if"] == "always() && github.event_name == 'merge_group'"
+            continue
+        # The aggregate required check must report after a failed lane, or a
+        # skipped required check would pass. A cancelled run's stale FAILURE is
+        # superseded by the next run's check of the same name.
+        if name == "ci-summary":
+            assert job["if"] == "${{ always() && github.event_name != 'push' }}"
             continue
         assert "always()" not in str(job.get("if", "")), name
 
