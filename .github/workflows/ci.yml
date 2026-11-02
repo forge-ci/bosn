@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       tier:
-        description: "CI tier; hosted macOS smoke runs only for full"
+        description: "CI tier"
         type: choice
         options: [minimal, test, full]
         default: minimal
@@ -625,37 +625,6 @@ jobs:
           path: dist/bosn-*.whl
           if-no-files-found: error
 
-  darwin-hosted-smoke:
-    name: Hosted macOS wheel smoke (${{ matrix.target }})
-    # Runs on every full-tier run: main pushes, the nightly schedule, ci-full
-    # PRs and full dispatches.
-    # lint_no_macos_runners pins this exact `if:` string as the macOS-label
-    # allowlist (issue #252) -- do not change its shape.
-    if: needs.select-tier.outputs.full == 'true'
-    needs: [select-tier, darwin-cross-wheel]
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-          - target: aarch64-apple-darwin
-            runner: macos-15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - uses: actions/download-artifact@v4
-        with:
-          name: bosn-wheel-${{ matrix.target }}
-          path: dist
-      - name: Install and smoke-test Linux-built Darwin wheel
-        run: python ci/verify_installed_wheel.py --installer pip "dist/bosn-*.whl"
-
   # The desktop widget links WebKitGTK, which the core workspace never does
   # (ci/lint_no_webview_in_core.py). A change under crates/bosn-widget/ selects
   # it by path (select-tier's `widget`); `ci-widget` forces it. Required check.
@@ -709,7 +678,7 @@ jobs:
   full-coverage:
     name: Full CI coverage (exact candidate SHA)
     if: ${{ !cancelled() && needs.select-tier.outputs.full == 'true' }}
-    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget]
+    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -739,7 +708,7 @@ jobs:
   ci-queue-timing:
     name: CI queue timing
     if: ${{ !cancelled() }}
-    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage]
+    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -767,7 +736,7 @@ jobs:
   ci-summary:
     name: CI summary
     if: ${{ always() }}
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage, ci-queue-timing]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -795,7 +764,7 @@ jobs:
   # non-cancelling `cache-janitor` group, so one sweep runs at a time.
   queue-cache-janitor:
     name: End-of-queue cache janitor
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage, ci-queue-timing, ci-summary]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
     if: always() && github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

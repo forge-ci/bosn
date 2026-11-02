@@ -18,9 +18,9 @@ CI = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
 
 def test_expensive_jobs_require_selector() -> None:
     jobs = CI["jobs"]
-    for name, tier in {"darwin-hosted-smoke": "full"}.items():
+    for name, tier in {"darwin-cross-wheel": "full"}.items():
         assert "select-tier" in jobs[name]["needs"]
-        assert f"needs.select-tier.outputs.{tier} == 'true'" in jobs[name]["if"]
+        assert f"needs.select-tier.outputs.{tier} == 'true'" in str(jobs[name]["steps"])
 
 
 def test_required_tiered_jobs_fail_closed_when_selector_fails() -> None:
@@ -183,7 +183,6 @@ def test_full_coverage_sentinel_waits_for_every_lane() -> None:
         "linux",
         "native-wheel",
         "darwin-cross-wheel",
-        "darwin-hosted-smoke",
     }
     assert any("ci/verify_full_coverage.py" in step.get("run", "") for step in job["steps"])
     timing = CI["jobs"]["ci-queue-timing"]

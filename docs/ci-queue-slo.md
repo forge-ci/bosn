@@ -55,7 +55,7 @@ competing load lived in other repositories.
 buying more of it.** No self-hosted or reserved runner group is introduced —
 that would add an operational surface for a problem that was waste, not
 demand. Darwin wheels remain Linux-hosted Soldr cross builds on
-`ubuntu-latest`; hosted Mac execution is reserved for full CI and release,
+`ubuntu-latest`; hosted Mac execution is reserved for the release smoke,
 as `ci/lint_no_macos_runners.py` enforces.
 
 1. **Fleet-wide concurrency policy** (19 repositories, 224 workflow files,
@@ -92,13 +92,12 @@ policy and Rust workspace status jobs, plus tier selection and queue timing.
 The `Rust workspace (locked tests)` job continues to run its locked tests, so
 minimal still checks executable code. A PR with `ci-test` also runs the Linux
 lint, unit, and Docker job. A PR with `ci-full` runs that tier plus both native
-wheel jobs, both Linux-hosted Darwin cross-wheel jobs, and both hosted macOS
-wheel smokes. `ci-full` takes precedence when both labels are present. Label
+wheel jobs and both Linux-hosted Darwin cross-wheel jobs (no hosted Mac). `ci-full` takes precedence when both labels are present. Label
 additions and removals trigger a new run and reselect from the current labels.
 PR lanes explicitly check out `pull_request.head.sha`: the proof is for the
 candidate commit, not GitHub's synthetic PR merge commit. The full-tier
 `Full CI coverage (exact candidate SHA)` status checks every required Linux,
-Windows, Darwin cross, and hosted Mac cell after the matrix finishes; a
+Windows, and Darwin cross cell after the matrix finishes; a
 missing, skipped, cancelled, or failed cell makes that status fail.
 
 Manual dispatch accepts `minimal`, `test`, or `full`. A full dispatch requires
@@ -132,7 +131,7 @@ Measured per job as start minus creation, on hosted runners:
 
 The CI policy check keeps its legacy name because branch protection requires
 that exact status. Its current guard allows hosted macOS runners only for
-`ci-full` and release smoke jobs.
+the release smoke job.
 
 Execution time has no SLO here; it is reported so regressions are visible, and
 tracked by their own issues (soldr#3231 for the Windows bootstrap).

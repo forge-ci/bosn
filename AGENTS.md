@@ -8,8 +8,8 @@ explicit new decision, not by inference.
 Ordinary PRs and the merge queue run minimal CI; `main` pushes and the nightly
 schedule run the full tier. The literal `ci-test` PR label
 adds Linux lint, unit, and Docker tests. The literal `ci-full` PR label runs the
-full platform matrix, including hosted Intel and Apple Silicon macOS smoke
-checks. One path rule sits beside the labels: a PR or `main` push that changes
+full platform matrix. CI never schedules a hosted macOS runner (decided
+2026-11-02: a starved macOS queue cancelled full CI on `main`, run 41495193520). One path rule sits beside the labels: a PR or `main` push that changes
 `crates/bosn-widget/**` (its own Cargo workspace, which no other lane builds)
 runs the required `Desktop widget (Linux, WebKitGTK)` job, selected by
 `ci/select_ci_tier.py`; `ci-widget` forces it otherwise. Before **any** tag or release, full CI must pass
@@ -133,8 +133,7 @@ living implementation spec.
 - **What the gate enforces** (`ci/release_gate.py`, the guard job every other job needs):
   the SHA is full, lowercase, checked out, and reachable from `origin/main`; the CI run is a
   `workflow_dispatch` of `ci.yml` from `main` named `CI full <SHA>`, completed `success`, with
-  every full-tier cell (`ci/verify_full_coverage.py`'s `REQUIRED`, hosted macOS smokes
-  included) and `Full CI coverage` successful; tag `v<version>` is new or already names that
+  every full-tier cell (`ci/verify_full_coverage.py`'s `REQUIRED`) and `Full CI coverage` successful; tag `v<version>` is new or already names that
   SHA; a named issue is open and names the same SHA and tag. The tag is created only by the
   final `GitHub release` job (`gh release create --target <SHA>`), after PyPI.
 - **Retry by dispatching the same SHA again**, never by bumping the version: every
@@ -180,13 +179,14 @@ living implementation spec.
 
 ## macOS (issue #252)
 
-- **Hosted macOS runners are reserved for `ci-full` and release smoke checks.**
-  `ci/lint_no_macos_runners.py` rejects macOS runner labels outside those gated jobs.
+- **Hosted macOS runners are reserved for the release smoke check.**
+  `ci/lint_no_macos_runners.py` rejects macOS runner labels outside that gated
+  `auto-release.yml` job; `ci.yml` schedules none.
   Both `x86_64-apple-darwin` and `aarch64-apple-darwin` wheels
   build on `ubuntu-latest` through `forge-ci/setup-soldr` (floating `@v0`) +
   `soldr prepare --target …`, using Soldr's LLVM 21.1.5 and managed Apple SDK 14.5 —
   never Xcode, zig, or osxcross.
-- **Linux verifies macOS wheels statically; full CI and release execute them on
+- **Linux verifies macOS wheels statically; only the release executes them on
   matching hosted Macs.**
   `ci/verify_cross_wheel.py` checks the Mach-O extension and bundled CLI (arch,
   filetype, min-OS ≤ tag floor, allowed system dylibs, no ELF/OpenSSL contamination),
