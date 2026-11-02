@@ -122,6 +122,10 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.guard.outputs.tag }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      # Azure Artifact Signing (Windows): azure/login exchanges the OIDC token.
+      id-token: write
     strategy:
       fail-fast: true
       matrix:
@@ -158,6 +162,30 @@ jobs:
       - name: Build platform wheel
         # The backend requires a provisioned Soldr front door on both hosts.
         run: uv build --wheel --out-dir dist
+
+      # Authenticode-sign bosn.exe and _native.pyd inside the Windows wheel
+      # (RECORD rewritten) before it is smoke-tested, uploaded, checksummed or
+      # published; ci/sign_windows_release.py fails closed on any unsigned PE.
+      - name: Azure login for Artifact Signing
+        if: runner.os == 'Windows'
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Authenticode-sign the Windows wheel
+        if: runner.os == 'Windows'
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          AZURE_SIGN_PUBLISHER: ${{ secrets.AZURE_SIGN_PUBLISHER }}
+        run: python ci/sign_windows_release.py sign "dist/bosn-*-win_amd64.whl"
+
+      - name: Windows reports a Valid Authenticode signature
+        if: runner.os == 'Windows'
+        run: python ci/sign_windows_release.py check-wheel "dist/bosn-*-win_amd64.whl"
 
       - name: Install and smoke-test platform wheel outside the checkout
         run: python ci/verify_installed_wheel.py "dist/bosn-*.whl"
