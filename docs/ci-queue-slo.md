@@ -86,7 +86,8 @@ as `ci/lint_no_macos_runners.py` enforces.
 
 ## CI tiers (soldr#3345)
 
-Ordinary pull requests and main pushes run the minimal gate: the stable CI
+Main pushes and the nightly schedule run the full tier. Ordinary pull
+requests and merge-queue runs run the minimal gate: the stable CI
 policy and Rust workspace status jobs, plus tier selection and queue timing.
 The `Rust workspace (locked tests)` job continues to run its locked tests, so
 minimal still checks executable code. A PR with `ci-test` also runs the Linux

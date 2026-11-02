@@ -27,6 +27,10 @@ def select(
         if manual_tier == "full" and not re.fullmatch(r"[0-9a-fA-F]{40}", manual_sha):
             raise ValueError("full manual CI requires a 40-character commit_sha")
         return manual_tier
+    # Main pushes and the nightly schedule run the expensive tier, so it is
+    # reached without a hand dispatch; PRs and the merge queue stay cheap.
+    if event_name in {"push", "schedule"}:
+        return "full"
     if event_name == "pull_request":
         labels = {label["name"] for label in payload["pull_request"].get("labels", [])}
         if "ci-full" in labels:
