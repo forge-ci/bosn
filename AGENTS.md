@@ -5,7 +5,8 @@ explicit new decision, not by inference.
 
 ## CI and release gate (staged rollout)
 
-Ordinary PRs and `main` pushes run minimal CI; the literal `ci-test` PR label
+Ordinary PRs and the merge queue run minimal CI; `main` pushes and the nightly
+schedule run the full tier. The literal `ci-test` PR label
 adds Linux lint, unit, and Docker tests. The literal `ci-full` PR label runs the
 full platform matrix, including hosted Intel and Apple Silicon macOS smoke
 checks. One path rule sits beside the labels: a PR or `main` push that changes

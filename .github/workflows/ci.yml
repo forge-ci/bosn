@@ -4,14 +4,18 @@ name: CI
 run-name: ${{ inputs.tier == 'full' && inputs.commit_sha && format('CI full {0}', inputs.commit_sha) || github.event.pull_request.title || github.event.head_commit.message || 'CI' }}
 
 on:
-  # Merge-queue style since #734: the queue validates the tree that lands, so a
-  # main push no longer re-runs validation (zackees/ci.yml#432) -- every
-  # validation job carries `github.event_name != 'push'` and this trigger
-  # remains for the cache writers (`cache-writer`/`cache-writer-linux` below):
-  # their saves gate on refs/heads/main, a queue run's save would be scoped to
-  # gh-readonly-queue (no PR can read it), and PR runs never save remotely.
+  # Main pushes run the full tier (ci/select_ci_tier.py), as does the nightly
+  # schedule below: the queue proves the cheap linux tier that lands, and the
+  # expensive lanes (native wheels, Darwin, widget, Full CI coverage) are
+  # reached here instead of only by a hand `tier=full` dispatch. Pushes also
+  # feed the cache writers (`cache-writer`/`cache-writer-linux` below): their
+  # saves gate on refs/heads/main, and PR runs never save remotely.
   push:
     branches: [main]
+  # Nightly full tier: push and schedule select tier=full (ci/select_ci_tier.py),
+  # so the expensive lanes run without a hand dispatch. PRs stay minimal/linux.
+  schedule:
+    - cron: "17 7 * * *"
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   # The merge queue (#734) tests the merge result that lands. Its caches would be scoped to
@@ -140,11 +144,10 @@ jobs:
           --manual-sha "$MANUAL_SHA"
           --output "$GITHUB_OUTPUT"
 
-  # GEN-021/GEN-022 transition (zackees/ci.yml#432): with the queue proving the
-  # tree that lands, main pushes stop re-running validation and run these two
-  # push-only writers instead. They replace the remote cache saves that used to
-  # live inside `rust` (base zccache family) and `linux` (linux-gate suffix):
-  # build-only, no gate signal, never a required check. The base family warms
+  # GEN-021/GEN-022 (zackees/ci.yml#432): these two push-only writers are the
+  # single remote savers of the base zccache family and the linux-gate suffix
+  # (validation lanes never save remotely): build-only, no gate signal, never
+  # a required check. The base family warms
   # the rust lane's clippy-wrapped test compile; the suffix family warms the
   # dev-profile PyO3 wheel `./install` builds. Content-keyed zccache needs the
   # compile, not the lint verdict or the test execution.
@@ -235,8 +238,8 @@ jobs:
     name: CI policy (no hosted macOS runners)
     needs: [verify]
     # GATE-008/010: skipped only for an attested, trusted PR head.
-    # zackees/ci.yml#432: validation never re-runs on a main push; the queue proved this tree.
-    if: needs.verify.outputs.skip_lint-no-macos-runners != 'true' && github.event_name != 'push'
+    # Main pushes and the nightly schedule run it too (full tier).
+    if: needs.verify.outputs.skip_lint-no-macos-runners != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -255,9 +258,9 @@ jobs:
     name: Rust workspace (locked tests)
     needs: [verify]
     # GATE-008/010: skipped only for an attested, trusted PR head.
-    # zackees/ci.yml#432: validation never re-runs on a main push; the queue proved this tree.
+    # Main pushes and the nightly schedule run it too (full tier).
     # Its remote cache save moved to the push-only `cache-writer` job.
-    if: needs.verify.outputs.skip_rust != 'true' && github.event_name != 'push'
+    if: needs.verify.outputs.skip_rust != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -351,7 +354,7 @@ jobs:
 
   linux:
     name: Linux (lint + unit + docker)
-    if: ${{ !cancelled() && github.event_name != 'push' }}
+    if: ${{ !cancelled() }}
     needs: [select-tier]
     runs-on: ubuntu-latest
     steps:
@@ -434,7 +437,7 @@ jobs:
 
   native-wheel:
     name: Native wheel (${{ matrix.os }})
-    if: ${{ !cancelled() && github.event_name != 'push' }}
+    if: ${{ !cancelled() }}
     needs: [select-tier]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -521,7 +524,7 @@ jobs:
 
   darwin-cross-wheel:
     name: Darwin wheel (${{ matrix.target }}, Linux-hosted Soldr)
-    if: ${{ !cancelled() && github.event_name != 'push' }}
+    if: ${{ !cancelled() }}
     needs: [select-tier]
     runs-on: ubuntu-latest
     strategy:
@@ -624,8 +627,8 @@ jobs:
 
   darwin-hosted-smoke:
     name: Hosted macOS wheel smoke (${{ matrix.target }})
-    # No push conjunct: darwin-cross-wheel skips on a main push and the skipped
-    # needs: cascades (WF-004), so this job never runs there either.
+    # Runs on every full-tier run: main pushes, the nightly schedule, ci-full
+    # PRs and full dispatches.
     # lint_no_macos_runners pins this exact `if:` string as the macOS-label
     # allowlist (issue #252) -- do not change its shape.
     if: needs.select-tier.outputs.full == 'true'
@@ -658,7 +661,7 @@ jobs:
   # it by path (select-tier's `widget`); `ci-widget` forces it. Required check.
   widget:
     name: Desktop widget (Linux, WebKitGTK)
-    if: ${{ !cancelled() && github.event_name != 'push' && (needs.select-tier.outputs.widget == 'true' || contains(github.event_pull_request.labels.*.name, 'ci-widget')) }}
+    if: ${{ !cancelled() && (needs.select-tier.outputs.widget == 'true' || contains(github.event.pull_request.labels.*.name, 'ci-widget')) }}
     needs: [select-tier]
     runs-on: ubuntu-latest
     steps:
@@ -705,7 +708,7 @@ jobs:
 
   full-coverage:
     name: Full CI coverage (exact candidate SHA)
-    if: ${{ !cancelled() && github.event_name != 'push' && needs.select-tier.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.select-tier.outputs.full == 'true' }}
     needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget]
     runs-on: ubuntu-latest
     permissions:
@@ -735,7 +738,7 @@ jobs:
   # capacity is an account-level condition, not a Bosn defect.
   ci-queue-timing:
     name: CI queue timing
-    if: ${{ !cancelled() && github.event_name != 'push' }}
+    if: ${{ !cancelled() }}
     needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage]
     runs-on: ubuntu-latest
     permissions:
@@ -763,7 +766,7 @@ jobs:
   # even when a lane it needs failed, or the required check would be skipped.
   ci-summary:
     name: CI summary
-    if: ${{ always() && github.event_name != 'push' }}
+    if: ${{ always() }}
     needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, darwin-hosted-smoke, widget, full-coverage, ci-queue-timing]
     runs-on: ubuntu-latest
     timeout-minutes: 10

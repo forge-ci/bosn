@@ -28,9 +28,8 @@ def test_required_tiered_jobs_fail_closed_when_selector_fails() -> None:
         job = CI["jobs"][name]
         # Fail closed when the selector fails, but a superseded (cancelled)
         # run must never leave FAILURE required checks behind (#373).
-        # A main push skips entirely: the merge queue proved the tree that
-        # lands, so there is nothing left to fail closed on (zackees/ci.yml#432).
-        assert job["if"] == "${{ !cancelled() && github.event_name != 'push' }}"
+        # Main pushes and the nightly schedule run them at the full tier.
+        assert job["if"] == "${{ !cancelled() }}"
         assert "select-tier" in job["needs"]
         verify = job["steps"][0]
         assert verify["name"] == "Verify selected CI tier"
@@ -79,8 +78,8 @@ def test_required_wheel_matrix_cells_exist_on_every_tier() -> None:
         job = jobs[name]
         assert "select-tier" in job["needs"]
         # The matrix still expands after a selector failure on PR, queue and
-        # dispatch events (#373); main pushes run no validation at all (#432).
-        assert job["if"] == "${{ !cancelled() && github.event_name != 'push' }}"
+        # dispatch events (#373); main pushes and the schedule run full.
+        assert job["if"] == "${{ !cancelled() }}"
         matrix = job["strategy"]["matrix"]
         cells = set(matrix.get("os", [])) or {cell["target"] for cell in matrix["include"]}
         assert cells == expected_cells
@@ -99,9 +98,7 @@ def test_required_status_names_remain() -> None:
     # skipped required check passes. A main push skips it too -- the merge
     # queue proved the tree (zackees/ci.yml#432) -- and its remote cache save
     # moved to the push-only cache-writer job.
-    assert jobs["rust"]["if"] == (
-        "needs.verify.outputs.skip_rust != 'true' && github.event_name != 'push'"
-    )
+    assert jobs["rust"]["if"] == "needs.verify.outputs.skip_rust != 'true'"
 
 
 def test_native_backend_and_compiler_fixtures_have_provisioned_tools() -> None:
@@ -151,7 +148,10 @@ def test_label_changes_reselect_same_sha() -> None:
 
 
 def test_manual_and_main_tiers() -> None:
-    assert select_ci_tier.select("push", {}) == "minimal"
+    # The expensive tier is reached automatically: every main push and the
+    # nightly schedule run it, so no hand `tier=full` dispatch is needed.
+    assert select_ci_tier.select("push", {}) == "full"
+    assert select_ci_tier.select("schedule", {}) == "full"
     # The merge queue runs the default tier against the merge result (#734).
     queued = {"merge_group": {"base_sha": "b" * 40, "head_sha": "c" * 40}}
     assert select_ci_tier.select("merge_group", queued) == "minimal"
@@ -187,18 +187,19 @@ def test_full_coverage_sentinel_waits_for_every_lane() -> None:
     }
     assert any("ci/verify_full_coverage.py" in step.get("run", "") for step in job["steps"])
     timing = CI["jobs"]["ci-queue-timing"]
-    # Reports queue/execution timing for the lanes that ran; on a main push
-    # every lane it measures is skipped (zackees/ci.yml#432), so it is too.
-    assert timing["if"] == "${{ !cancelled() && github.event_name != 'push' }}"
+    assert timing["if"] == "${{ !cancelled() }}"
     assert "full-coverage" in timing["needs"]
 
 
-def test_main_push_skips_validation_and_runs_only_the_writers() -> None:
-    # zackees/ci.yml#432: the merge queue proves the tree that lands, so a
-    # main push re-runs no validation -- and must still refresh both remote
-    # cache families (PR runs never save remotely, queue-ref saves are
-    # unreadable) through build-only, push-only writer jobs.
+def test_main_push_and_schedule_run_the_full_tier() -> None:
+    # The expensive tier must be reachable without a hand dispatch: main
+    # pushes and a nightly cron both run every validation lane (selector
+    # returns full), while PR runs stay minimal. Pushes also refresh both
+    # remote cache families through the build-only, push-only writer jobs.
     jobs = CI["jobs"]
+    on = CI.get("on") or CI[True]
+    assert on["schedule"] and on["schedule"][0]["cron"]
+    assert on["push"]["branches"] == ["main"]
     validation = (
         "lint-no-macos-runners",
         "rust",
@@ -208,12 +209,10 @@ def test_main_push_skips_validation_and_runs_only_the_writers() -> None:
         "widget",
         "full-coverage",
         "ci-queue-timing",
+        "ci-summary",
     )
     for name in validation:
-        assert "github.event_name != 'push'" in str(jobs[name].get("if", "")), name
-    # darwin-hosted-smoke carries no push conjunct of its own: it is excused
-    # by lint_no_macos_runners' exact `if:` pin (issue #252) and skips anyway
-    # because darwin-cross-wheel skips on push and the needs: cascades (WF-004).
+        assert "event_name != 'push'" not in str(jobs[name].get("if", "")), name
     for name in ("cache-writer", "cache-writer-linux"):
         job = jobs[name]
         assert job["if"] == "github.event_name == 'push'"
@@ -269,7 +268,7 @@ def test_no_job_runs_unconditionally_under_a_cancelled_run() -> None:
         # skipped required check would pass. A cancelled run's stale FAILURE is
         # superseded by the next run's check of the same name.
         if name == "ci-summary":
-            assert job["if"] == "${{ always() && github.event_name != 'push' }}"
+            assert job["if"] == "${{ always() }}"
             continue
         assert "always()" not in str(job.get("if", "")), name
 
