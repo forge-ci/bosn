@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Allow hosted macOS only in explicitly full CI and release smoke jobs.
+"""Allow hosted macOS only in the release smoke job; CI never schedules a Mac.
 
 Darwin wheels stay Linux-built through Soldr. This parses YAML scheduling
 positions so prose cannot accidentally change the runner policy.
@@ -81,16 +81,6 @@ def _allowed_job(file: Path, document: object, path: str) -> bool:
         ("aarch64-apple-darwin", "macos-15"),
     }:
         return False
-    if file.name == "ci.yml":
-        selector = jobs.get("select-tier", {})
-        command = " ".join(
-            str(step.get("run", "")) for step in selector.get("steps", []) if isinstance(step, dict)
-        )
-        return (
-            condition == "needs.select-tier.outputs.full == 'true'"
-            and set(needs) == {"select-tier", "darwin-cross-wheel"}
-            and "ci/select_ci_tier.py" in command
-        )
     if file.name == "auto-release.yml":
         return (
             condition == "needs.guard.outputs.release == 'true'"

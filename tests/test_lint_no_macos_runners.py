@@ -11,20 +11,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
 import lint_no_macos_runners as lint
 
 
-def test_current_workflows_allow_only_full_and_release_macos_runner() -> None:
+def test_current_workflows_allow_only_release_macos_runner() -> None:
     root = Path(__file__).resolve().parents[1]
     assert lint.check(root / ".github/workflows") == 0
 
 
-def test_full_ci_hosted_job_requires_explicit_full_mode() -> None:
+def test_ci_schedules_no_hosted_mac() -> None:
+    # A starved macOS queue cancelled full CI on main (run 41495193520); CI
+    # proves Darwin wheels on Linux only, so no ci.yml job may name a Mac.
     root = Path(__file__).resolve().parents[1]
     ci = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
-    assert "labeled" in ci[True]["pull_request"]["types"]
     assert ci["jobs"]["lint-no-macos-runners"]["name"] == "CI policy (no hosted macOS runners)"
-    job = ci["jobs"]["darwin-hosted-smoke"]
-    assert "needs.select-tier.outputs.full == 'true'" == job["if"]
-    assert "select-tier" in job["needs"]
-    assert "darwin-cross-wheel" in job["needs"]
+    assert "darwin-hosted-smoke" not in ci["jobs"]
+    assert list(lint.offenders(ci)) == []
+
+
+def test_lint_rejects_former_full_ci_mac_job(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    release = yaml.safe_load((root / ".github/workflows/auto-release.yml").read_text())
+    job = dict(release["jobs"]["darwin-hosted-smoke"])
+    job["if"] = "needs.select-tier.outputs.full == 'true'"
+    job["needs"] = ["select-tier", "darwin-cross-wheel"]
+    workflow = tmp_path / "ci.yml"
+    workflow.write_text(yaml.safe_dump({"jobs": {"darwin-hosted-smoke": job}}))
+    assert lint.check(workflow) == 1
 
 
 def test_release_hosted_job_gates_wheel_collection() -> None:

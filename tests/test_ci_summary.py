@@ -28,7 +28,7 @@ def test_every_blocking_conclusion_fails(conclusion: str) -> None:
 def test_success_skipped_and_neutral_pass() -> None:
     jobs = [
         job("Linux (lint + unit + docker)"),
-        job("Hosted macOS wheel smoke (${{ matrix.target }})", "skipped"),
+        job("Darwin wheel (${{ matrix.target }}, Linux-hosted Soldr)", "skipped"),
         job("Full CI coverage (exact candidate SHA)", "skipped"),
         job("ci-pre / Publish ci-attestations", "neutral"),
     ]
@@ -52,7 +52,6 @@ def test_exempt_list_is_narrow_and_matches_real_jobs() -> None:
         "linux",
         "native-wheel",
         "darwin-cross-wheel",
-        "darwin-hosted-smoke",
         "widget",
         "full-coverage",
         "lint-no-macos-runners",

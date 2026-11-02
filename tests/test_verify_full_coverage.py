@@ -1,4 +1,4 @@
-"""A full run proves every platform cell, including hosted Mac execution."""
+"""A full run proves every platform cell, with no hosted Mac cell."""
 
 import sys
 from pathlib import Path
