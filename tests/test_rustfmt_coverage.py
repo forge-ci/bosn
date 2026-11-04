@@ -8,15 +8,16 @@ in both the local gate's `rust` lane and `./lint`.
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 
+import pytest
 import tomllib
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
+from tracked_files import tracked_files
+
 ROOT = Path(__file__).resolve().parent.parent
-# Dot-directories hold tool state (.cargo/registry, .venv, .git, .clud), never our crates.
-SKIPPED_DIRS = {"target", "node_modules", "vendor", "vendored", "extern"}
 
 
 def _load(name: str, path: Path):
@@ -33,14 +34,7 @@ lint = _load("bosn_lint", ROOT / "ci" / "lint.py")
 
 
 def manifests() -> list[Path]:
-    found: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(ROOT):
-        dirnames[:] = [
-            d for d in dirnames if d not in SKIPPED_DIRS and not d.startswith((".", "bosn-extern"))
-        ]
-        if "Cargo.toml" in filenames:
-            found.append(Path(dirpath) / "Cargo.toml")
-    return sorted(found)
+    return sorted(path for path in tracked_files(ROOT) if path.name == "Cargo.toml")
 
 
 def workspace_members() -> set[str]:
@@ -84,3 +78,17 @@ def test_local_gate_rust_lane_formats_every_manifest() -> None:
 
 def test_lint_formats_every_manifest() -> None:
     _assert_all_covered(lint.CHECKS, "ci/lint.py (./lint)")
+
+
+def test_an_uncovered_owned_manifest_is_still_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
+    for relative in ("crates/forgotten/Cargo.toml", "_vender/dependency/Cargo.toml"):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True)
+        path.write_text("")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="crates/forgotten/Cargo.toml") as error:
+        _assert_all_covered([["soldr", "cargo", "fmt", "--all", "--check"]], "fixture")
+    assert "_vender" not in str(error.value)

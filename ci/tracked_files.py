@@ -21,6 +21,7 @@ UNTRACKED_DIRS = frozenset(
         "target",
         ".venv",
         "node_modules",
+        "_vender",
         "__pycache__",
         ".cargo",
         ".pytest_cache",

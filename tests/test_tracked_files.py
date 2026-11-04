@@ -32,6 +32,8 @@ def test_a_checkout_git_cannot_read_is_walked_without_build_outputs(tmp_path: Pa
             "target/debug/build.rs": "",
             ".venv/lib/x.py": "",
             ".cargo/registry/src/crate.rs": "",
+            "_vender/dependency/Cargo.toml": "",
+            "_vender/dependency/src/lib.rs": "",
         },
     )
     # A worktree's .git file naming a gitdir that is not there.

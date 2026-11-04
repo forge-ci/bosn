@@ -13,11 +13,15 @@ rebuilding the dev wheel. That is safe only while both hold:
 from __future__ import annotations
 
 import re
-import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import tomllib
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
+from tracked_files import tracked_files
 
 ROOT = Path(__file__).resolve().parent.parent
 GATE = tomllib.loads((ROOT / "local-gate.toml").read_text(encoding="utf-8"))["gate"]
@@ -66,10 +70,20 @@ def excluded(path: str) -> bool:
 
 
 def rust_sources() -> list[str]:
-    out = subprocess.run(
-        ["git", "ls-files", "crates/**.rs"], cwd=ROOT, capture_output=True, text=True, check=True
-    ).stdout
-    return out.split()
+    names = (path.relative_to(ROOT).as_posix() for path in tracked_files(ROOT, "*.rs"))
+    return [name for name in names if name.startswith("crates/")]
+
+
+def test_unreadable_git_keeps_owned_production_and_test_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = ["crates/own/src/lib.rs", "crates/own/tests/behavior.rs"]
+    for relative in [*required, "_vender/dependency/src/lib.rs"]:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    assert sorted(rust_sources()) == sorted(required)
 
 
 def module_candidates(source: Path, name: str, path_attr: str | None) -> list[Path]:
