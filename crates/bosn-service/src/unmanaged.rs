@@ -329,7 +329,8 @@ pub fn warning_lines(warning: &bosn_core::Warning) -> Vec<String> {
                  see them: bosn scan --json"
             }
             bosn_core::ProtectedReason::OwnedByThisRegistry => {
-                "owned by this registry, reclaimed by age: see them: bosn gc owned"
+                "owned by this registry; age, liveness and pin gates apply: bosn gc owned; \
+                 shared CI cache contents and retention: bosn ci runners cache"
             }
             bosn_core::ProtectedReason::InUse => "still in use by a live container or engine",
             bosn_core::ProtectedReason::IncompleteLabels => {
@@ -709,6 +710,37 @@ mod tests {
         // A build-cache figure the tool cannot free is stated separately, never in the
         // reclaimable headline.
         assert!(!lines[0].contains("2.0GiB"));
+    }
+
+    #[test]
+    fn owned_storage_warning_does_not_promise_age_reclamation() {
+        // The shared CI volume stays pinned while act2 bounds its contents.
+        // Ownership alone cannot establish that these bytes will be deleted.
+        let warning = bosn_core::Warning {
+            reclaimable_objects: 0,
+            reclaimable_bytes: 0,
+            review_objects: 0,
+            review_bytes: 0,
+            report_only_bytes: 0,
+            protected: vec![bosn_core::unmanaged::ProtectedSummary {
+                reason: bosn_core::ProtectedReason::OwnedByThisRegistry,
+                objects: 1,
+                bytes: 40 * 1024 * 1024 * 1024,
+            }],
+            unmeasured_objects: 0,
+            partial: false,
+        };
+        let lines = warning_lines(&warning);
+        let owned = lines
+            .iter()
+            .find(|line| line.contains("owned by this registry"))
+            .unwrap();
+        assert!(owned.contains("40.0GiB"));
+        assert!(owned.contains("pin gates apply"), "{owned}");
+        assert!(owned.contains("bosn gc owned"));
+        assert!(owned.contains("bosn ci runners cache"));
+        assert!(!owned.contains("reclaimed by age"));
+        assert!(!lines.iter().any(|line| line.contains("ARE RECLAIMABLE")));
     }
 
     #[test]

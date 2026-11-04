@@ -19,7 +19,7 @@ soldr-state = { scope = "stack", destination = "/root/.soldr" }
 
 [task.test]
 stack = "test"
-cmd = "soldr toolchain ensure --json && uv sync --frozen --all-groups --no-editable && uv run --no-sync pytest -q -m 'not docker' -p no:cacheprovider"
+cmd = ". ci/dev_profile.sh && soldr toolchain ensure --json && uv sync --frozen --all-groups --no-editable && uv run --no-sync pytest -q -m 'not docker' -p no:cacheprovider"
 
 # The Rust suite, isolated like the Python one (zackees/ci.yml GATE-005).
 [task.rust-test]
@@ -32,7 +32,7 @@ cmd = "soldr toolchain ensure --json && python ci/local_gate.py --lane rust"
 
 [task.lint]
 stack = "test"
-cmd = "soldr toolchain ensure --json && uv sync --frozen --all-groups --no-editable && uv run --no-sync python ci/lint.py"
+cmd = ". ci/dev_profile.sh && soldr toolchain ensure --json && uv sync --frozen --all-groups --no-editable && uv run --no-sync python ci/lint.py"
 
 # A focused compile for edits to the local CI engine; preserves the same
 # isolated, persistent Rust build state as rust-test without running suites.
