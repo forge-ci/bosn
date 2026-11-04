@@ -15,6 +15,17 @@ CHECKS: list[list[str]] = [
     # rustfmt: the workspace, and every crate it excludes (tests/test_rustfmt_coverage.py).
     ["soldr", "cargo", "fmt", "--all", "--check"],
     ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
+    # Full resolution is essential: --no-deps accepts a stale widget lockfile.
+    [
+        "soldr",
+        "cargo",
+        "metadata",
+        "--locked",
+        "--format-version",
+        "1",
+        "--manifest-path",
+        "crates/bosn-widget/Cargo.toml",
+    ],
     # Ctrl-C correctness: ruff's BLE001 flags blind excepts but cannot see the *missing*
     # KeyboardInterrupt sibling handler, which is the actual defect.
     [sys.executable, str(ROOT / "ci" / "lint_kbi.py")],

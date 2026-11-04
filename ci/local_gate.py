@@ -49,6 +49,17 @@ LANES: dict[str, list[list[str]]] = {
     "rust": [
         ["soldr", "cargo", "fmt", "--all", "--check"],
         ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
+        # Full resolution is essential: --no-deps accepts a stale widget lockfile.
+        [
+            "soldr",
+            "cargo",
+            "metadata",
+            "--locked",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            "crates/bosn-widget/Cargo.toml",
+        ],
         [
             "soldr",
             "cargo",
