@@ -15,6 +15,9 @@ const HTML: &str = asset!("index.html");
 const SCRIPT: &str = asset!("app.js");
 const SHARED_SCRIPT: &str = asset!("shared.js");
 const STYLE: &str = asset!("app.css");
+const SYSTEM_HTML: &str = asset!("system.html");
+const SYSTEM_SCRIPT: &str = asset!("system.js");
+const SYSTEM_STYLE: &str = asset!("system.css");
 const BUBBLE: &str = asset!("bubble.html");
 const PANEL: &str = asset!("panel.html");
 const WIDGET_SCRIPT: &str = asset!("widget.js");
@@ -25,6 +28,9 @@ pub fn response(path: &str) -> Response {
         "/app.js" => (SCRIPT, "text/javascript; charset=utf-8"),
         "/shared.js" => (SHARED_SCRIPT, "text/javascript; charset=utf-8"),
         "/app.css" => (STYLE, "text/css; charset=utf-8"),
+        "/system" => (SYSTEM_HTML, "text/html; charset=utf-8"),
+        "/system.js" => (SYSTEM_SCRIPT, "text/javascript; charset=utf-8"),
+        "/system.css" => (SYSTEM_STYLE, "text/css; charset=utf-8"),
         "/widget/bubble" => (BUBBLE, "text/html; charset=utf-8"),
         "/widget/panel" => (PANEL, "text/html; charset=utf-8"),
         "/widget/widget.js" => (WIDGET_SCRIPT, "text/javascript; charset=utf-8"),
@@ -45,6 +51,7 @@ mod tests {
     fn every_page_loads_the_shared_helpers_before_its_own_script() {
         for (page, own) in [
             (HTML, "/app.js"),
+            (SYSTEM_HTML, "/system.js"),
             (PANEL, "/widget/widget.js"),
             (BUBBLE, "/widget/widget.js"),
         ] {

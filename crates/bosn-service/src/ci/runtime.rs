@@ -375,6 +375,10 @@ impl CiRuntime {
     }
 
     /// The live run feed (lossy; see [`super::events`]).
+    pub fn state_dir(&self) -> &Path {
+        &self.state_dir
+    }
+
     pub fn feed(&self) -> &Feed {
         &self.feed
     }

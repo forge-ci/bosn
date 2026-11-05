@@ -325,6 +325,23 @@ fn run_status_sse_requires_a_session_and_valid_cursor() {
     });
 }
 
+#[test]
+fn the_system_page_and_metrics_require_a_session() {
+    with_registry(|registry, dir| async move {
+        let (ci, _server, port) = listener(&dir, registry).await;
+        let cookie = sign_in(&ci, port).await;
+        let host = format!("127.0.0.1:{port}");
+        for path in ["/system", "/v1/system"] {
+            assert_eq!(raw(port, get(port, path, &host, None)).await.status, 401);
+        }
+        let page = raw(port, get(port, "/system", &host, Some(&cookie))).await;
+        assert!(page.body.contains("/system.js"));
+        let metrics = raw(port, get(port, "/v1/system", &host, Some(&cookie))).await;
+        assert_eq!(metrics.status, 200);
+        assert!(metrics.body.contains(r#""interval_secs":10"#));
+    });
+}
+
 /// How long a step that must happen may take before the test calls it hung.
 /// A liveness guard for a loaded machine, never a speed assertion (#412).
 const HUNG: Duration = Duration::from_secs(60);

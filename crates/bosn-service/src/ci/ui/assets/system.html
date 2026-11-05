@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bosn system</title>
+<link rel="stylesheet" href="/system.css">
+</head>
+<body>
+<header class="top">
+  <strong class="brand">bosn</strong><span class="meta">System monitor</span>
+  <span id="live" class="meta" role="status" aria-live="polite">connecting…</span>
+  <a class="action" href="/">CI runs</a>
+</header>
+<div class="shell">
+  <nav class="tree" aria-label="Resources">
+    <div class="pane-title">Server view</div>
+    <ul id="tree"></ul>
+  </nav>
+  <main class="content">
+    <div class="pane-title" id="title">Node</div>
+    <div class="grid">
+      <section class="panel" aria-labelledby="status-title">
+        <h2 id="status-title">Status</h2>
+        <div id="status"></div>
+        <dl id="facts"></dl>
+      </section>
+      <section class="panel" id="chart-cpu"></section>
+      <section class="panel" id="chart-load"></section>
+      <section class="panel" id="chart-memory"></section>
+      <section class="panel" id="chart-disk"></section>
+    </div>
+  </main>
+</div>
+<section class="tasks" aria-labelledby="tasks-title">
+  <div class="pane-title" id="tasks-title">Tasks</div>
+  <div class="task-scroll">
+    <table>
+      <thead><tr><th>Start time</th><th>End time</th><th>Workspace</th><th>Workflow</th><th>Actor</th><th>Status</th></tr></thead>
+      <tbody id="tasks"></tbody>
+    </table>
+  </div>
+</section>
+<div id="tip" class="tip" hidden></div>
+<script src="/shared.js"></script>
+<script src="/system.js"></script>
+</body>
+</html>

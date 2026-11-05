@@ -145,6 +145,12 @@ enabled = true   # default false: no port is bound
 port = 0         # 0 = an ephemeral port
 ```
 
+`bosn ui --path /system` opens the system monitor: CPU, IO delay, load, memory
+and disk charts for the last hour (sampled every 10 s in memory, so history
+restarts with the daemon), host facts, and recent CI runs by workspace. Disk is
+the filesystem holding the state directory; a metric the platform cannot report
+reads "unavailable" (host metrics currently come from Linux `/proc`).
+
 `bosn ui [--path /ci/runs/RUN]` asks the daemon (over its owner-only socket)
 for a single-use link, then picks where to show the page:
 

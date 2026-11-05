@@ -7,6 +7,7 @@ pub mod auth;
 mod page;
 pub mod routes;
 mod status_sse;
+pub mod system;
 
 use std::{
     io,
@@ -20,6 +21,7 @@ use kernal_api::{async_engine, http_server};
 use self::{
     auth::Auth,
     routes::{Route, RouteError},
+    system::SystemMonitor,
 };
 use super::config::UiConfig;
 use super::{CiError, CiRuntime, events::RunEvent, reply::JsonReply};
@@ -36,6 +38,7 @@ pub struct UiServer {
     /// Where the listener is bound (always loopback).
     pub local_addr: SocketAddr,
     _task: async_engine::Task<io::Result<()>>,
+    _sampler: async_engine::Task<()>,
 }
 
 const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
@@ -72,14 +75,17 @@ pub async fn start(config: UiConfig, ci: CiRuntime) -> io::Result<Option<UiServe
         origin: auth.origin(),
         auth: auth.clone(),
     });
+    let monitor = SystemMonitor::new();
+    let sampler = monitor.spawn_sampler(ci.state_dir().to_path_buf());
     let task = async_engine::launch(server.serve(move |request| {
-        let (auth, ci) = (auth.clone(), ci.clone());
-        async move { respond(&auth, &ci, request).await }
+        let (auth, ci, monitor) = (auth.clone(), ci.clone(), monitor.clone());
+        async move { respond(&auth, &ci, &monitor, request).await }
     }));
     Ok(Some(UiServer {
         handle,
         local_addr,
         _task: task,
+        _sampler: sampler,
     }))
 }
 
@@ -119,6 +125,7 @@ fn api_error(error: &CiError) -> http_server::Response {
 async fn respond(
     auth: &Auth,
     ci: &CiRuntime,
+    monitor: &SystemMonitor,
     request: http_server::Request,
 ) -> http_server::Response {
     if !auth.host_ok(header(&request, "host")) {
@@ -151,6 +158,10 @@ async fn respond(
                 .and_then(|r| r.with_header("location", &next))
                 .and_then(|r| r.with_header("set-cookie", &Auth::set_cookie(&session)))
                 .unwrap_or_else(|_| text(500, "redirect failed")),
+        },
+        Route::System => match serde_json::to_string(&monitor.reply()) {
+            Ok(body) => json(200, body),
+            Err(_) => text(500, "response encoding failed"),
         },
         Route::Events => events(ci),
         Route::RunEvents { run, from_seq } => {

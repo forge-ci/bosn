@@ -13,6 +13,8 @@ pub enum Route {
     Page,
     /// Redeem a single-use grant for a session cookie (`GET /auth?token=`).
     Redeem { token: String, next: String },
+    /// The host's status and sampled history (`GET /v1/system`).
+    System,
     /// The live feed (`GET /v1/events`, server-sent events).
     Events,
     /// One run's durable status feed (`GET /v1/runs/{id}/events`).
@@ -65,7 +67,17 @@ impl Route {
         let get = method == "GET";
         let post = method == "POST";
         let route = match (segments.as_slice(), get, post) {
-            ([""] | ["app.js"] | ["app.css"] | ["shared.js"], true, _) => Route::Page,
+            (
+                [""]
+                | ["app.js"]
+                | ["app.css"]
+                | ["shared.js"]
+                | ["system"]
+                | ["system.js"]
+                | ["system.css"],
+                true,
+                _,
+            ) => Route::Page,
             (["ci", ..], true, _) => Route::Page,
             (["widget", "bubble" | "panel" | "widget.js" | "widget.css"], true, _) => Route::Page,
             (["v1", "widget", "toggle"], _, true) => Route::api(CiRequest::WidgetCommand {
@@ -89,18 +101,8 @@ impl Route {
                     command: WidgetCommand::OpenExternal { url: body.url },
                 })
             }
-            (["auth"], true, _) => {
-                let q: RedeemQuery = typed_query(query)?;
-                let next = q.next.unwrap_or_else(|| "/".into());
-                // Only same-origin relative paths: never an open redirect.
-                if !next.starts_with('/') || next.starts_with("//") || next.contains('\\') {
-                    return Err(RouteError::BadRequest("next must be a local path".into()));
-                }
-                Route::Redeem {
-                    token: q.token,
-                    next,
-                }
-            }
+            (["auth"], true, _) => redeem(query)?,
+            (["v1", "system"], true, _) => Route::System,
             (["v1", "events"], true, _) => Route::Events,
             (["v1", "runs", run, "events"], true, _) => {
                 let q: EventsQuery = typed_query(query)?;
@@ -163,6 +165,8 @@ impl Route {
                 | ["app.js"]
                 | ["app.css"]
                 | ["shared.js"]
+                | ["system" | "system.js" | "system.css"]
+                | ["v1", "system"]
                 | ["ci", ..]
                 | ["widget", ..]
                 | ["v1", "widget", "toggle" | "open" | "open-external" | "quit"]
@@ -184,6 +188,20 @@ impl Route {
         };
         Ok(route)
     }
+}
+
+/// A grant redemption; `next` is only ever a same-origin relative path, never
+/// an open redirect.
+fn redeem(query: &[(String, String)]) -> Result<Route, RouteError> {
+    let q: RedeemQuery = typed_query(query)?;
+    let next = q.next.unwrap_or_else(|| "/".into());
+    if !next.starts_with('/') || next.starts_with("//") || next.contains('\\') {
+        return Err(RouteError::BadRequest("next must be a local path".into()));
+    }
+    Ok(Route::Redeem {
+        token: q.token,
+        next,
+    })
 }
 
 fn run_id(value: &str) -> Result<String, RouteError> {
@@ -317,6 +335,8 @@ mod tests {
             ("GET", "/".into(), vec![], "", Route::Page),
             ("GET", format!("/ci/runs/{RUN}"), vec![], "", Route::Page),
             ("GET", "/v1/events".into(), vec![], "", Route::Events),
+            ("GET", "/v1/system".into(), vec![], "", Route::System),
+            ("GET", "/system".into(), vec![], "", Route::Page),
             (
                 "GET",
                 format!("{runs}/events"),
