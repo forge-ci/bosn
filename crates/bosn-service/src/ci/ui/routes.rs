@@ -89,18 +89,7 @@ impl Route {
                     command: WidgetCommand::OpenExternal { url: body.url },
                 })
             }
-            (["auth"], true, _) => {
-                let q: RedeemQuery = typed_query(query)?;
-                let next = q.next.unwrap_or_else(|| "/".into());
-                // Only same-origin relative paths: never an open redirect.
-                if !next.starts_with('/') || next.starts_with("//") || next.contains('\\') {
-                    return Err(RouteError::BadRequest("next must be a local path".into()));
-                }
-                Route::Redeem {
-                    token: q.token,
-                    next,
-                }
-            }
+            (["auth"], true, _) => redeem(query)?,
             (["v1", "events"], true, _) => Route::Events,
             (["v1", "runs", run, "events"], true, _) => {
                 let q: EventsQuery = typed_query(query)?;
@@ -184,6 +173,20 @@ impl Route {
         };
         Ok(route)
     }
+}
+
+/// A grant redemption; `next` is only ever a same-origin relative path, never
+/// an open redirect.
+fn redeem(query: &[(String, String)]) -> Result<Route, RouteError> {
+    let q: RedeemQuery = typed_query(query)?;
+    let next = q.next.unwrap_or_else(|| "/".into());
+    if !next.starts_with('/') || next.starts_with("//") || next.contains('\\') {
+        return Err(RouteError::BadRequest("next must be a local path".into()));
+    }
+    Ok(Route::Redeem {
+        token: q.token,
+        next,
+    })
 }
 
 fn run_id(value: &str) -> Result<String, RouteError> {
