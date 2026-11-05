@@ -9,12 +9,16 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use bosn_core::{LABEL_KIND, LABEL_WORKSPACE};
+use bosn_engine::{DockerEngine, RunOptions};
 use kernal_api::async_engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const INTERVAL: Duration = Duration::from_secs(10);
 /// One hour at [`INTERVAL`].
 const HISTORY: usize = 360;
+const DOCKER_DEADLINE: Duration = Duration::from_secs(5);
+const DOCKER_OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
 /// The facts that describe the host, refreshed with every sample.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -29,6 +33,23 @@ pub struct HostInfo {
     pub swap_total_bytes: Option<u64>,
     pub disk_path: PathBuf,
     pub disk_total_bytes: Option<u64>,
+    /// Bosn-labelled containers; `None` when Docker could not be read.
+    pub containers: Option<Vec<ContainerInfo>>,
+}
+
+/// One Bosn-labelled container, as `docker ps` reports it.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerInfo {
+    pub id: String,
+    pub name: String,
+    pub image: String,
+    pub state: String,
+    pub status: String,
+    pub kind: String,
+    pub workspace: String,
+    #[serde(skip_serializing)]
+    labels: String,
 }
 
 /// One point on the charts.
@@ -144,6 +165,7 @@ fn observe(
         swap_total_bytes: memory.and_then(|m| m.swap_total),
         disk_path: disk_path.to_owned(),
         disk_total_bytes: disk_total,
+        containers: read_containers(),
     };
     let sample = Sample {
         at_ms: SystemTime::now()
@@ -159,6 +181,48 @@ fn observe(
             .map(|(total, free)| total.saturating_sub(free)),
     };
     (host, sample)
+}
+
+fn read_containers() -> Option<Vec<ContainerInfo>> {
+    let format = format!(
+        concat!(
+            r#"{{"id":{{{{json .ID}}}},"name":{{{{json .Names}}}},"image":{{{{json .Image}}}},"#,
+            r#""state":{{{{json .State}}}},"status":{{{{json .Status}}}},"labels":{{{{json .Labels}}}},"#,
+            r#""kind":{{{{json (.Label "{kind}")}}}},"workspace":{{{{json (.Label "{workspace}")}}}}}}"#,
+        ),
+        kind = LABEL_KIND,
+        workspace = LABEL_WORKSPACE,
+    );
+    let result = DockerEngine::docker()
+        .with_args(["ps", "-a", "--format", &format])
+        .capture(RunOptions::bounded(DOCKER_DEADLINE, DOCKER_OUTPUT_LIMIT))
+        .ok()?;
+    result
+        .ok()
+        .then(|| parse_containers(&String::from_utf8_lossy(&result.stdout)))
+        .flatten()
+}
+
+/// One JSON document per line; a malformed line refuses the whole listing.
+/// Only containers carrying a Bosn label are kept: setup containers have their
+/// own label family and no registry label, so no single `--filter` covers them.
+fn parse_containers(text: &str) -> Option<Vec<ContainerInfo>> {
+    let containers: Vec<ContainerInfo> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).ok())
+        .collect::<Option<_>>()?;
+    Some(
+        containers
+            .into_iter()
+            .filter(|c| c.labels.contains("com.zackees.bosn."))
+            .map(|mut c| {
+                if c.kind.is_empty() && c.labels.contains("com.zackees.bosn.setup-managed=") {
+                    c.kind = "setup".into();
+                }
+                c
+            })
+            .collect(),
+    )
 }
 
 /// Cumulative jiffies from the aggregate `cpu` line of `/proc/stat`.
@@ -296,6 +360,22 @@ mod tests {
             parse_cpu_model("vendor: x\nmodel name\t: Xeon\n").as_deref(),
             Some("Xeon")
         );
+    }
+
+    #[test]
+    fn container_lines_parse_and_a_malformed_line_refuses_the_listing() {
+        let line = r#"{"id":"a","name":"n","image":"i","state":"running","status":"Up","kind":"","workspace":"/w","labels":"com.zackees.bosn.setup-managed=v1"}"#;
+        let foreign = r#"{"id":"b","name":"x","image":"i","state":"running","status":"Up","kind":"","workspace":"","labels":"other=1"}"#;
+        let parsed = parse_containers(&format!("{line}\n{foreign}\n")).unwrap();
+        assert_eq!(
+            parsed.len(),
+            1,
+            "a container without a Bosn label is not listed"
+        );
+        assert_eq!(parsed[0].workspace, "/w");
+        assert_eq!(parsed[0].kind, "setup");
+        assert_eq!(parse_containers(""), Some(Vec::new()));
+        assert_eq!(parse_containers(&format!("{line}\nnot json\n")), None);
     }
 
     #[test]

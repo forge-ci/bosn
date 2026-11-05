@@ -161,7 +161,7 @@ function renderCharts(host, samples) {
 function treeButton(label, depth, count, value) {
   return el("li", {}, el("button", {
     type: "button", class: `depth-${depth}`, "aria-current": String(workspace === value),
-    onclick: () => { workspace = value; renderTree(); renderTasks(); },
+    onclick: () => { workspace = value; renderTree(); renderTasks(); renderContainers(); },
   }, el("span", { class: "label", title: label }, label), count == null ? "" : el("span", { class: "meta" }, String(count))));
 }
 
@@ -171,12 +171,36 @@ function renderTree() {
   const shortName = (path) => path.split(/[\\/]/).filter(Boolean).pop() || path;
   $("tree").replaceChildren(
     treeButton(lastHost?.hostname || "local", 0, null, null),
+    el("li", { class: "section" }, "Workspaces"),
     ...[...counts].sort(([a], [b]) => a.localeCompare(b)).map(([path, count]) => {
       const item = treeButton(shortName(path), 1, count, path);
       item.querySelector(".label").title = path;
       return item;
     }),
+    el("li", { class: "section" }, "Containers"),
+    ...visibleContainers().map((c) => el("li", { class: "guest" },
+      el("span", { class: c.state, "aria-label": c.state }, CONTAINER_ICON[c.state] || "•"),
+      el("span", { class: "label", title: c.name }, c.name))),
   );
+}
+
+const CONTAINER_ICON = { running: "●", paused: "◌", restarting: "◌", created: "○", exited: "○", dead: "✗" };
+
+function visibleContainers() {
+  return (lastHost?.containers || []).filter((c) => workspace === null || c.workspace === workspace);
+}
+
+function renderContainers() {
+  if (!lastHost?.containers) {
+    $("containers").replaceChildren(el("tr", {}, el("td", { colspan: "4", class: "meta" }, "Docker unavailable.")));
+    return;
+  }
+  const rows = visibleContainers().map((c) => el("tr", {},
+    el("td", { title: c.id }, c.name),
+    el("td", {}, c.kind || "–"),
+    el("td", { title: c.image }, c.image),
+    el("td", { class: c.state }, `${CONTAINER_ICON[c.state] || "•"} ${c.status}`)));
+  $("containers").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "4", class: "meta" }, "No Bosn containers."))]));
 }
 
 function renderTasks() {
@@ -209,6 +233,7 @@ async function refresh() {
     renderCharts(system.host, system.samples);
     renderTree();
     renderTasks();
+    renderContainers();
     $("live").textContent = `Updated ${new Date().toLocaleTimeString()} · last hour, ${system.interval_secs} s samples`;
   } catch (error) {
     $("live").textContent = error instanceof Unauthorized
