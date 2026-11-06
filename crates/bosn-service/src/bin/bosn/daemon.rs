@@ -99,8 +99,7 @@ pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>
             .map(|(state_dir, json)| DaemonInvocation::Url { state_dir, json }),
         "token" => parse_daemon_client_arguments(arguments)
             .map(|(state_dir, json)| DaemonInvocation::Token { state_dir, json }),
-        "stop" => parse_daemon_client_arguments(arguments)
-            .map(|(state_dir, json)| DaemonInvocation::Stop { state_dir, json }),
+        "stop" => parse_daemon_stop_arguments(arguments),
         _ => Err(()),
     };
     let invocation = match invocation {
@@ -325,6 +324,19 @@ pub(crate) fn parse_daemon_serve_arguments(
     Ok((state_dir.ok_or(())?, overrides))
 }
 
+/// Stopping cancels running work, so it never picks its target by default.
+fn parse_daemon_stop_arguments(
+    arguments: impl Iterator<Item = std::ffi::OsString>,
+) -> Result<DaemonInvocation, ()> {
+    let arguments: Vec<_> = arguments.collect();
+    if !arguments.iter().any(|argument| argument == "--state-dir") {
+        eprintln!("bosn daemon stop: name the daemon to stop with --state-dir STATE_DIR");
+        std::process::exit(2);
+    }
+    parse_daemon_client_arguments(arguments.into_iter())
+        .map(|(state_dir, json)| DaemonInvocation::Stop { state_dir, json })
+}
+
 pub(crate) fn parse_daemon_client_arguments(
     mut arguments: impl Iterator<Item = std::ffi::OsString>,
 ) -> Result<(PathBuf, bool), ()> {
@@ -340,7 +352,10 @@ pub(crate) fn parse_daemon_client_arguments(
             _ => Err(()),
         }?;
     }
-    Ok((state_dir.ok_or(())?, json))
+    Ok((
+        state_dir.unwrap_or_else(bosn_service::mcp::default_state_dir),
+        json,
+    ))
 }
 
 pub(crate) fn daemon_failure(action: &str, json: bool) -> ! {
@@ -455,5 +470,23 @@ pub(crate) fn run_mcp(mut arguments: impl Iterator<Item = std::ffi::OsString>) {
     if let Err(error) = bosn_service::mcp::serve_stdio(state_dir) {
         bosn_service::daemon_log!("bosn mcp: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod client_argument_tests {
+    use super::*;
+
+    #[test]
+    fn a_client_command_defaults_to_the_default_state_directory() {
+        assert_eq!(
+            parse_daemon_client_arguments(std::iter::empty()),
+            Ok((bosn_service::mcp::default_state_dir(), false))
+        );
+        let explicit = ["--state-dir", "/state", "--json"].map(std::ffi::OsString::from);
+        assert_eq!(
+            parse_daemon_client_arguments(explicit.into_iter()),
+            Ok((PathBuf::from("/state"), true))
+        );
     }
 }
