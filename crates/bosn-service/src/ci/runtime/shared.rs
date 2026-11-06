@@ -64,7 +64,22 @@ impl CiRuntime {
     /// `[engine] idle_retire_secs` (read on every check).
     pub(super) fn start_shared_reaper(&self) {
         let state_dir = self.state_dir.clone();
-        self.shared.spawn_reaper(move || idle_retire(&state_dir));
+        let source = std::sync::Mutex::new(IdleRetire::default());
+        self.shared.spawn_reaper(move || {
+            let loaded = super::super::config::load_engine(&state_dir);
+            let mut source = source
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (ttl, complaint) = source.observe(loaded.map(|config| config.idle_retire_secs));
+            if let Some(complaint) = complaint {
+                daemon_log!(
+                    "bosn ci: cannot read [engine] idle_retire_secs: {complaint}; \
+                     keeping {}s",
+                    ttl.as_secs()
+                );
+            }
+            ttl
+        });
     }
 
     /// Retire an idle shared engine and lease no more (daemon shutdown).
@@ -73,10 +88,60 @@ impl CiRuntime {
     }
 }
 
-/// `[engine] idle_retire_secs`, or [`DEFAULT_IDLE_RETIRE`].
-fn idle_retire(state_dir: &std::path::Path) -> Duration {
-    super::super::config::load_engine(state_dir)
-        .ok()
-        .and_then(|config| config.idle_retire_secs)
-        .map_or(DEFAULT_IDLE_RETIRE, Duration::from_secs)
+/// The idle limit across config reads: a config that stops parsing keeps the
+/// last good limit rather than quietly returning to the default.
+#[derive(Debug)]
+struct IdleRetire {
+    current: Duration,
+    last_error: Option<String>,
+}
+
+impl Default for IdleRetire {
+    fn default() -> Self {
+        Self {
+            current: DEFAULT_IDLE_RETIRE,
+            last_error: None,
+        }
+    }
+}
+
+impl IdleRetire {
+    /// The limit to use, and the error to log if this one is new.
+    fn observe(&mut self, loaded: Result<Option<u64>, String>) -> (Duration, Option<String>) {
+        match loaded {
+            Ok(secs) => {
+                self.last_error = None;
+                self.current = secs.map_or(DEFAULT_IDLE_RETIRE, Duration::from_secs);
+                (self.current, None)
+            }
+            Err(error) if self.last_error.as_ref() == Some(&error) => (self.current, None),
+            Err(error) => {
+                self.last_error = Some(error.clone());
+                (self.current, Some(error))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod idle_retire_tests {
+    use super::*;
+
+    #[test]
+    fn a_bad_config_keeps_the_last_good_limit_and_complains_once_per_error() {
+        let mut source = IdleRetire::default();
+        let two_hours = Duration::from_secs(7200);
+        assert_eq!(source.observe(Ok(Some(7200))), (two_hours, None));
+        let bad = || Err("unknown field `cpu`".to_owned());
+        assert_eq!(
+            source.observe(bad()),
+            (two_hours, Some("unknown field `cpu`".to_owned()))
+        );
+        assert_eq!(source.observe(bad()), (two_hours, None));
+        assert_eq!(source.observe(Ok(None)), (DEFAULT_IDLE_RETIRE, None));
+        assert_eq!(
+            source.observe(bad()),
+            (DEFAULT_IDLE_RETIRE, Some("unknown field `cpu`".to_owned()))
+        );
+    }
 }

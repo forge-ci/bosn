@@ -377,9 +377,10 @@ impl SharedEngine {
     }
 
     /// Tend the machine every [`REAP_EVERY`] until closed. `ttl` is read on
-    /// each check, so a config change applies live.
-    pub fn spawn_reaper(self: &Arc<Self>, ttl: impl Fn() -> Duration + Send + 'static) {
+    /// each check on a blocking worker, so a config change applies live.
+    pub fn spawn_reaper(self: &Arc<Self>, ttl: impl Fn() -> Duration + Send + Sync + 'static) {
         let keeper = Arc::downgrade(self);
+        let ttl = Arc::new(ttl);
         async_engine::launch(async move {
             let mut history_error = None;
             loop {
@@ -412,7 +413,10 @@ impl SharedEngine {
                         }
                     }
                 }
-                let ttl = ttl();
+                let read = Arc::clone(&ttl);
+                let Ok(ttl) = async_engine::launch_blocking(move || read()).await else {
+                    continue;
+                };
                 if keeper.retire_idle(ttl).await {
                     daemon_log!("bosn ci: idle shared engine retired");
                 }
