@@ -208,7 +208,8 @@ def _soldr_toolchain_environment() -> Iterator[None]:
             or not access(shim, X_OK)
         ):
             raise RuntimeError(
-                "Soldr toolchain shim missing or differs; refusing untrusted Cargo route"
+                "Soldr toolchain shim missing or differs; refusing untrusted Cargo route. "
+                f"If you trust this Soldr, run: soldr toolchain link --force --shim-dir {shim_dir}"
             )
         seen.add(name)
     updates = {

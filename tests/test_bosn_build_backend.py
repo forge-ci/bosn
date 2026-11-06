@@ -127,9 +127,11 @@ def test_bad_shim_proof_refuses(backend, monkeypatch, mutation):
 
     monkeypatch.setattr(module, "run", invalid)
     before = dict(os.environ)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError) as refused:
         with module._soldr_toolchain_environment():
             raise AssertionError("untrusted route")
+    if mutation == "differs":
+        assert "toolchain link --force --shim-dir" in str(refused.value)
     assert dict(os.environ) == before
 
 
