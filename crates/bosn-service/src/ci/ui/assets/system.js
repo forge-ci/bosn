@@ -136,6 +136,8 @@ function renderStatus(host, sample) {
 }
 
 function renderCharts(host, samples) {
+  // Replacing a hovered chart removes it without a pointerleave.
+  $("tip").hidden = true;
   const percent = (v) => `${v.toFixed(2)}%`;
   const gib = (v) => (v >= 1024 ? `${+(v / 1024).toFixed(1)} TiB` : `${+v.toFixed(1)} GiB`);
   const inGib = (field) => (p) => (p[field] == null ? null : p[field] / GIB);
