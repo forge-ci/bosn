@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -208,8 +209,15 @@ def _get(url: str, token: str) -> object:
         url,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        hint = " (no such run or issue in this repository?)" if error.code == 404 else ""
+        raise GateError(f"GitHub API {url}: HTTP {error.code} {error.reason}{hint}") from error
+    except (OSError, ValueError) as error:
+        # OSError covers URLError, timeouts and dropped connections; ValueError a bad body.
+        raise GateError(f"GitHub API {url}: {error}") from error
 
 
 def _object(value: object) -> dict[str, object]:

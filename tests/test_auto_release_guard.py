@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -331,3 +333,31 @@ def test_desktop_artifact_stays_source_bound_and_separate_from_four_wheels() -> 
     assert "for asset in dist/*.whl widget-dist/*" in release
     assert 'cmp "$asset"' in release
     assert 'gh release create "$RELEASE_TAG" dist/*.whl widget-dist/*' in release
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (urllib.error.HTTPError("https://x", 404, "Not Found", Message(), None), "404"),
+        (urllib.error.URLError("no route"), "no route"),
+        (TimeoutError("timed out"), "timed out"),
+    ],
+)
+def test_a_github_api_failure_is_a_gate_refusal(
+    failure: Exception,
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise failure
+
+    monkeypatch.setattr(gate, "check_candidate", lambda _sha: None)
+    monkeypatch.setattr(gate, "check_tag", lambda _tag, _sha: None)
+    monkeypatch.setattr(gate.urllib.request, "urlopen", refuse)
+
+    assert gate.main(["resolve", "--candidate-sha", SHA, "--ci-run-id", "1"]) == 1
+
+    stderr = capsys.readouterr().err
+    assert "::error::release gate:" in stderr
+    assert expected in stderr
