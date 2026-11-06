@@ -10,6 +10,7 @@ let workspace = null; // tree selection: null means the whole node
 let lastRuns = [];
 let lastRunners = null;
 let lastHost = null;
+let selected = null; // the container whose details are open, by id
 
 function svg(tag, attrs = {}, ...children) {
   const node = document.createElementNS(SVG, tag);
@@ -47,7 +48,9 @@ function chart(id, spec, samples) {
       el("span", { class: `swatch ${s.cls}` }), s.name))));
   }
   if (!series.some((s) => s.points.length > 1)) {
-    $(id).replaceChildren(head, el("p", { class: "empty" }, samples.length > 1 ? "Not reported on this platform." : "Collecting samples…"));
+    // CPU needs two readings for its first point, so one early point or none is not yet a verdict.
+    const reported = series.some((s) => s.points.length > 0) || samples.length < 3;
+    $(id).replaceChildren(head, el("p", { class: "empty" }, reported ? "Collecting samples…" : "Not reported on this platform."));
     return;
   }
   const t0 = samples[0].at_ms;
@@ -181,8 +184,9 @@ function renderTree() {
     }),
     el("li", { class: "section" }, "Containers"),
     ...(lastHost?.containers || []).map((c) => el("li", { class: "guest" },
-      el("span", { class: c.state, "aria-label": c.state }, CONTAINER_ICON[c.state] || "•"),
-      el("span", { class: "label", title: c.name }, c.name))),
+      el("button", { type: "button", "aria-current": String(selected === c.id), onclick: () => selectContainer(c.id) },
+        el("span", { class: c.state, "aria-label": c.state }, CONTAINER_ICON[c.state] || "•"),
+        el("span", { class: "label", title: c.name }, c.name)))),
   );
 }
 
@@ -193,12 +197,46 @@ function renderContainers() {
     $("containers").replaceChildren(el("tr", {}, el("td", { colspan: "4", class: "meta" }, "Docker unavailable.")));
     return;
   }
-  const rows = lastHost.containers.map((c) => el("tr", {},
+  const rows = lastHost.containers.map((c) => el("tr", {
+    class: "container-row", tabindex: "0", "aria-selected": String(selected === c.id),
+    onclick: () => selectContainer(c.id),
+    onkeydown: (event) => { if (event.key === "Enter") selectContainer(c.id); },
+  },
     el("td", { title: c.id }, c.name),
     el("td", {}, c.kind || "–"),
     el("td", { title: c.image }, c.image),
     el("td", { class: c.state }, `${CONTAINER_ICON[c.state] || "•"} ${c.status}`)));
   $("containers").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "4", class: "meta" }, "No Bosn containers."))]));
+}
+
+function selectContainer(id) {
+  selected = id;
+  renderTree();
+  renderContainers();
+  renderDetail();
+}
+
+// Asks Docker only while a container is selected: the sampler never pays for this.
+async function renderDetail() {
+  const id = selected;
+  const container = lastHost?.containers?.find((c) => c.id === id);
+  $("detail").hidden = !container;
+  if (!container) return;
+  $("detail-title").textContent = container.name;
+  const facts = (detail) => [
+    ["Status", container.status], ["Image", container.image], ["Stack", container.kind || "–"], ["ID", container.id],
+    ...(detail?.stats ? [["CPU", detail.stats.cpu], ["Memory", `${detail.stats.memory} (${detail.stats.memory_percent})`], ["Processes", detail.stats.pids]] : []),
+  ].flatMap(([term, value]) => [el("dt", {}, term), el("dd", {}, value)]);
+  try {
+    const detail = await request(`/v1/system/containers/${id}`);
+    if (selected !== id) return;
+    $("detail-facts").replaceChildren(...facts(detail));
+    $("detail-labels").replaceChildren(...detail.labels.map((label) => el("li", {}, label)));
+  } catch (error) {
+    if (selected !== id) return;
+    $("detail-facts").replaceChildren(...facts(null), el("dt", {}, "Details"), el("dd", {}, error.message));
+    $("detail-labels").replaceChildren();
+  }
 }
 
 function renderTasks() {
@@ -232,6 +270,7 @@ async function refresh() {
     renderTree();
     renderTasks();
     renderContainers();
+    renderDetail();
     $("live").textContent = `Updated ${new Date().toLocaleTimeString()} · last hour, ${system.interval_secs} s samples`;
   } catch (error) {
     $("live").textContent = error instanceof Unauthorized
@@ -240,5 +279,6 @@ async function refresh() {
   }
 }
 
+$("detail-close").onclick = () => selectContainer(null);
 refresh();
 setInterval(refresh, REFRESH_MS);

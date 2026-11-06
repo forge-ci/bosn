@@ -54,6 +54,23 @@ pub struct ContainerInfo {
     labels: String,
 }
 
+/// What one selected container reports. Stats are `None` unless it is running.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ContainerDetail {
+    pub labels: Vec<String>,
+    pub stats: Option<ContainerStats>,
+}
+
+/// Docker's own formatted figures for one container.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerStats {
+    pub cpu: String,
+    pub memory: String,
+    pub memory_percent: String,
+    pub pids: String,
+}
+
 /// One point on the charts.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Sample {
@@ -97,6 +114,32 @@ impl SystemMonitor {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    /// One listed container's details, or `None` for anything else: this is
+    /// not a way to read arbitrary containers. The sampler pays nothing for
+    /// this; the page asks only while a container is selected, and the Docker
+    /// call is bounded by [`DOCKER_DEADLINE`].
+    pub async fn container_detail(&self, id: &str) -> Option<ContainerDetail> {
+        let container = self
+            .reply()
+            .host
+            .containers?
+            .into_iter()
+            .find(|c| c.id == id)?;
+        let stats = if container.state == "running" {
+            let id = container.id.clone();
+            async_engine::launch_blocking(move || read_container_stats(&id))
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+        Some(ContainerDetail {
+            labels: bosn_labels(&container.labels),
+            stats,
+        })
     }
 
     fn record(&self, host: HostInfo, sample: Sample) {
@@ -210,6 +253,33 @@ fn read_containers() -> Option<Vec<ContainerInfo>> {
         .ok()
         .then(|| parse_containers(&String::from_utf8_lossy(&result.stdout)))
         .flatten()
+}
+
+fn read_container_stats(id: &str) -> Option<ContainerStats> {
+    let format = concat!(
+        r#"{"cpu":{{json .CPUPerc}},"memory":{{json .MemUsage}},"#,
+        r#""memory_percent":{{json .MemPerc}},"pids":{{json .PIDs}}}"#,
+    );
+    let result = DockerEngine::docker()
+        .with_args(["stats", "--no-stream", "--format", format, id])
+        .capture(RunOptions::bounded(DOCKER_DEADLINE, DOCKER_OUTPUT_LIMIT))
+        .ok()?;
+    result
+        .ok()
+        .then(|| serde_json::from_slice(&result.stdout).ok())
+        .flatten()
+}
+
+/// Only Bosn's own labels leave the host's Docker: an image's labels are not
+/// ours to publish. Docker joins them with commas.
+fn bosn_labels(labels: &str) -> Vec<String> {
+    let mut kept: Vec<String> = labels
+        .split(',')
+        .filter(|label| label.starts_with("com.zackees.bosn."))
+        .map(str::to_owned)
+        .collect();
+    kept.sort();
+    kept
 }
 
 /// One JSON document per line; a malformed line refuses the whole listing.
@@ -338,6 +408,19 @@ fn parse_cpu_model(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn details_publish_only_bosn_labels_and_parse_dockers_figures() {
+        assert_eq!(
+            bosn_labels("maintainer=me,com.zackees.bosn.stack=act,com.zackees.bosn.a=b"),
+            ["com.zackees.bosn.a=b", "com.zackees.bosn.stack=act"]
+        );
+        let stats: ContainerStats = serde_json::from_str(
+            r#"{"cpu":"1.5%","memory":"1MiB / 2GiB","memory_percent":"0.05%","pids":"3"}"#,
+        )
+        .unwrap();
+        assert_eq!(stats.pids, "3");
+    }
 
     #[test]
     fn cpu_usage_separates_busy_from_io_delay() {

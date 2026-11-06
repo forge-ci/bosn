@@ -148,7 +148,9 @@ port = 0         # 0 = an ephemeral port
 `bosn ui --path /system` opens the system monitor: CPU, IO delay, load, memory
 and disk charts for the last hour (sampled every 10 s in memory, so history
 restarts with the daemon), host facts, Bosn-labelled containers, and recent CI
-runs by workspace. Disk is
+runs by workspace. Selecting a container shows its Bosn labels and, while it
+runs, Docker's CPU, memory and process figures, read only while it stays
+selected. Disk is
 the filesystem holding Docker's data root (the state directory's until Docker
 answers); a metric the platform cannot report
 reads "unavailable" (host metrics currently come from Linux `/proc`).
