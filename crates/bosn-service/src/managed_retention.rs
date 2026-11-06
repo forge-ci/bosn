@@ -145,7 +145,7 @@ pub fn managed_retention_pass(
     // proves nothing, so the objects it would cover stay held.
     let authority = authority::Authority::load(state_dir);
     let our_registry = authority.our().map(str::to_owned);
-    let (artifacts, stopped_containers, refusal) = observe_owned(engine, &authority);
+    let (artifacts, stopped_containers, refusal, df) = observe_owned(engine, &authority);
     // #518: this report is unconditional. A default install has no `retention.toml`, so nothing
     // would ever delete these — but the operator still has to be told the pile is growing.
     let setup_containers = SetupContainerReport {
@@ -174,10 +174,16 @@ pub fn managed_retention_pass(
     }
 
     // #508: owned allocation has its own ceiling, separate from free disk.
-    let policy = pressure::policy_for_footprint(
-        policy,
-        bosn_core::retention::OwnedFootprint::of(&artifacts),
-    );
+    let mut footprint = bosn_core::retention::OwnedFootprint::of(&artifacts);
+    // #771: an image's inspect size repeats every layer it shares.
+    let owned_images = artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == ResourceKind::Image)
+        .map(|artifact| artifact.id.as_str());
+    if let Some(bytes) = df.and_then(|df| df.image_bytes(owned_images)) {
+        footprint.images = bytes;
+    }
+    let policy = pressure::policy_for_footprint(policy, footprint);
     // #659: deleted workspaces and a family's older checkouts are reclaimed early.
     let facts = workspaces::observe(&artifacts);
     let plan = plan_managed_with(&artifacts, our_registry.as_deref(), policy, &facts);
@@ -258,6 +264,7 @@ fn observe_owned(
     Vec<bosn_core::ObservedArtifact>,
     Vec<StoppedSetupContainer>,
     Option<String>,
+    Option<sizes::DfSizes>,
 ) {
     let options = RunOptions::bounded(RETENTION_READ_DEADLINE, RETENTION_OUTPUT_LIMIT);
     let mut artifacts = Vec::new();
@@ -280,7 +287,7 @@ fn observe_owned(
         &mut stopped_containers,
         &mut unreadable,
     );
-    observe_volumes(
+    let df = observe_volumes(
         engine,
         options,
         &probes,
@@ -305,7 +312,7 @@ fn observe_owned(
                 .total_cmp(&left.age_seconds)
                 .then_with(|| left.id.cmp(&right.id))
         });
-        (artifacts, stopped_containers, None)
+        (artifacts, stopped_containers, None, df)
     } else {
         (
             Vec::new(),
@@ -315,6 +322,7 @@ fn observe_owned(
                 unreadable.len(),
                 unreadable.join("; ")
             )),
+            None,
         )
     }
 }
@@ -400,23 +408,25 @@ fn observe_volumes(
     authority: &authority::Authority,
     artifacts: &mut Vec<bosn_core::ObservedArtifact>,
     unreadable: &mut Vec<String>,
-) {
-    let Some(names) = labeled_union(
+) -> Option<sizes::DfSizes> {
+    let names = labeled_union(
         probes,
         |probe| engine.volume_names_with_label(probe, options),
         "docker volume ls",
         unreadable,
-    ) else {
-        return;
-    };
-    let sizes = if names.is_empty() {
-        BTreeMap::new()
+    )?;
+    // Only read when there is a volume to size, so with none images keep their inspect size.
+    let df = if names.is_empty() {
+        None
     } else {
-        sizes::volume_sizes(engine, sizes::VOLUME_SIZE_DEADLINE).unwrap_or_else(|error| {
-            crate::daemon_log!("bosn retention: volume sizes unmeasured: {error}");
-            BTreeMap::new()
-        })
+        sizes::df_sizes(engine, sizes::VOLUME_SIZE_DEADLINE)
+            .inspect_err(|error| {
+                crate::daemon_log!("bosn retention: volume sizes unmeasured: {error}");
+            })
+            .ok()
     };
+    let no_sizes = BTreeMap::new();
+    let sizes = df.as_ref().map_or(&no_sizes, |df| &df.volumes);
     for chunk in names.chunks(INSPECT_CHUNK) {
         let Some(entries) = parse_inspect::<VolumeDetail>(
             engine.inspect_volumes(chunk, options),
@@ -446,6 +456,7 @@ fn observe_volumes(
             });
         }
     }
+    df
 }
 
 /// Observe every Bosn-labeled image.

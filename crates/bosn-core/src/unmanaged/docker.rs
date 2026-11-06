@@ -216,6 +216,10 @@ pub struct DfImage {
     pub created_at: String,
     #[serde(rename = "Size", default)]
     pub size: String,
+    #[serde(rename = "SharedSize", default)]
+    pub shared_size: String,
+    #[serde(rename = "UniqueSize", default)]
+    pub unique_size: String,
     #[serde(rename = "Containers", default)]
     pub containers: String,
 }
