@@ -25,7 +25,14 @@ use crate::stop_signal::{StopRequest, StopSignals};
 pub const DEFAULT_ENSURE_DEADLINE: Duration = Duration::from_secs(60 * 60);
 /// Default budget for the declared task (a full CI job under `act`).
 pub const DEFAULT_TASK_DEADLINE: Duration = Duration::from_secs(2 * 60 * 60);
-const DAEMON_START_WAIT: Duration = Duration::from_secs(20);
+/// How long a client waits for a daemon that may still be starting. A loaded
+/// host has taken about a minute, so a shorter wait reports a healthy daemon
+/// as failed.
+const DAEMON_START_WAIT: Duration = Duration::from_secs(120);
+/// The shorter wait once our own child has exited with a failure. That is not
+/// proof of a failed start, because a losing starter can fail while the
+/// winner's socket is still coming up, but it is reason not to wait as long.
+const FAILED_CHILD_WAIT: Duration = Duration::from_secs(20);
 /// The task job is cancelled once this client has not polled it for this
 /// long (#357): a `bosn run` killed by SIGTERM, SIGHUP or SIGKILL no longer
 /// leaves its job running to the deadline. Polls happen every
@@ -502,18 +509,20 @@ async fn wait_for_started_daemon(
     mut child: Option<&mut std::process::Child>,
 ) -> Option<bosn_service::DaemonIdentity> {
     let started = Instant::now();
+    let mut budget = DAEMON_START_WAIT;
     loop {
         if let Ok(identity) = client.daemon_identity().await {
             return Some(identity);
         }
-        if started.elapsed() >= DAEMON_START_WAIT {
+        if started.elapsed() >= budget {
             return client.daemon_identity().await.ok();
         }
-        // A competing client may have won the registry writer lock while its
-        // daemon is still opening the socket. Our child exiting is not proof
-        // that the winner failed; keep probing until the shared deadline.
-        if let Some(child) = child.as_mut() {
-            let _ = child.try_wait();
+        // A clean exit is how a losing starter yields to the winner, so only
+        // a failure shortens the wait.
+        if let Some(child) = child.as_mut()
+            && matches!(child.try_wait(), Ok(Some(status)) if !status.success())
+        {
+            budget = FAILED_CHILD_WAIT;
         }
         async_engine::sleep(POLL_INTERVAL).await;
     }
@@ -749,35 +758,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_losing_starter_waits_for_the_winners_socket() {
-        let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
-        let state = temporary.path().join("state");
-        let runtime = RuntimeBuilder::multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.run(async {
-            let mut loser = std::process::Command::new("true").spawn().unwrap();
-            assert!(loser.wait().unwrap().success());
-            let delayed_state = state.clone();
-            let winner = async_engine::launch(async move {
-                async_engine::sleep(POLL_INTERVAL * 2).await;
-                bosn_service::Service::new(delayed_state).serve().await
-            });
-            let client = Client::for_state(&state).unwrap();
-            let identity = wait_for_started_daemon(&client, Some(&mut loser)).await;
-            assert!(
-                identity.is_some(),
-                "the losing starter gave up before the winner was ready"
-            );
-            client.shutdown().await.unwrap();
-            winner.await.unwrap().unwrap();
-        });
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn an_enabled_unit_starts_the_daemon_without_forking_a_client_child() {
         use bosn_service::autostart::{
             CommandRunner, Platform, SERVICE_NAME, unit_contents, unit_path,
@@ -980,3 +960,7 @@ mod tests {
 #[cfg(test)]
 #[path = "run_disabled_tests.rs"]
 mod disabled_tests;
+
+#[cfg(all(test, unix))]
+#[path = "run_start_tests.rs"]
+mod start_tests;
