@@ -15,6 +15,8 @@ pub enum Route {
     Redeem { token: String, next: String },
     /// The host's status and sampled history (`GET /v1/system`).
     System,
+    /// One listed container's labels and stats (`GET /v1/system/containers/{id}`).
+    ContainerDetail { id: String },
     /// The live feed (`GET /v1/events`, server-sent events).
     Events,
     /// One run's durable status feed (`GET /v1/runs/{id}/events`).
@@ -103,6 +105,11 @@ impl Route {
             }
             (["auth"], true, _) => redeem(query)?,
             (["v1", "system"], true, _) => Route::System,
+            (["v1", "system", "containers", id], true, _)
+                if !id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit()) =>
+            {
+                Route::ContainerDetail { id: (*id).into() }
+            }
             (["v1", "events"], true, _) => Route::Events,
             (["v1", "runs", run, "events"], true, _) => {
                 let q: EventsQuery = typed_query(query)?;
@@ -566,6 +573,16 @@ mod tests {
         let redeem = parse("GET", "/auth", &[("token", "t")], "").unwrap();
         assert!(!redeem.needs_session());
         assert_eq!(parse("GET", "/v1/nope", &[], ""), Err(RouteError::NotFound));
+        assert_eq!(
+            parse("GET", "/v1/system/containers/abc123", &[], ""),
+            Ok(Route::ContainerDetail {
+                id: "abc123".into()
+            })
+        );
+        assert_eq!(
+            parse("GET", "/v1/system/containers/--all", &[], ""),
+            Err(RouteError::NotFound)
+        );
         assert_eq!(
             parse("DELETE", "/v1/runners", &[], ""),
             Err(RouteError::MethodNotAllowed)

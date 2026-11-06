@@ -71,3 +71,9 @@ td { padding: 4px 10px; border-bottom: 1px solid var(--line); white-space: nowra
   .tree { max-height: 200px; border-right: 0; border-bottom: 1px solid var(--line); }
   .tasks { height: 260px; }
 }
+.panel[hidden] { display: none; }
+#detail-close { float: right; }
+#detail-labels { margin: 8px 0 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
+.guest button { display: flex; flex: 1; gap: 6px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.container-row { cursor: pointer; }
+.container-row[aria-selected="true"] { background: var(--select); }

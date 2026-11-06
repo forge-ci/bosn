@@ -163,6 +163,13 @@ async fn respond(
             Ok(body) => json(200, body),
             Err(_) => text(500, "response encoding failed"),
         },
+        Route::ContainerDetail { id } => match monitor.container_detail(&id).await {
+            Some(detail) => match serde_json::to_string(&detail) {
+                Ok(body) => json(200, body),
+                Err(_) => text(500, "response encoding failed"),
+            },
+            None => text(404, "no such container"),
+        },
         Route::Events => events(ci),
         Route::RunEvents { run, from_seq } => {
             let last = header(&request, "last-event-id");
