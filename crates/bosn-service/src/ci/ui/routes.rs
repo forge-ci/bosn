@@ -71,6 +71,7 @@ impl Route {
                 [""]
                 | ["app.js"]
                 | ["app.css"]
+                | ["favicon.svg"]
                 | ["shared.js"]
                 | ["system"]
                 | ["system.js"]
