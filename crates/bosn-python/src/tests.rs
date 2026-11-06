@@ -39,7 +39,8 @@ fn isolated_python_fixture(test: &str) -> bool {
         kernal_api::SpawnSpec::new(std::env::current_exe().expect("test executable"))
             .args(["--exact", test])
             .env(CHILD, std::process::id().to_string()),
-        Duration::from_secs(10),
+        // A liveness guard for a loaded machine, never a speed assertion (#412).
+        Duration::from_secs(60),
         65536,
     )
     .expect("isolated Python submission fixture must finish");
