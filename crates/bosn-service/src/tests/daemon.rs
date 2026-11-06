@@ -744,6 +744,8 @@ fn the_prior_registry_refusal_names_every_orphaned_object_and_the_recovery() {
         unreadable: Vec::new(),
     };
     let message = prior_registry_refusal(&prior, Path::new("/state/registry.sqlite3"));
+    assert!(message.contains("--yes"), "{message}");
+    assert!(message.contains("bosn gc release-registry "), "{message}");
     assert!(message.contains("/state/registry.sqlite3"));
     assert!(message.contains("not a clean first run"));
     assert!(message.contains("bosn-cache"));

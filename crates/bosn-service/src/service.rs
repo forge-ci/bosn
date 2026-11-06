@@ -198,9 +198,11 @@ impl Service {
                 let mut prior = async_engine::launch_blocking(move || probe.as_ref().probe())
                     .await
                     .map_err(|_| Error::ActorClosed)?;
-                // A live peer's objects (the shared CI engine, say) prove nothing about this
-                // directory's lost registry; only unknown or abandoned registries do (#545).
-                let peers = crate::managed_retention::catalog::live_peer_registries();
+                // Objects of a registry the catalog knows prove nothing about this directory:
+                // a live peer's (the shared CI engine, say, #545), or an abandoned one's, which
+                // the machine daemon reclaims (#775). This directory's own lost registry was
+                // restored above, so only registries the catalog never saw remain.
+                let peers = crate::managed_retention::catalog::known_registries();
                 prior
                     .objects
                     .retain(|object| !peers.contains(&object.registry_id));
