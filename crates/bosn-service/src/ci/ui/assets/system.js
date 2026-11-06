@@ -163,7 +163,7 @@ function renderCharts(host, samples) {
 function treeButton(label, depth, count, value) {
   return el("li", {}, el("button", {
     type: "button", class: `depth-${depth}`, "aria-current": String(workspace === value),
-    onclick: () => { workspace = value; renderTree(); renderTasks(); renderContainers(); },
+    onclick: () => { workspace = value; renderTree(); renderTasks(); },
   }, el("span", { class: "label", title: label }, label), count == null ? "" : el("span", { class: "meta" }, String(count))));
 }
 
@@ -180,7 +180,7 @@ function renderTree() {
       return item;
     }),
     el("li", { class: "section" }, "Containers"),
-    ...visibleContainers().map((c) => el("li", { class: "guest" },
+    ...(lastHost?.containers || []).map((c) => el("li", { class: "guest" },
       el("span", { class: c.state, "aria-label": c.state }, CONTAINER_ICON[c.state] || "•"),
       el("span", { class: "label", title: c.name }, c.name))),
   );
@@ -188,16 +188,12 @@ function renderTree() {
 
 const CONTAINER_ICON = { running: "●", paused: "◌", restarting: "◌", created: "○", exited: "○", dead: "✗" };
 
-function visibleContainers() {
-  return (lastHost?.containers || []).filter((c) => workspace === null || c.workspace === workspace);
-}
-
 function renderContainers() {
   if (!lastHost?.containers) {
     $("containers").replaceChildren(el("tr", {}, el("td", { colspan: "4", class: "meta" }, "Docker unavailable.")));
     return;
   }
-  const rows = visibleContainers().map((c) => el("tr", {},
+  const rows = lastHost.containers.map((c) => el("tr", {},
     el("td", { title: c.id }, c.name),
     el("td", {}, c.kind || "–"),
     el("td", { title: c.image }, c.image),
