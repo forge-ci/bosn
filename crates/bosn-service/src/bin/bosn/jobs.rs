@@ -165,6 +165,7 @@ fn format_table(view: &Value, ci: Option<&RunnersReply>) -> String {
         super::ci::format_ci_capacity(
             ci.map(|reply| reply.runners.limit),
             ci.and_then(|reply| reply.engine_capacity.as_ref()),
+            ci.and_then(|reply| reply.engine_capacity_error.as_deref()),
         )
     );
     for lane in ["runner", "control"] {
@@ -390,5 +391,17 @@ mod tests {
                 "no jobs\n"
             )
         );
+        let refused: RunnersReply = serde_json::from_value(serde_json::json!({
+            "runners": {
+                "limit": 2, "running": 0, "queued": 0, "drained": false,
+                "engine": "act", "act_version": "act2.19", "widget": "absent"
+            },
+            "engine_capacity_error": "a new 8 GiB Bosn engine does not fit",
+            "pruned_runs": null
+        }))
+        .unwrap();
+        assert!(format_table(&view, Some(&refused)).contains(
+            "CI lane: admission limit 2; engine limits unavailable: a new 8 GiB Bosn engine does not fit\n"
+        ));
     }
 }

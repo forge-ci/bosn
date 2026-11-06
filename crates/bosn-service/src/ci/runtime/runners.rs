@@ -75,10 +75,11 @@ impl CiRuntime {
         // the reply reports the recovered admission state (#453).
         self.kick();
         let status = self.runner_status(&self.lock());
-        let engine_capacity = self.engine_capacity().await;
+        let (engine_capacity, engine_capacity_error) = self.engine_capacity().await;
         Ok(RunnersReply {
             runners: status,
             engine_capacity,
+            engine_capacity_error,
             pruned_runs: pruned,
             cache,
             maintenance,

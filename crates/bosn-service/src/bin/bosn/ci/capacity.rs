@@ -26,10 +26,19 @@ pub fn format_task_capacity(capacity: Option<&TaskLaneCapacity>) -> String {
 }
 
 /// One wording for CI capacity wherever the CLI reports it.
-pub fn format_ci_capacity(limit: Option<usize>, engine: Option<&CiEngineCapacity>) -> String {
+pub fn format_ci_capacity(
+    limit: Option<usize>,
+    engine: Option<&CiEngineCapacity>,
+    error: Option<&str>,
+) -> String {
     let admission = limit.map_or_else(|| "unknown".into(), |limit| limit.to_string());
     let Some(engine) = engine else {
-        return format!("CI lane: admission limit {admission}; engine limits unavailable");
+        return match error {
+            Some(error) => {
+                format!("CI lane: admission limit {admission}; engine limits unavailable: {error}")
+            }
+            None => format!("CI lane: admission limit {admission}; engine limits unavailable"),
+        };
     };
     let source = match engine.cpu_source {
         CiCpuSource::Config => "[engine] cpus",
