@@ -5,7 +5,10 @@ use std::time::Instant;
 use bosn_service::Client;
 use kernal_api::async_engine::{self, RuntimeBuilder};
 
-use super::{DAEMON_START_WAIT, FAILED_CHILD_WAIT, POLL_INTERVAL, wait_for_started_daemon};
+use super::{
+    DAEMON_START_WAIT, FAILED_CHILD_WAIT, POLL_INTERVAL, wait_for_started_daemon,
+    wait_for_unit_daemon,
+};
 
 #[cfg(unix)]
 #[test]
@@ -52,4 +55,37 @@ fn a_child_that_fails_shortens_the_wait() {
     assert!(identity.is_none());
     assert!(started.elapsed() >= FAILED_CHILD_WAIT);
     assert!(started.elapsed() < DAEMON_START_WAIT / 2);
+}
+
+#[test]
+fn a_unit_start_is_asked_again_until_the_daemon_answers() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let state = temporary.path().join("state");
+    let runtime = RuntimeBuilder::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.run(async {
+        let delayed_state = state.clone();
+        let daemon = async_engine::launch(async move {
+            async_engine::sleep(POLL_INTERVAL * 6).await;
+            bosn_service::Service::new(delayed_state).serve().await
+        });
+        let client = Client::for_state(&state).unwrap();
+        let asks = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&asks);
+        let identity = wait_for_unit_daemon(&client, POLL_INTERVAL, move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        })
+        .await;
+        assert!(identity.is_some());
+        assert!(asks.load(Ordering::SeqCst) >= 2);
+        client.shutdown().await.unwrap();
+        daemon.await.unwrap().unwrap();
+    });
 }
