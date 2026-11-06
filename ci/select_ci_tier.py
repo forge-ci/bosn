@@ -56,14 +56,26 @@ def touches_widget(changed: list[str]) -> bool:
     return any(path.startswith(WIDGET_PATHS) for path in changed)
 
 
-def changed_files(base: str) -> list[str]:
-    out = subprocess.run(
+def changed_files(base: str) -> list[str] | None:
+    """Paths changed since `base`; None when the diff cannot be computed."""
+    diff = subprocess.run(
         ["git", "diff", "--name-only", f"{base}...HEAD"],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
-    ).stdout
-    return out.splitlines()
+    )
+    if diff.returncode != 0:
+        return None
+    return diff.stdout.splitlines()
+
+
+def selects_widget(base: str) -> bool:
+    """An unknown diff runs the widget lane: skipping could pass an untested change."""
+    changed = changed_files(base)
+    if changed is None:
+        print(f"::notice::cannot diff against {base}; selecting the widget lane")
+        return True
+    return touches_widget(changed)
 
 
 def main() -> None:
@@ -77,7 +89,7 @@ def main() -> None:
     payload = json.loads(args.payload.read_text())
     tier = select(args.event, payload, args.manual_tier, args.manual_sha)
     base = diff_base(args.event, payload)
-    widget = tier == "full" or (bool(base) and touches_widget(changed_files(base)))
+    widget = tier == "full" or (bool(base) and selects_widget(base))
     with args.output.open("a") as output:
         output.write(f"tier={tier}\n")
         output.write(f"test={'true' if tier in {'test', 'full'} else 'false'}\n")

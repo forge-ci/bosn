@@ -285,3 +285,22 @@ def test_widget_lane_is_path_selected() -> None:
     assert select_ci_tier.diff_base("push", {"before": "a" * 40}) == "a" * 40
     assert select_ci_tier.diff_base("push", {"before": "0" * 40}) == ""
     assert select_ci_tier.diff_base("workflow_dispatch", {}) == ""
+
+
+def test_an_unreachable_diff_base_selects_the_widget_lane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = "1" * 40
+    payload = tmp_path / "payload.json"
+    payload.write_text(f'{{"merge_group": {{"base_sha": "{missing}"}}}}')
+    output = tmp_path / "output.txt"
+    argv = ["select_ci_tier.py", "--event", "merge_group", "--payload", str(payload)]
+    monkeypatch.setattr(sys, "argv", [*argv, "--output", str(output)])
+    monkeypatch.chdir(ROOT)
+
+    select_ci_tier.main()
+
+    written = output.read_text().splitlines()
+    assert "tier=minimal" in written
+    assert "widget=true" in written
+    assert missing in capsys.readouterr().out
