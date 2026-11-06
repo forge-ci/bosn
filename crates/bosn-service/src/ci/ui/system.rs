@@ -114,16 +114,24 @@ impl SystemMonitor {
         let monitor = self.clone();
         async_engine::launch(async move {
             let mut previous = None;
+            // The disk retention watches; the state directory until Docker answers.
+            let mut docker_root = None;
             loop {
                 let path = disk_path.clone();
+                let known_root = docker_root.clone();
                 let observed = async_engine::launch_blocking(move || {
                     let ticks = read_proc("stat").and_then(|s| parse_cpu_ticks(&s));
-                    let (host, sample) = observe(&path, previous, ticks);
-                    (host, sample, ticks)
+                    let root = known_root.or_else(|| {
+                        crate::unmanaged::docker_root_dir(&DockerEngine::docker())
+                            .filter(|root| kernal_api::resources_total_space(root).is_ok())
+                    });
+                    let (host, sample) = observe(root.as_deref().unwrap_or(&path), previous, ticks);
+                    (host, sample, ticks, root)
                 })
                 .await;
                 // A lost worker leaves a gap in the history, never an invented point.
-                if let Ok((host, sample, ticks)) = observed {
+                if let Ok((host, sample, ticks, root)) = observed {
+                    docker_root = root;
                     monitor.record(host, sample);
                     previous = ticks;
                 }
