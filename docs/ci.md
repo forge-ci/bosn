@@ -149,7 +149,8 @@ port = 0         # 0 = an ephemeral port
 and disk charts for the last hour (sampled every 10 s in memory, so history
 restarts with the daemon), host facts, Bosn-labelled containers, and recent CI
 runs by workspace. Disk is
-the filesystem holding the state directory; a metric the platform cannot report
+the filesystem holding Docker's data root (the state directory's until Docker
+answers); a metric the platform cannot report
 reads "unavailable" (host metrics currently come from Linux `/proc`).
 
 `bosn ui [--path /ci/runs/RUN]` asks the daemon (over its owner-only socket)
