@@ -86,3 +86,27 @@ fn daemon_serves_ipc_during_checkpoint_and_joins_its_writer_lease_at_shutdown() 
         );
     });
 }
+
+/// #830: a writer lock released within the grace is not another daemon.
+#[test]
+fn serve_opens_the_registry_once_a_dying_holder_lets_go() {
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let db = temporary.path().join("registry.sqlite3");
+    drop(Registry::create_writer(&db, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee").unwrap());
+    let holder = Registry::open_writer(&db).unwrap();
+    let runtime = RuntimeBuilder::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.run(async {
+        let release = async_engine::launch(async move {
+            async_engine::sleep(Duration::from_millis(200)).await;
+            drop(holder);
+        });
+        crate::service::open_writer_past_dying_holder(&db)
+            .await
+            .unwrap();
+        release.await.unwrap();
+    });
+}
