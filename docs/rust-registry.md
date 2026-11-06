@@ -86,7 +86,7 @@ The package-ready foreground control surface is explicit and authenticated:
 
 ```text
 bosn daemon serve --state-dir STATE_DIR
-bosn daemon status --state-dir STATE_DIR [--json]
+bosn daemon status [--state-dir STATE_DIR] [--json]
 bosn daemon stop --state-dir STATE_DIR [--json]
 bosn daemon disable|enable [--state-dir STATE_DIR] [--json]
 ```
