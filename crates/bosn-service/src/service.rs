@@ -167,9 +167,7 @@ impl Service {
         ipc::ensure_owner_private_directory(&self.state_dir)?;
         let db = self.state_dir.join("registry.sqlite3");
         let registry = match kernal_api::platform::fs::path_identity(&db) {
-            Ok(Some(_)) => async_engine::launch_blocking(move || Registry::open_writer(&db))
-                .await
-                .map_err(|_| Error::ActorClosed)??,
+            Ok(Some(_)) => open_writer_past_dying_holder(&db).await?,
             Ok(None) => return Err(Error::Protocol("registry identity unavailable")),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => 'mint: {
                 // #545: the machine catalog remembers which registry this state directory held.
@@ -802,5 +800,29 @@ async fn ready_registry(mut registry: Registry) -> Result<Registry, Error> {
             return Ok(registry);
         }
         async_engine::sleep(std::time::Duration::from_millis(1)).await;
+    }
+}
+
+/// How long a held writer lock is retried before another daemon is believed to own it.
+const WRITER_HOLDER_GRACE: Duration = Duration::from_secs(2);
+
+/// Open the registry writer, retrying a held lock briefly. A clean exit on `WriterAlreadyHeld`
+/// never gets restarted (#669), so a holder that is only dying, such as a killed daemon's child
+/// that has not reached exec yet, must not be mistaken for a live daemon (#830).
+pub(crate) async fn open_writer_past_dying_holder(db: &Path) -> Result<Registry, Error> {
+    let deadline = std::time::Instant::now() + WRITER_HOLDER_GRACE;
+    loop {
+        let path = db.to_path_buf();
+        let opened = async_engine::launch_blocking(move || Registry::open_writer(&path))
+            .await
+            .map_err(|_| Error::ActorClosed)?;
+        match opened {
+            Err(bosn_registry::Error::WriterAlreadyHeld(_))
+                if std::time::Instant::now() < deadline =>
+            {
+                async_engine::sleep(Duration::from_millis(50)).await;
+            }
+            other => return Ok(other?),
+        }
     }
 }
