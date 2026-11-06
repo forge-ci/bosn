@@ -9,7 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use bosn_core::{LABEL_KIND, LABEL_WORKSPACE};
+use bosn_core::LABEL_STACK;
 use bosn_engine::{DockerEngine, RunOptions};
 use kernal_api::async_engine;
 use serde::{Deserialize, Serialize};
@@ -46,8 +46,10 @@ pub struct ContainerInfo {
     pub image: String,
     pub state: String,
     pub status: String,
+    /// The stack label (`act`, `ci-source-context`, ...), or `setup`. No
+    /// workspace here: a CI container's label names the state directory or
+    /// `machine`, not the repository it serves.
     pub kind: String,
-    pub workspace: String,
     #[serde(skip_serializing)]
     labels: String,
 }
@@ -188,10 +190,9 @@ fn read_containers() -> Option<Vec<ContainerInfo>> {
         concat!(
             r#"{{"id":{{{{json .ID}}}},"name":{{{{json .Names}}}},"image":{{{{json .Image}}}},"#,
             r#""state":{{{{json .State}}}},"status":{{{{json .Status}}}},"labels":{{{{json .Labels}}}},"#,
-            r#""kind":{{{{json (.Label "{kind}")}}}},"workspace":{{{{json (.Label "{workspace}")}}}}}}"#,
+            r#""kind":{{{{json (.Label "{stack}")}}}}}}"#,
         ),
-        kind = LABEL_KIND,
-        workspace = LABEL_WORKSPACE,
+        stack = LABEL_STACK,
     );
     let result = DockerEngine::docker()
         .with_args(["ps", "-a", "--format", &format])
@@ -364,15 +365,14 @@ mod tests {
 
     #[test]
     fn container_lines_parse_and_a_malformed_line_refuses_the_listing() {
-        let line = r#"{"id":"a","name":"n","image":"i","state":"running","status":"Up","kind":"","workspace":"/w","labels":"com.zackees.bosn.setup-managed=v1"}"#;
-        let foreign = r#"{"id":"b","name":"x","image":"i","state":"running","status":"Up","kind":"","workspace":"","labels":"other=1"}"#;
+        let line = r#"{"id":"a","name":"n","image":"i","state":"running","status":"Up","kind":"","labels":"com.zackees.bosn.setup-managed=v1"}"#;
+        let foreign = r#"{"id":"b","name":"x","image":"i","state":"running","status":"Up","kind":"","labels":"other=1"}"#;
         let parsed = parse_containers(&format!("{line}\n{foreign}\n")).unwrap();
         assert_eq!(
             parsed.len(),
             1,
             "a container without a Bosn label is not listed"
         );
-        assert_eq!(parsed[0].workspace, "/w");
         assert_eq!(parsed[0].kind, "setup");
         assert_eq!(parse_containers(""), Some(Vec::new()));
         assert_eq!(parse_containers(&format!("{line}\nnot json\n")), None);
