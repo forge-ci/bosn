@@ -959,7 +959,8 @@ async fn wait_for(predicate: impl Fn() -> bool) {
 }
 
 async fn wait_for_job_state(client: &Client, id: u64, wanted: &str) {
-    for _ in 0..100 {
+    // 60 s: a liveness guard for a loaded machine, never a speed assertion (#412).
+    for _ in 0..6000 {
         if client.job_status(id).await.unwrap().state == wanted {
             return;
         }
