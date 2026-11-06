@@ -422,5 +422,15 @@ pub fn prior_registry_refusal(prior: &PriorIdentity, db: &Path) -> String {
         "Restore the registry database from backup (it is the only record of what this machine \
          owns), or remove the objects above deliberately, then start bosn again.",
     );
+    let mut registries = std::collections::BTreeMap::<&str, usize>::new();
+    for object in &prior.objects {
+        *registries.entry(&object.registry_id).or_default() += 1;
+    }
+    for (registry, count) in registries {
+        message.push_str(&format!(
+            "\nIf registry {registry}'s state directory is gone ({count} object(s) above): \
+             bosn gc release-registry {registry} --yes"
+        ));
+    }
     message
 }

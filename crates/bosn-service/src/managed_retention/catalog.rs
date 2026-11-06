@@ -116,15 +116,16 @@ fn cataloged_identity_at(root: &Path, state_dir: &Path) -> Option<String> {
     found
 }
 
-/// Registries the machine catalog names whose `registry.sqlite3` still exists: live peers (#545).
+/// Registries the machine catalog names whose `registry.sqlite3` definitely exists (live peers,
+/// #545) or definitely does not (abandoned, #775). An unreadable path is neither.
 ///
 /// Their objects (the machine-wide CI engine another daemon made, say) are not evidence that a
 /// *new* state directory lost its own registry, so the #515 first-run guard ignores them.
-pub(crate) fn live_peer_registries() -> BTreeSet<String> {
-    machine_root().map_or_else(BTreeSet::new, |root| live_peers_at(&root))
+pub(crate) fn known_registries() -> BTreeSet<String> {
+    machine_root().map_or_else(BTreeSet::new, |root| known_at(&root))
 }
 
-fn live_peers_at(root: &Path) -> BTreeSet<String> {
+fn known_at(root: &Path) -> BTreeSet<String> {
     let Ok(items) = std::fs::read_dir(root) else {
         return BTreeSet::new();
     };
@@ -142,7 +143,11 @@ fn live_peers_at(root: &Path) -> BTreeSet<String> {
             (entry.registry_id == stem
                 && entry.schema == SCHEMA
                 && valid_registry_id(&entry.registry_id)
-                && entry.state_dir.join("registry.sqlite3").is_file())
+                && entry
+                    .state_dir
+                    .join("registry.sqlite3")
+                    .try_exists()
+                    .is_ok())
             .then_some(entry.registry_id)
         })
         .collect()
@@ -415,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn live_peers_are_cataloged_registries_whose_database_exists() {
+    fn known_registries_are_the_cataloged_ones_with_or_without_a_database() {
         let dir = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
         let root = dir.path().join("catalog");
         let (live, gone) = (dir.path().join("live"), dir.path().join("gone"));
@@ -428,7 +433,10 @@ mod tests {
         );
         enroll_at(&root, &live, a).unwrap();
         enroll_at(&root, &gone, b).unwrap();
-        assert_eq!(live_peers_at(&root), BTreeSet::from([a.to_owned()]));
-        assert!(live_peers_at(&dir.path().join("absent")).is_empty());
+        assert_eq!(
+            known_at(&root),
+            BTreeSet::from([a.to_owned(), b.to_owned()])
+        );
+        assert!(known_at(&dir.path().join("absent")).is_empty());
     }
 }
