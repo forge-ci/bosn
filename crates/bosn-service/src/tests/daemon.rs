@@ -952,9 +952,11 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // Older clients ignore them and newer clients read older records as empty,
 // so the daemon protocol remains 2.
 // #784 preserves typed secure-random failure messages without changing wire fields.
+// #767 adds the optional `engine_capacity_error` to two replies; older clients
+// ignore it, so the daemon protocol is unchanged.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "66c1f75d30d4eccafd395827dc4b78e15515ae414c8dc2282818764d2a63cedf",
+    "fa260f33293b39c5b84c84026468e5c6e9d892f6d663de5df8f3c22e97d7dfde",
 );
 
 #[test]

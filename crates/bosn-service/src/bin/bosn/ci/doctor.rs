@@ -23,7 +23,11 @@ pub(super) fn run(arguments: impl Iterator<Item = OsString>) -> Result<i32, Fail
         println!("{}", format_task_capacity(r.task_capacity.as_ref()));
         println!(
             "{}",
-            format_ci_capacity(r.admission_limit, r.engine_capacity.as_ref())
+            format_ci_capacity(
+                r.admission_limit,
+                r.engine_capacity.as_ref(),
+                r.engine_capacity_error.as_deref(),
+            )
         );
         match (&r.engine, &r.report) {
             (Some(engine), Some(report)) => {

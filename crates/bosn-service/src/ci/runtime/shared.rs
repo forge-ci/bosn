@@ -27,7 +27,7 @@ impl CiRuntime {
 
     /// `act doctor` in the shared engine this daemon holds, if any.
     pub(super) async fn doctor(&self) -> Result<DoctorReply, CiError> {
-        let engine_capacity = self.engine_capacity().await;
+        let (engine_capacity, engine_capacity_error) = self.engine_capacity().await;
         let admission_limit = Some(self.lock().scheduler.limit());
         let Some((engine, _)) = self.shared.status().await else {
             let (widget_release, widget_presence) = self.widget_report();
@@ -35,6 +35,7 @@ impl CiRuntime {
                 engine: None,
                 report: None,
                 engine_capacity,
+                engine_capacity_error,
                 admission_limit,
                 task_capacity: self.task_capacity.get().cloned(),
                 daemon_release: Some(self.release.to_string()),
@@ -52,6 +53,7 @@ impl CiRuntime {
             engine: Some(engine),
             report: Some(report),
             engine_capacity,
+            engine_capacity_error,
             admission_limit,
             task_capacity: self.task_capacity.get().cloned(),
             daemon_release: Some(self.release.to_string()),

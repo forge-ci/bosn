@@ -191,6 +191,9 @@ pub struct RunnersReply {
     /// Current shared-engine limits, or the limits a new engine would use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine_capacity: Option<CiEngineCapacity>,
+    /// Why `engine_capacity` is absent: the probe failed, or a new engine would be refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_capacity_error: Option<String>,
     pub pruned_runs: Option<Vec<String>>,
     /// Set by `cache_usage` and `clear_cache`.
     #[serde(default)]
@@ -211,6 +214,9 @@ pub struct DoctorReply {
     pub report: Option<ActDoctorReport>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine_capacity: Option<CiEngineCapacity>,
+    /// Why `engine_capacity` is absent: the probe failed, or a new engine would be refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_capacity_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission_limit: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

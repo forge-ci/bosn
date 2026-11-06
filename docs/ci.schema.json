@@ -685,6 +685,13 @@
             }
           ]
         },
+        "engine_capacity_error": {
+          "description": "Why `engine_capacity` is absent: the probe failed, or a new engine would be refused.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "report": {
           "anyOf": [
             {
@@ -2164,6 +2171,13 @@
             }
           ],
           "description": "Current shared-engine limits, or the limits a new engine would use."
+        },
+        "engine_capacity_error": {
+          "description": "Why `engine_capacity` is absent: the probe failed, or a new engine would be refused.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "maintenance": {
           "anyOf": [
