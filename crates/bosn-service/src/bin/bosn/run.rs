@@ -33,6 +33,7 @@ const DAEMON_START_WAIT: Duration = Duration::from_secs(120);
 /// proof of a failed start, because a losing starter can fail while the
 /// winner's socket is still coming up, but it is reason not to wait as long.
 const FAILED_CHILD_WAIT: Duration = Duration::from_secs(20);
+const UNIT_START_RETRY: Duration = Duration::from_secs(5);
 /// The task job is cancelled once this client has not polled it for this
 /// long (#357): a `bosn run` killed by SIGTERM, SIGHUP or SIGKILL no longer
 /// leaves its job running to the deadline. Polls happen every
@@ -460,7 +461,25 @@ pub(crate) fn ensure_daemon(
         &bosn_service::autostart::SystemRunner,
         spawn_on_demand,
     )?;
-    if let Some(identity) = runtime.run(wait_for_started_daemon(client, child.as_mut())) {
+    let started = if child.is_some() {
+        runtime.run(wait_for_started_daemon(client, child.as_mut()))
+    } else {
+        let (state_dir, home) = (state_dir.to_path_buf(), home.clone());
+        runtime.run(wait_for_unit_daemon(client, UNIT_START_RETRY, move || {
+            if let (Some(platform), Some(home)) = (
+                bosn_service::autostart::Platform::current(),
+                home.as_deref(),
+            ) {
+                let _ = bosn_service::autostart::start_if_enabled(
+                    &bosn_service::autostart::SystemRunner,
+                    platform,
+                    home,
+                    &state_dir,
+                );
+            }
+        }))
+    };
+    if let Some(identity) = started {
         matching_daemon(state_dir, &identity)?;
         eprintln!("bosn: started the bosn daemon for {}", state_dir.display());
         return Ok(());
@@ -502,30 +521,6 @@ fn spawn_on_demand(executable: &Path, state_dir: &Path) -> Result<std::process::
     command
         .spawn()
         .map_err(|error| format!("cannot start the bosn daemon: {error}"))
-}
-
-async fn wait_for_started_daemon(
-    client: &Client,
-    mut child: Option<&mut std::process::Child>,
-) -> Option<bosn_service::DaemonIdentity> {
-    let started = Instant::now();
-    let mut budget = DAEMON_START_WAIT;
-    loop {
-        if let Ok(identity) = client.daemon_identity().await {
-            return Some(identity);
-        }
-        if started.elapsed() >= budget {
-            return client.daemon_identity().await.ok();
-        }
-        // A clean exit is how a losing starter yields to the winner, so only
-        // a failure shortens the wait.
-        if let Some(child) = child.as_mut()
-            && matches!(child.try_wait(), Ok(Some(status)) if !status.success())
-        {
-            budget = FAILED_CHILD_WAIT;
-        }
-        async_engine::sleep(POLL_INTERVAL).await;
-    }
 }
 
 /// Restart an older daemon onto the authoritative executable, but only when
@@ -960,6 +955,10 @@ mod tests {
 #[cfg(test)]
 #[path = "run_disabled_tests.rs"]
 mod disabled_tests;
+
+#[path = "run_start.rs"]
+mod start;
+use start::{wait_for_started_daemon, wait_for_unit_daemon};
 
 #[cfg(all(test, unix))]
 #[path = "run_start_tests.rs"]
