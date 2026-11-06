@@ -18,6 +18,7 @@ const STYLE: &str = asset!("app.css");
 const SYSTEM_HTML: &str = asset!("system.html");
 const SYSTEM_SCRIPT: &str = asset!("system.js");
 const SYSTEM_STYLE: &str = asset!("system.css");
+const FAVICON: &str = asset!("favicon.svg");
 const BUBBLE: &str = asset!("bubble.html");
 const PANEL: &str = asset!("panel.html");
 const WIDGET_SCRIPT: &str = asset!("widget.js");
@@ -28,6 +29,7 @@ pub fn response(path: &str) -> Response {
         "/app.js" => (SCRIPT, "text/javascript; charset=utf-8"),
         "/shared.js" => (SHARED_SCRIPT, "text/javascript; charset=utf-8"),
         "/app.css" => (STYLE, "text/css; charset=utf-8"),
+        "/favicon.svg" => (FAVICON, "image/svg+xml"),
         "/system" => (SYSTEM_HTML, "text/html; charset=utf-8"),
         "/system.js" => (SYSTEM_SCRIPT, "text/javascript; charset=utf-8"),
         "/system.css" => (SYSTEM_STYLE, "text/css; charset=utf-8"),
@@ -45,7 +47,19 @@ pub fn response(path: &str) -> Response {
 
 #[cfg(test)]
 mod tests {
+    use super::super::routes::Route;
     use super::*;
+
+    #[test]
+    fn every_page_names_the_icon_it_is_served() {
+        for page in [HTML, SYSTEM_HTML, PANEL, BUBBLE] {
+            assert!(page.contains(r#"<link rel="icon" href="/favicon.svg">"#));
+        }
+        assert_eq!(
+            Route::parse("GET", "/favicon.svg", &[], b""),
+            Ok(Route::Page)
+        );
+    }
 
     #[test]
     fn every_page_loads_the_shared_helpers_before_its_own_script() {
