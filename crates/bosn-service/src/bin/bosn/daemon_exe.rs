@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 const STAMP: &str = "bosn-daemon.release";
+const INSTALL_LOCK: &str = ".install.lock";
 
 fn executable_name() -> &'static str {
     if cfg!(windows) {
@@ -97,26 +98,44 @@ pub(crate) fn install_daemon_executable(
     state_dir: &Path,
     release: &str,
 ) -> Result<PathBuf, String> {
-    let target = daemon_executable(state_dir);
-    let stamp = target.with_file_name(STAMP);
     let source = std::env::current_exe()
         .map_err(|_| "cannot locate the bosn executable to start its daemon".to_owned())?;
-    let wanted = stamp_for(release, &source);
-    let installed = std::fs::read_to_string(&stamp).ok();
-    let installed = installed.as_deref().filter(|_| target.exists());
-    if !should_replace(release, installed, &wanted) {
-        return Ok(target);
+    install_from(&source, &daemon_executable(state_dir), release)
+}
+
+/// The recorded install, unless the executable it describes is missing.
+fn read_installed(stamp: &Path, target: &Path) -> Option<String> {
+    std::fs::read_to_string(stamp)
+        .ok()
+        .filter(|_| target.exists())
+}
+
+fn install_from(source: &Path, target: &Path, release: &str) -> Result<PathBuf, String> {
+    let stamp = target.with_file_name(STAMP);
+    let wanted = stamp_for(release, source);
+    // The usual case needs no lock: nothing to do.
+    if !should_replace(release, read_installed(&stamp, target).as_deref(), &wanted) {
+        return Ok(target.to_path_buf());
     }
     let result = (|| -> std::io::Result<()> {
-        std::fs::create_dir_all(target.parent().unwrap_or(state_dir))?;
-        replace_atomically(&source, &target)?;
+        std::fs::create_dir_all(target.parent().unwrap_or(Path::new(".")))?;
+        // The binary and stamp renames are one step only under this lock, and
+        // the decision must be remade inside it: another installer may have
+        // finished a newer release since the check above (#768). Dropping the
+        // file releases it, and so does a crashed holder's exit.
+        let lock = std::fs::File::create(target.with_file_name(INSTALL_LOCK))?;
+        lock.lock()?;
+        if !should_replace(release, read_installed(&stamp, target).as_deref(), &wanted) {
+            return Ok(());
+        }
+        replace_atomically(source, target)?;
         let pending = target.with_file_name(format!(".{STAMP}.{}.tmp", std::process::id()));
         std::fs::write(&pending, &wanted)?;
         std::fs::rename(&pending, &stamp)
     })();
     match result {
-        Ok(()) => Ok(target),
-        Err(_) if target.exists() => Ok(target),
+        Ok(()) => Ok(target.to_path_buf()),
+        Err(_) if target.exists() => Ok(target.to_path_buf()),
         Err(error) => Err(format!(
             "cannot install the bosn daemon executable at {}: {error}",
             target.display()
@@ -158,5 +177,29 @@ mod tests {
         replace_atomically(&source, &target).unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn concurrent_installers_leave_the_newest_binary_and_its_stamp() {
+        for _ in 0..50 {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("daemon").join("bosn-daemon");
+            let releases = ["0.1.21", "0.1.23", "0.1.22", "0.1.20"];
+            let barrier = std::sync::Barrier::new(releases.len());
+            std::thread::scope(|scope| {
+                for release in releases {
+                    let source = dir.path().join(release);
+                    std::fs::write(&source, release).unwrap();
+                    let (target, barrier) = (&target, &barrier);
+                    scope.spawn(move || {
+                        barrier.wait();
+                        install_from(&source, target, release).unwrap();
+                    });
+                }
+            });
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "0.1.23");
+            let stamp = std::fs::read_to_string(target.with_file_name(STAMP)).unwrap();
+            assert_eq!(stamp.lines().next(), Some("0.1.23"));
+        }
     }
 }
