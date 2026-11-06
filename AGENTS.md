@@ -591,6 +591,9 @@ past `DEFAULT_OWNED_CEILING` (256 GiB) uses the same `under_disk_pressure` polic
 Every ownership, liveness and pin gate, the volume floor and the re-check are
 unchanged. Sizes come from Docker's own reports; an unmeasured object is counted,
 never guessed.
+Images are summed from `docker system df -v` as unique bytes plus the largest shared
+figure (#771): inspect `Size` repeats shared layers once per image and tripped the ceiling
+falsely. Several unrelated bases are undercounted; the free-disk check covers those.
 
 ## CI late-create cleanup (#676)
 
