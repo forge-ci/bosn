@@ -594,6 +594,9 @@ never guessed.
 Images are summed from `docker system df -v` as unique bytes plus the largest shared
 figure (#771): inspect `Size` repeats shared layers once per image and tripped the ceiling
 falsely. Several unrelated bases are undercounted; the free-disk check covers those.
+Only the pass measures the footprint, so over the ceiling idle keepalives stop after it, at
+the 1 h gate, and the next pass reclaims them (#769); measuring first would cost a second
+`docker system df -v`.
 
 ## CI late-create cleanup (#676)
 
