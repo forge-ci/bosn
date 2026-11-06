@@ -69,6 +69,8 @@ pub struct ManagedRetentionOutcome {
     pub plan: bosn_core::retention::RetentionPlan,
     /// Stopped Bosn-owned setup containers and the volumes each one pins (#518).
     pub setup_containers: SetupContainerReport,
+    /// The stopped-container age the pass ended up using, which the footprint can shorten.
+    pub container_ttl: std::time::Duration,
 }
 
 /// One stopped, Bosn-owned container and the volumes it is holding alive.
@@ -170,6 +172,7 @@ pub fn managed_retention_pass(
             },
             plan: bosn_core::retention::RetentionPlan::default(),
             setup_containers,
+            container_ttl: policy.container_ttl,
         };
     }
 
@@ -249,6 +252,7 @@ pub fn managed_retention_pass(
         },
         plan,
         setup_containers,
+        container_ttl: policy.container_ttl,
     }
 }
 

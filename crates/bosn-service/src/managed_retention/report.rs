@@ -58,23 +58,40 @@ pub fn maintenance_pass_with(
     // ones first, so this same pass can reclaim them and the volumes they pinned.
     let mut stopped_idle = Vec::new();
     if apply {
-        let idle = super::idle::retire_idle_keepalives(
-            engine,
-            state_dir,
-            policy.container_ttl,
-            super::idle::MAX_STOPS_PER_PASS,
-        );
-        for line in idle.report_lines() {
-            daemon_log!("bosn retention: {line}");
-        }
-        stopped_idle = idle.stopped;
+        stop_idle(engine, state_dir, policy.container_ttl, &mut stopped_idle);
     }
     let retention = managed_retention_pass(engine, state_dir, policy, apply);
     report_pass(&retention);
+    // #769: only the pass measures the footprint, and over the ceiling it shortens this gate.
+    // Measuring first would cost a second `docker system df -v`, so a keepalive this stops
+    // is reclaimed by the next pass rather than this one.
+    if apply && retention.container_ttl < policy.container_ttl {
+        stop_idle(
+            engine,
+            state_dir,
+            retention.container_ttl,
+            &mut stopped_idle,
+        );
+    }
     MaintenanceOutcome {
         stopped_idle,
         retention,
     }
+}
+
+/// Stop keepalives idle past `ttl`, up to what is left of this pass's stops.
+fn stop_idle(
+    engine: &DockerEngine,
+    state_dir: &Path,
+    ttl: std::time::Duration,
+    stopped: &mut Vec<String>,
+) {
+    let limit = super::idle::MAX_STOPS_PER_PASS.saturating_sub(stopped.len());
+    let idle = super::idle::retire_idle_keepalives(engine, state_dir, ttl, limit);
+    for line in idle.report_lines() {
+        daemon_log!("bosn retention: {line}");
+    }
+    stopped.extend(idle.stopped);
 }
 
 /// Print what a pass did, or would do.
