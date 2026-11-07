@@ -270,7 +270,7 @@ fn other_running(text: &str) -> Option<usize> {
     Some(
         containers
             .iter()
-            .filter(|c| c.state == "running" && !c.labels.contains("com.zackees.bosn."))
+            .filter(|c| c.state == "running" && bosn_label_entries(&c.labels).next().is_none())
             .count(),
     )
 }
@@ -293,13 +293,17 @@ fn read_container_stats(id: &str) -> Option<ContainerStats> {
 /// Only Bosn's own labels leave the host's Docker: an image's labels are not
 /// ours to publish. Docker joins them with commas.
 fn bosn_labels(labels: &str) -> Vec<String> {
-    let mut kept: Vec<String> = labels
-        .split(',')
-        .filter(|label| label.starts_with("com.zackees.bosn."))
-        .map(str::to_owned)
-        .collect();
+    let mut kept: Vec<String> = bosn_label_entries(labels).map(str::to_owned).collect();
     kept.sort();
     kept
+}
+
+/// The entries of Docker's joined label text whose key is Bosn's. Another
+/// container's label value may mention our prefix; that does not make it ours.
+fn bosn_label_entries(labels: &str) -> impl Iterator<Item = &str> {
+    labels
+        .split(',')
+        .filter(|label| label.starts_with("com.zackees.bosn."))
 }
 
 /// One JSON document per line; a malformed line refuses the whole listing.
@@ -313,9 +317,12 @@ fn parse_containers(text: &str) -> Option<Vec<ContainerInfo>> {
     Some(
         containers
             .into_iter()
-            .filter(|c| c.labels.contains("com.zackees.bosn."))
+            .filter(|c| bosn_label_entries(&c.labels).next().is_some())
             .map(|mut c| {
-                if c.kind.is_empty() && c.labels.contains("com.zackees.bosn.setup-managed=") {
+                if c.kind.is_empty()
+                    && bosn_label_entries(&c.labels)
+                        .any(|label| label.starts_with("com.zackees.bosn.setup-managed="))
+                {
                     c.kind = "setup".into();
                 }
                 c
@@ -478,6 +485,8 @@ mod tests {
     fn container_lines_parse_and_a_malformed_line_refuses_the_listing() {
         let line = r#"{"id":"a","name":"n","image":"i","state":"running","status":"Up","kind":"","labels":"com.zackees.bosn.setup-managed=v1"}"#;
         let foreign = r#"{"id":"b","name":"x","image":"i","state":"running","status":"Up","kind":"","labels":"other=1"}"#;
+        let mentions = r#"{"id":"c","name":"x","image":"i","state":"running","status":"Up","kind":"","labels":"note=com.zackees.bosn.setup-managed=v1"}"#;
+        assert_eq!(parse_containers(mentions), Some(Vec::new()));
         let parsed = parse_containers(&format!("{line}\n{foreign}\n")).unwrap();
         assert_eq!(
             parsed.len(),
@@ -497,9 +506,10 @@ mod tests {
             running("x=y", "running"),
             running("x=y", "exited"),
             running("com.zackees.bosn.stack=act", "running"),
+            running("note=com.zackees.bosn.stack", "running"),
         ]
         .join("\n");
-        assert_eq!(other_running(&listing), Some(1));
+        assert_eq!(other_running(&listing), Some(2));
         assert_eq!(parse_containers(&format!("{line}\nnot json\n")), None);
     }
 
