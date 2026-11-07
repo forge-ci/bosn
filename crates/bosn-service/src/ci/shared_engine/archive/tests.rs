@@ -84,6 +84,17 @@ fn completion_waits_until_fenced_old_writers_are_gone() {
             // whether Complete crossed the still-busy source boundary.
             let preparing = std::pin::pin!(preparing);
             let mut preparing = preparing;
+            // Wait to observe Fence: a loaded host can take far longer than any fixed time.
+            let started = std::time::Instant::now();
+            while backend.archive_phases.lock().unwrap().len() < 2 {
+                assert!(started.elapsed() < Duration::from_secs(60), "no fence");
+                assert!(
+                    async_engine::timeout(Duration::from_millis(50), preparing.as_mut())
+                        .await
+                        .is_err()
+                );
+            }
+            // Fenced: it must now hold at the busy writer, however long it is given.
             assert!(
                 async_engine::timeout(Duration::from_millis(100), preparing.as_mut())
                     .await

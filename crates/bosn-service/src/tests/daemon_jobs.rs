@@ -455,9 +455,10 @@ fn a_followed_app_task_is_cancelled_once_its_follower_stops_polling() {
                 .follow_manifest_app_task(request("queued"), lease)
                 .await
                 .unwrap();
+            // Silence first: polling is what renews a lease. Then wait for the teardown.
             async_engine::sleep(Duration::from_secs(3)).await;
-            assert_eq!(client.job_status(running).await.unwrap().state, "Cancelled");
-            assert_eq!(client.job_status(queued).await.unwrap().state, "Cancelled");
+            wait_for_job_state(&client, running, "Cancelled").await;
+            wait_for_job_state(&client, queued, "Cancelled").await;
             assert!(
                 client
                     .job_logs(running, 0, 16)
@@ -481,21 +482,19 @@ fn a_followed_app_task_is_cancelled_once_its_follower_stops_polling() {
             client.cancel_job(unleased).await.unwrap();
             wait_for_job_state(&client, unleased, "Cancelled").await;
 
-            // A follower that keeps polling keeps its job.
+            // A follower that keeps polling keeps its job, for longer than the lease. The
+            // lease allows for a stalled host, where one slow poll must not expire it.
             let followed = client
-                .follow_manifest_app_task(request("followed"), lease)
+                .follow_manifest_app_task(request("followed"), Duration::from_secs(3))
                 .await
                 .unwrap();
             assert_eq!(next_task_start(&mut started_wait).await, "followed");
-            for _ in 0..12 {
+            for _ in 0..24 {
                 assert_eq!(client.job_status(followed).await.unwrap().state, "Running");
                 async_engine::sleep(Duration::from_millis(200)).await;
             }
-            async_engine::sleep(Duration::from_secs(3)).await;
-            assert_eq!(
-                client.job_status(followed).await.unwrap().state,
-                "Cancelled"
-            );
+            async_engine::sleep(Duration::from_secs(5)).await;
+            wait_for_job_state(&client, followed, "Cancelled").await;
 
             client.shutdown().await.unwrap();
             stopped(server).await;
