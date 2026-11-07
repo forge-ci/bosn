@@ -35,6 +35,9 @@ pub struct HostInfo {
     pub disk_total_bytes: Option<u64>,
     /// Bosn-labelled containers; `None` when Docker could not be read.
     pub containers: Option<Vec<ContainerInfo>>,
+    /// Running containers without a Bosn label, from the same read: an idle Bosn
+    /// is not an idle host (#797). A count only; their names are not ours to publish.
+    pub other_running_containers: Option<usize>,
 }
 
 /// One Bosn-labelled container, as `docker ps` reports it.
@@ -207,6 +210,7 @@ fn observe(
     let disk_free = kernal_api::resources_available_space(disk_path).ok();
     let usage = previous.zip(ticks).and_then(|(a, b)| a.usage_until(b));
     let trimmed = |name| read_proc(name).map(|s: String| s.trim().to_owned());
+    let (containers, other_running_containers) = read_containers().unzip();
     let host = HostInfo {
         hostname: trimmed("sys/kernel/hostname"),
         kernel: trimmed("sys/kernel/osrelease"),
@@ -218,7 +222,8 @@ fn observe(
         swap_total_bytes: memory.and_then(|m| m.swap_total),
         disk_path: disk_path.to_owned(),
         disk_total_bytes: disk_total,
-        containers: read_containers(),
+        containers,
+        other_running_containers,
     };
     let sample = Sample {
         at_ms: SystemTime::now()
@@ -236,7 +241,7 @@ fn observe(
     (host, sample)
 }
 
-fn read_containers() -> Option<Vec<ContainerInfo>> {
+fn read_containers() -> Option<(Vec<ContainerInfo>, usize)> {
     let format = format!(
         concat!(
             r#"{{"id":{{{{json .ID}}}},"name":{{{{json .Names}}}},"image":{{{{json .Image}}}},"#,
@@ -249,10 +254,25 @@ fn read_containers() -> Option<Vec<ContainerInfo>> {
         .with_args(["ps", "-a", "--format", &format])
         .capture(RunOptions::bounded(DOCKER_DEADLINE, DOCKER_OUTPUT_LIMIT))
         .ok()?;
-    result
-        .ok()
-        .then(|| parse_containers(&String::from_utf8_lossy(&result.stdout)))
-        .flatten()
+    if !result.ok() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&result.stdout);
+    Some((parse_containers(&text)?, other_running(&text)?))
+}
+
+/// How many listed containers are running without a Bosn label.
+fn other_running(text: &str) -> Option<usize> {
+    let containers: Vec<ContainerInfo> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).ok())
+        .collect::<Option<_>>()?;
+    Some(
+        containers
+            .iter()
+            .filter(|c| c.state == "running" && !c.labels.contains("com.zackees.bosn."))
+            .count(),
+    )
 }
 
 fn read_container_stats(id: &str) -> Option<ContainerStats> {
@@ -466,6 +486,20 @@ mod tests {
         );
         assert_eq!(parsed[0].kind, "setup");
         assert_eq!(parse_containers(""), Some(Vec::new()));
+        assert_eq!(other_running(""), Some(0));
+        assert_eq!(other_running("not json"), None);
+        let running = |labels: &str, state: &str| {
+            format!(
+                r#"{{"id":"a","name":"n","image":"i","state":"{state}","status":"s","labels":"{labels}","kind":""}}"#
+            )
+        };
+        let listing = [
+            running("x=y", "running"),
+            running("x=y", "exited"),
+            running("com.zackees.bosn.stack=act", "running"),
+        ]
+        .join("\n");
+        assert_eq!(other_running(&listing), Some(1));
         assert_eq!(parse_containers(&format!("{line}\nnot json\n")), None);
     }
 

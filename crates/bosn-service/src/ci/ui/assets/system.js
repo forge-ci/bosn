@@ -145,6 +145,7 @@ function renderStatus(host, sample) {
     ["Disk measured at", host.disk_path],
     ["CI runners", r ? runnersText(r) : "–"],
     ["CI engine", engineText(lastCapacity)],
+    ["Other containers", known(host.other_running_containers, (n) => `${n} running outside bosn`)],
   ].flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]));
 }
 
