@@ -9,6 +9,7 @@ const VIEW = { w: 620, h: 190, left: 60, right: 8, top: 8, bottom: 22 };
 let workspace = null; // tree selection: null means the whole node
 let lastRuns = [];
 let lastRunners = null;
+let lastCapacity = null; // /v1/runners: the CI engine's limits, or why there are none
 let lastHost = null;
 let selected = null; // the container whose details are open, by id
 
@@ -117,6 +118,14 @@ function usage(used, total) {
   return [`${(used / total * 100).toFixed(2)}% (${humanBytes(used)} of ${humanBytes(total)})`, used / total];
 }
 
+function engineText(reply) {
+  if (!reply) return "–";
+  const engine = reply.engine_capacity;
+  if (!engine) return `unavailable: ${reply.engine_capacity_error || "no reason reported"}`;
+  const memory = (engine.memory_bytes / GIB).toFixed(0);
+  return `${engine.running ? "running" : "next"}: ${engine.cpus} CPUs, ${memory} GiB`;
+}
+
 function renderStatus(host, sample) {
   const cpu = sample?.cpu_percent;
   $("title").textContent = `Node '${host.hostname || "local"}'`;
@@ -135,6 +144,7 @@ function renderStatus(host, sample) {
     ["Kernel", host.kernel || "unavailable"],
     ["Disk measured at", host.disk_path],
     ["CI runners", r ? runnersText(r) : "–"],
+    ["CI engine", engineText(lastCapacity)],
   ].flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]));
 }
 
@@ -261,7 +271,13 @@ function renderTasks() {
 
 async function refresh() {
   try {
-    const [system, list] = await Promise.all([request("/v1/system"), request("/v1/runs?limit=100")]);
+    const [system, list, capacity] = await Promise.all([
+      request("/v1/system"),
+      request("/v1/runs?limit=100"),
+      // A failure here is one line of the page, not the whole refresh.
+      request("/v1/runners").catch((error) => ({ engine_capacity_error: error.message })),
+    ]);
+    lastCapacity = capacity;
     lastHost = system.host;
     lastRuns = list.runs;
     lastRunners = list.runners;
