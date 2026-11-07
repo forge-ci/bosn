@@ -228,23 +228,36 @@ function selectContainer(id) {
 }
 
 // Asks Docker only while a container is selected: the sampler never pays for this.
+let detailShown = null; // whose facts the panel holds
+let detailCall = 0; // only the newest request may draw
+
 async function renderDetail() {
   const id = selected;
   const container = lastHost?.containers?.find((c) => c.id === id);
   $("detail").hidden = !container;
-  if (!container) return;
+  if (!container) {
+    detailShown = null;
+    return;
+  }
   $("detail-title").textContent = container.name;
   const facts = (detail) => [
     ["Status", container.status], ["Image", container.image], ["Stack", container.kind || "–"], ["ID", container.id],
     ...(detail?.stats ? [["CPU", detail.stats.cpu], ["Memory", `${detail.stats.memory} (${detail.stats.memory_percent})`], ["Processes", detail.stats.pids]] : []),
   ].flatMap(([term, value]) => [el("dt", {}, term), el("dd", {}, value)]);
+  // Docker can take seconds: until it answers, show only what the listing knows.
+  if (detailShown !== id) {
+    detailShown = id;
+    $("detail-facts").replaceChildren(...facts(null));
+    $("detail-labels").replaceChildren();
+  }
+  const call = ++detailCall;
   try {
     const detail = await request(`/v1/system/containers/${id}`);
-    if (selected !== id) return;
+    if (call !== detailCall) return;
     $("detail-facts").replaceChildren(...facts(detail));
     $("detail-labels").replaceChildren(...detail.labels.map((label) => el("li", {}, label)));
   } catch (error) {
-    if (selected !== id) return;
+    if (call !== detailCall) return;
     $("detail-facts").replaceChildren(...facts(null), el("dt", {}, "Details"), el("dd", {}, error.message));
     $("detail-labels").replaceChildren();
   }
