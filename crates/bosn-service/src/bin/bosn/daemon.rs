@@ -421,6 +421,10 @@ pub(crate) fn print_daemon_status(
     state_dir: &Path,
     json: bool,
 ) {
+    let installed = crate::daemon_exe::installed_build(state_dir);
+    let running = identity.and_then(|identity| identity.build.as_ref());
+    let stale = identity
+        .is_some_and(|identity| crate::daemon_exe::stale_build(identity, installed.as_ref()));
     let daemon_version = identity.map(|identity| identity.release.as_str());
     // Zero is a daemon that predates the protocol handshake (#509).
     let daemon_protocol = identity
@@ -435,6 +439,9 @@ pub(crate) fn print_daemon_status(
             "{}",
             json!({
                 "action": "daemon_status",
+                "running_build": running,
+                "installed_build": installed,
+                "stale_build": stale,
                 "daemon": "online",
                 "registry_id": status.registry_id,
                 "schema_version": status.schema_version,
@@ -453,6 +460,17 @@ pub(crate) fn print_daemon_status(
         );
     } else {
         println!("daemon status");
+        println!(
+            "running_build: {}",
+            serde_json::to_string(&running).unwrap()
+        );
+        println!(
+            "installed_build: {}",
+            serde_json::to_string(&installed).unwrap()
+        );
+        if stale {
+            println!("daemon is running a stale build; it will be replaced when idle");
+        }
         println!("daemon: online");
         println!(
             "daemon_version: {}",

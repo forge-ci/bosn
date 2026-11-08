@@ -49,17 +49,8 @@ pub(crate) fn is_newer_release(ours: &str, theirs: &str) -> bool {
 
 /// What a stamp records: the release and the build it was copied from.
 fn stamp_for(release: &str, source: &Path) -> String {
-    let build = std::fs::metadata(source)
-        .map(|meta| {
-            let modified = meta
-                .modified()
-                .ok()
-                .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |at| at.as_nanos());
-            format!("{}:{modified}", meta.len())
-        })
-        .unwrap_or_default();
-    format!("{release}\n{build}\n")
+    bosn_service::BuildIdentity::from_executable(release, source)
+        .map_or_else(|_| format!("{release}\n\n"), |build| build.stamp)
 }
 
 /// Whether a client of `release` built as `wanted` should replace `installed`.
@@ -84,6 +75,11 @@ fn replace_atomically(source: &Path, target: &Path) -> std::io::Result<()> {
     let _ = std::fs::remove_file(&temporary);
     if std::fs::hard_link(source, &temporary).is_err() {
         std::fs::copy(source, &temporary)?;
+        let modified = std::fs::metadata(source)?.modified()?;
+        std::fs::File::options()
+            .write(true)
+            .open(&temporary)?
+            .set_times(std::fs::FileTimes::new().set_modified(modified))?;
     }
     std::fs::rename(&temporary, target).inspect_err(|_| {
         let _ = std::fs::remove_file(&temporary);
@@ -201,5 +197,58 @@ mod tests {
             let stamp = std::fs::read_to_string(target.with_file_name(STAMP)).unwrap();
             assert_eq!(stamp.lines().next(), Some("0.1.23"));
         }
+    }
+}
+
+/// The identity recorded for the authoritative executable, if known.
+pub(crate) fn installed_build(state: &Path) -> Option<bosn_service::BuildIdentity> {
+    let target = daemon_executable(state);
+    bosn_service::BuildIdentity::from_stamp(read_installed(&target.with_file_name(STAMP), &target)?)
+}
+
+/// An older client never requests a handoff, including for another build.
+pub(crate) fn needs_handoff(
+    release: &str,
+    daemon: &bosn_service::DaemonIdentity,
+    installed: Option<&bosn_service::BuildIdentity>,
+) -> bool {
+    is_newer_release(release, &daemon.release)
+        || (release == daemon.release && stale_build(daemon, installed))
+}
+
+pub(crate) fn stale_build(
+    daemon: &bosn_service::DaemonIdentity,
+    installed: Option<&bosn_service::BuildIdentity>,
+) -> bool {
+    match (daemon.build.as_ref(), installed) {
+        (Some(running), Some(installed)) => running != installed,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod build_tests {
+    use super::*;
+    #[test]
+    fn handoff_decisions_never_downgrade_or_restart_unknown_builds() {
+        let build = |mtime| {
+            bosn_service::BuildIdentity::from_stamp(format!("0.1.6\n10:{mtime}\n")).unwrap()
+        };
+        let installed = build(2);
+        let mut daemon = bosn_service::DaemonIdentity {
+            release: "0.1.5".into(),
+            protocol: 2,
+            protocol_min: 1,
+            build: Some(build(1)),
+        };
+        assert!(needs_handoff("0.1.6", &daemon, Some(&installed)));
+        daemon.release = "0.1.6".into();
+        assert!(needs_handoff("0.1.6", &daemon, Some(&installed)));
+        daemon.build = Some(installed.clone());
+        assert!(!needs_handoff("0.1.6", &daemon, Some(&installed)));
+        daemon.build = None;
+        assert!(!needs_handoff("0.1.6", &daemon, Some(&installed)));
+        daemon.build = Some(build(1));
+        assert!(!needs_handoff("0.1.4", &daemon, Some(&installed)));
     }
 }

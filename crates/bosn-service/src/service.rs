@@ -29,6 +29,7 @@ impl Service {
             manifest_recovery_executor: Arc::new(DockerManifestRecoveryExecutor::new()),
             identity: Arc::new(DaemonIdentity {
                 release: String::new(),
+                build: None,
                 protocol: DAEMON_PROTOCOL,
                 protocol_min: DAEMON_PROTOCOL_MIN,
             }),
@@ -64,7 +65,12 @@ impl Service {
     /// release can refuse it clearly instead of sending requests the daemon may
     /// misread. The `bosn` binary passes its own package version.
     pub fn with_release_version(mut self, version: impl Into<String>) -> Self {
-        Arc::make_mut(&mut self.identity).release = version.into();
+        let release = version.into();
+        let identity = Arc::make_mut(&mut self.identity);
+        identity.build = std::env::current_exe()
+            .ok()
+            .and_then(|path| crate::BuildIdentity::from_executable(&release, &path).ok());
+        identity.release = release;
         self
     }
     /// The wire protocol this daemon reports on ping, overriding

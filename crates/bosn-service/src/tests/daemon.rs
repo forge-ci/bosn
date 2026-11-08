@@ -134,6 +134,7 @@ fn response_envelope_rejects_wrong_correlation_protocol_kind_and_encoding() {
     ));
     let state = Path::new("/state");
     let daemon = |release: &str, protocol| DaemonIdentity {
+        build: None,
         release: release.into(),
         protocol,
         protocol_min: 0,
@@ -171,6 +172,7 @@ fn response_envelope_rejects_wrong_correlation_protocol_kind_and_encoding() {
     assert!(legacy.contains("0.1.5 or earlier"));
     // A window holding this client's protocol is accepted (#509 phase 3).
     let window = |min, max| DaemonIdentity {
+        build: None,
         release: "0.2.0".into(),
         protocol: max,
         protocol_min: min,
@@ -902,7 +904,8 @@ fn independent_state_directories_serve_concurrently() {
 /// to them may change the wire, so it must come with a [`DAEMON_PROTOCOL`]
 /// decision: bump the protocol when the edit changes the wire, then record
 /// the new fingerprint below either way. This is a tripwire, not a proof.
-const PROTOCOL_SURFACE: [&str; 6] = [
+const PROTOCOL_SURFACE: [&str; 7] = [
+    "src/build_identity.rs",
     "src/wire.rs",
     "src/wire_validate.rs",
     "src/ci/wire.rs",
@@ -954,9 +957,10 @@ const PROTOCOL_SURFACE: [&str; 6] = [
 // #784 preserves typed secure-random failure messages without changing wire fields.
 // #767 adds the optional `engine_capacity_error` to two replies; older clients
 // ignore it, so the daemon protocol is unchanged.
+// #833: optional ping build identity is additive, no bump.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "fa260f33293b39c5b84c84026468e5c6e9d892f6d663de5df8f3c22e97d7dfde",
+    "25123fc846314b5b90033d289a3687b1a9a1b43beee72604ceb7cf7e66bfb7e1",
 );
 
 #[test]
@@ -980,6 +984,7 @@ fn protocol_surface_is_pinned() {
 #[test]
 fn a_compatible_daemon_from_another_release_is_a_named_mismatch_warning() {
     let skewed = DaemonIdentity {
+        build: None,
         release: "0.1.7".into(),
         protocol: DAEMON_PROTOCOL,
         protocol_min: 0,

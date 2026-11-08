@@ -613,3 +613,56 @@ fn assert_every_family_refuses(state: &Path, workspace: &Path) {
             .is_some_and(|text| text.contains("bosn daemon stop"))
     );
 }
+
+#[test]
+fn status_reports_running_and_stale_installed_builds() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let mut daemon = DaemonChild::start(&state);
+    let client = wait_for_client(&mut daemon, &state);
+    let identity = RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(client.daemon_identity())
+        .unwrap();
+    assert!(identity.build.is_some());
+    std::fs::create_dir_all(state.join("daemon")).unwrap();
+    let executable = if cfg!(windows) {
+        "bosn-daemon.exe"
+    } else {
+        "bosn-daemon"
+    };
+    std::fs::write(state.join("daemon").join(executable), "installed").unwrap();
+    std::fs::write(
+        state.join("daemon/bosn-daemon.release"),
+        format!("{}\n1:2\n", identity.release),
+    )
+    .unwrap();
+    let status = run(&[
+        "daemon".as_ref(),
+        "status".as_ref(),
+        "--state-dir".as_ref(),
+        state.as_os_str(),
+        "--json".as_ref(),
+    ]);
+    assert!(status.status.success());
+    let value: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert!(value["running_build"]["stamp"].as_str().is_some());
+    assert_eq!(value["stale_build"], true);
+    assert_eq!(
+        value["installed_build"]["stamp"],
+        format!("{}\n1:2\n", identity.release)
+    );
+    assert!(String::from_utf8_lossy(&status.stderr).contains("running a stale build"));
+    let status = run(&[
+        "daemon".as_ref(),
+        "status".as_ref(),
+        "--state-dir".as_ref(),
+        state.as_os_str(),
+    ]);
+    assert!(
+        String::from_utf8_lossy(&status.stdout)
+            .contains("daemon is running a stale build; it will be replaced when idle")
+    );
+}

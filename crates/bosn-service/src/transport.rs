@@ -42,6 +42,8 @@ pub const DAEMON_PROTOCOL_MIN: u32 = 1;
 /// What a daemon says about itself on a ping reply.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DaemonIdentity {
+    /// Build captured at startup; absent from older daemons.
+    pub build: Option<crate::BuildIdentity>,
     /// The release version. Empty from bosn 0.1.5 and older.
     pub release: String,
     /// The newest wire protocol it serves. Zero from a daemon that predates #509.
