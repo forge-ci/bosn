@@ -42,6 +42,7 @@ fn plan(fixture: &Fixture, body: &str, task: Option<&str>) -> Result<ManifestRun
             manifest: "bosn.toml".into(),
             stack: "app".into(),
             task_name: task.into(),
+            args: Vec::new(),
             deadline: Duration::from_secs(1),
             output_limit: 64,
         })),

@@ -839,6 +839,12 @@ impl Client {
         lease: Option<Duration>,
         owner: Option<ClientOwner>,
     ) -> Result<u64, Error> {
+        if !request.args.is_empty() && self.daemon_identity().await?.protocol < 3 {
+            return Err(Error::Protocol(
+                "task arguments require daemon protocol 3; stop the old daemon and retry",
+            ));
+        }
+        validate_task_arguments(&request.args)?;
         let follow_lease_ms = lease.map_or(0, |lease| lease.as_millis() as u64);
         let workspace = request
             .workspace
@@ -864,6 +870,7 @@ impl Client {
                     stack: request.stack,
                     setup_config: request.manifest,
                     setup_task_name: request.task_name,
+                    task_args: request.args,
                     setup_deadline_ms: deadline_ms,
                     setup_output_limit: output_limit,
                     follow_lease_ms,

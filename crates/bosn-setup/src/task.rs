@@ -79,6 +79,7 @@ pub enum SetupAppTaskCommand {
         /// value from the Docker client's own process environment, so a
         /// secret never appears in argv (#308). Values never enter this crate.
         passthrough_env: Vec<String>,
+        args: Vec<String>,
         command: String,
     },
     /// Signal, in the same container, exactly the processes whose
@@ -98,6 +99,7 @@ impl SetupAppTaskCommand {
                 container_name,
                 task_token,
                 passthrough_env,
+                args: task_args,
                 command,
             } => {
                 let mut args = vec![
@@ -111,7 +113,7 @@ impl SetupAppTaskCommand {
                     args.push(name.clone());
                 }
                 args.push(container_name.clone());
-                args.extend(crate::shell::task_shell_args(command));
+                args.extend(crate::shell::task_shell_args_with_args(command, task_args));
                 args
             }
             Self::Stop {
@@ -261,6 +263,7 @@ pub struct SetupAppTaskRequest<'a> {
     /// Environment variable names to forward from the Docker client process
     /// environment. Only names, never values; see [`SetupAppTaskCommand`].
     pub passthrough_env: Vec<String>,
+    pub args: Vec<String>,
     pub prepared_image: &'a PreparedImage,
     pub options: RunOptions,
     pub cancellation: &'a CancellationToken,
@@ -420,6 +423,7 @@ pub async fn execute_setup_app_task<E: SetupAppTaskEngine>(
                 container_name: container_name.clone(),
                 task_token: task_token.clone(),
                 passthrough_env: request.passthrough_env,
+                args: request.args,
                 command,
             },
             RunOptions::streaming(remaining, request.options.output_limit),

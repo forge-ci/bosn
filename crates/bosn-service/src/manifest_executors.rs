@@ -430,6 +430,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                         plan: &plan,
                         workspace_root: request.workspace.clone(),
                         task_name: request.task_name.clone(),
+                        args: request.args.clone(),
                         passthrough_env: passthrough_env.clone(),
                         prepared_image: &prepared,
                         options: RunOptions::streaming(deadline.remaining(), exec_output),
@@ -814,7 +815,7 @@ pub(crate) fn guest_remote_command(command: &str, workdir: Option<&str>) -> Resu
 }
 
 pub(crate) fn shell_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\\"'\\\"'"))
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 pub(crate) fn bounded_guest_failure_detail(result: &CommandResult) -> String {

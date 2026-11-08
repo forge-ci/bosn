@@ -18,7 +18,7 @@ the working tree.
 
 ```text
 bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR]
-         [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure]
+         [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [-- ARGS...]
 bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [...]
 ```
 
@@ -29,6 +29,14 @@ bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [...]
 | `--state-dir` | `$BOSN_STATE_DIR`, else `$XDG_STATE_HOME/bosn`, else `~/.local/state/bosn` (`%LOCALAPPDATA%\bosn` on Windows) |
 | `--deadline-ms` | 1 hour for the ensure, 2 hours for the task |
 | `--output-limit` | 64 MiB (the manifest maximum) |
+| `-- ARGS...` | no extra arguments; with a task, preserves each argument exactly |
+
+For example, `bosn run --task linux -- ffmpeg "b c"` forwards two extra
+arguments, `ffmpeg` and `b c`, to the command. They are shell positional
+parameters, never parsed as shell text. Arguments appear in `bosn jobs` (also
+`--json`) and participate in deduplication. A manifest task can set `args = false`
+to refuse extras before submission; see [Task arguments](rust-manifest.md#task-arguments).
+A daemon older than protocol 3 is refused for non-empty arguments.
 
 It pings the daemon for that state directory and, when none answers, starts
 `bosn daemon serve --state-dir STATE_DIR` detached (its own process group, so

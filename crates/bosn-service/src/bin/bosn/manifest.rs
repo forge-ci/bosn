@@ -302,6 +302,7 @@ pub(crate) fn run_manifest_app_task(mut arguments: impl Iterator<Item = std::ffi
         manifest: manifest.unwrap_or_else(|| usage()),
         stack: stack.unwrap_or_else(|| usage()),
         task_name: task_name.unwrap_or_else(|| usage()),
+        args: Vec::new(),
         deadline: Duration::from_millis(deadline_ms.unwrap_or_else(|| usage())),
         output_limit: output_limit.unwrap_or_else(|| usage()),
     };

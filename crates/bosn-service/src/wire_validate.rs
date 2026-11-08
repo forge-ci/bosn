@@ -271,6 +271,7 @@ pub(crate) fn validate_manifest_app_task_wire(
     validate_setup_task_name(task_name)
 }
 pub(crate) fn validate_manifest_app_task_request_wire(request: &Request) -> Result<(), Error> {
+    validate_task_arguments(&request.task_args)?;
     validate_manifest_app_task_wire(
         &request.workspace,
         &request.setup_config,
@@ -368,6 +369,13 @@ pub(crate) fn validate_setup_adopt_request_wire(
         || request.setup_done_confirm
     {
         return Err(Error::Protocol("nonsemantic setup adopt fields"));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_task_arguments(args: &[String]) -> Result<(), Error> {
+    if args.iter().any(|arg| arg.contains('\0')) {
+        return Err(Error::Protocol("task arguments contain NUL"));
     }
     Ok(())
 }

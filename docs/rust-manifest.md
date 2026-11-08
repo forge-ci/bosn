@@ -48,3 +48,23 @@ and `git diff --check`.
 Final local result: 19 tests passed (13 domain, 4 manifest, 2 config), with no failures.
 Formatting, warnings-denied Clippy, and the diff check also passed. The Python reference
 manifest/config tests passed 64 cases, with one Windows-only drive-path test skipped on Linux.
+
+## Task arguments
+
+Pass arguments after `--`: `bosn run --task linux -- ffmpeg "b c"`.
+Each value is forwarded as one argument to the declared command, including
+spaces and shell metacharacters. Without `--`, execution is unchanged.
+Arguments appear in `bosn jobs` and `bosn jobs --json` and participate in job
+identity: identical invocations join, while different arguments create distinct jobs.
+
+Tasks allow arguments by default. Set `args = false` to refuse extras before
+submission:
+
+```toml
+[task.check]
+cmd = "scripts/check.sh"
+args = false
+```
+
+Non-empty arguments require daemon protocol 3 or newer; stop an older daemon
+and retry with the updated Bosn executable.

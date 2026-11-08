@@ -386,23 +386,7 @@ pub(crate) async fn job_actor(
                 owner,
                 reply,
             } => {
-                let digest = manifest_app_task_digest(&request);
-                let workspace = request.workspace.to_string_lossy().into_owned();
-                let job_stack = format!("manifest-app-task:{}", request.stack);
-                let result = jobs
-                    .submit_class(&workspace, &job_stack, &digest, jobs::JobClass::Runner)
-                    .map(|submission| match submission {
-                        Submission::Started(id) | Submission::Queued(id) => {
-                            requests.insert(id, SetupJobRequest::ManifestAppTask(request));
-                            (id, true)
-                        }
-                        Submission::Joined(id) => (id, false),
-                        Submission::Superseded { replacement, .. } => {
-                            requests.insert(replacement, SetupJobRequest::ManifestAppTask(request));
-                            (replacement, true)
-                        }
-                    })
-                    .map_err(|_| Error::Protocol("manifest app task job admission"));
+                let result = admit_manifest_task(&mut jobs, &mut requests, request);
                 // Only the submission that created the job sets its lease: a
                 // follower joining another caller's unleased job must not make
                 // that job depend on this follower staying alive.

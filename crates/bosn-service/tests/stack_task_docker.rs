@@ -425,3 +425,19 @@ fn live_docker_manifest_bypasses_non_forwarding_image_entrypoint() {
 fn live_docker_manifest_bypasses_forwarding_image_entrypoint() {
     entrypoint_is_not_run("echo started > /state/entrypoint-ran; exec \"$@\"");
 }
+
+#[test]
+#[ignore = "requires a local Docker daemon and the pinned Alpine image"]
+fn live_docker_task_arguments_preserve_boundaries() {
+    let stack = StackWorkspace::new(&stack_manifest(
+        &test_unique_suffix(),
+        &[("probe", "printf '<%s>\\n'")],
+    ));
+    let output = stack
+        .bosn_run("probe")
+        .args(["--", "a", "b c"])
+        .output()
+        .unwrap();
+    let text = StackWorkspace::output_of("probe", output);
+    assert!(text.contains("<a>\n<b c>\n"), "{text}");
+}

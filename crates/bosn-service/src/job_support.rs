@@ -253,6 +253,10 @@ pub(crate) fn manifest_app_task_digest(request: &ManifestAppTaskJobRequest) -> S
         material.extend_from_slice(&(part.len() as u64).to_le_bytes());
         material.extend_from_slice(part);
     }
+    for arg in &request.args {
+        material.extend_from_slice(&(arg.len() as u64).to_le_bytes());
+        material.extend_from_slice(arg.as_bytes());
+    }
     format!(
         "manifest:{}",
         kernal_api::hash::blake3_bytes(&material).to_hex()
@@ -280,4 +284,42 @@ pub(crate) fn clients_gone(jobs: &mut Jobs, sweep: bool) -> Vec<(u64, String)> {
         }
     }
     gone
+}
+
+pub(crate) fn manifest_task_key(request: &ManifestAppTaskJobRequest) -> String {
+    if request.args.is_empty() {
+        format!("manifest-app-task:{}", request.stack)
+    } else {
+        format!(
+            "manifest-app-task:{}:{}:{}",
+            request.stack,
+            request.task_name,
+            serde_json::to_string(&request.args).expect("string arguments serialize")
+        )
+    }
+}
+
+pub(crate) fn admit_manifest_task(
+    jobs: &mut Jobs,
+    requests: &mut BTreeMap<u64, SetupJobRequest>,
+    request: ManifestAppTaskJobRequest,
+) -> Result<(u64, bool), Error> {
+    let digest = manifest_app_task_digest(&request);
+    let workspace = request.workspace.to_string_lossy();
+    let submission = jobs
+        .submit_class(
+            &workspace,
+            &manifest_task_key(&request),
+            &digest,
+            jobs::JobClass::Runner,
+        )
+        .map_err(|_| Error::Protocol("manifest app task job admission"))?;
+    let id = match submission {
+        Submission::Joined(id) => return Ok((id, false)),
+        Submission::Started(id) | Submission::Queued(id) => id,
+        Submission::Superseded { replacement, .. } => replacement,
+    };
+    jobs.set_args(id, request.args.clone());
+    requests.insert(id, SetupJobRequest::ManifestAppTask(request));
+    Ok((id, true))
 }

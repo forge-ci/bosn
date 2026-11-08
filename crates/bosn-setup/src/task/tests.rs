@@ -276,6 +276,7 @@ fn declared_app_task_has_only_the_content_addressed_exec_shape() {
                 plan: &plan,
                 workspace_root: workspace,
                 task_name: "check".into(),
+                args: Vec::new(),
                 passthrough_env: Vec::new(),
                 prepared_image: &image,
                 options: RunOptions::streaming(Duration::from_secs(2), 4096),
@@ -292,6 +293,7 @@ fn declared_app_task_has_only_the_content_addressed_exec_shape() {
     assert_eq!(task_token.len(), 32);
     assert!(task_token.bytes().all(|byte| byte.is_ascii_hexdigit()));
     let exec = SetupAppTaskCommand::Exec {
+        args: Vec::new(),
         container_name: container_name.clone(),
         task_token: task_token.clone(),
         passthrough_env: Vec::new(),
@@ -317,6 +319,7 @@ fn declared_app_task_has_only_the_content_addressed_exec_shape() {
 #[test]
 fn app_task_secret_env_is_forwarded_by_name_only() {
     let args = SetupAppTaskCommand::Exec {
+        args: Vec::new(),
         container_name: format!("bosn-setup-{HASH}"),
         task_token: "0123456789abcdef0123456789abcdef".into(),
         passthrough_env: vec!["GITHUB_TOKEN".into()],
@@ -361,6 +364,7 @@ fn app_task_refuses_a_passthrough_name_that_could_carry_a_value() {
                     plan: &plan,
                     workspace_root: workspace,
                     task_name: "check".into(),
+                    args: Vec::new(),
                     passthrough_env: vec!["GITHUB_TOKEN=canary".into()],
                     prepared_image: &image,
                     options: RunOptions::streaming(Duration::from_secs(2), 4096),
@@ -395,6 +399,7 @@ fn app_task_rechecks_that_its_workdir_bind_is_a_directory_before_exec() {
                     plan: &plan,
                     workspace_root: workspace,
                     task_name: "check".into(),
+                    args: Vec::new(),
                     passthrough_env: Vec::new(),
                     prepared_image: &image,
                     options: RunOptions::streaming(Duration::from_secs(2), 4096),
@@ -586,6 +591,7 @@ fn an_interrupted_app_task_exec_stops_its_processes_in_the_container() {
                 plan: &plan,
                 workspace_root: workspace.clone(),
                 task_name: "check".into(),
+                args: Vec::new(),
                 passthrough_env: Vec::new(),
                 prepared_image: &image,
                 options: RunOptions::streaming(Duration::from_secs(2), 4096),
@@ -649,6 +655,7 @@ fn an_interrupted_app_task_exec_stops_its_processes_in_the_container() {
             plan: &plan,
             workspace_root: workspace.clone(),
             task_name: "check".into(),
+            args: Vec::new(),
             passthrough_env: Vec::new(),
             prepared_image: &image,
             options: RunOptions::streaming(Duration::from_secs(2), 4096),
@@ -669,6 +676,7 @@ fn an_interrupted_app_task_exec_stops_its_processes_in_the_container() {
             plan: &plan,
             workspace_root: workspace.clone(),
             task_name: "check".into(),
+            args: Vec::new(),
             passthrough_env: Vec::new(),
             prepared_image: &image,
             options: RunOptions::streaming(Duration::from_secs(2), 4096),

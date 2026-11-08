@@ -153,21 +153,7 @@ fn fill_containers(view: &mut Value, wanted: &dyn Fn(&Value) -> bool, found: &Ce
 
 fn format_table(view: &Value, ci: Option<&RunnersReply>) -> String {
     let mut out = String::new();
-    let capacity: Option<TaskLaneCapacity> = serde_json::from_value(view["capacity"].clone()).ok();
-    let _ = writeln!(
-        out,
-        "{}",
-        super::ci::format_task_capacity(capacity.as_ref()),
-    );
-    let _ = writeln!(
-        out,
-        "{}",
-        super::ci::format_ci_capacity(
-            ci.map(|reply| reply.runners.limit),
-            ci.and_then(|reply| reply.engine_capacity.as_ref()),
-            ci.and_then(|reply| reply.engine_capacity_error.as_deref()),
-        )
-    );
+    format_capacity(&mut out, view, ci);
     for lane in ["runner", "control"] {
         let _ = writeln!(
             out,
@@ -216,6 +202,15 @@ fn format_table(view: &Value, ci: Option<&RunnersReply>) -> String {
             truncate(job["key"].as_str().unwrap_or(""), 28),
             job["workspace"].as_str().unwrap_or(""),
         );
+        match serde_json::from_value::<JobArguments>(job.clone()) {
+            Ok(task) if !task.args.is_empty() => {
+                let _ = writeln!(out, "       args: {:?}", task.args);
+            }
+            Err(error) => {
+                let _ = writeln!(out, "       invalid task arguments: {error}");
+            }
+            _ => {}
+        }
         if let Some(run) = job.get("run") {
             let containers = run["containers"]
                 .as_array()
@@ -270,6 +265,30 @@ fn truncate(value: &str, width: usize) -> String {
         text.push('~');
         text
     }
+}
+
+#[derive(serde::Deserialize)]
+struct JobArguments {
+    #[serde(default)]
+    args: Vec<String>,
+}
+
+fn format_capacity(out: &mut String, view: &Value, ci: Option<&RunnersReply>) {
+    let capacity: Option<TaskLaneCapacity> = serde_json::from_value(view["capacity"].clone()).ok();
+    let _ = writeln!(
+        out,
+        "{}",
+        super::ci::format_task_capacity(capacity.as_ref()),
+    );
+    let _ = writeln!(
+        out,
+        "{}",
+        super::ci::format_ci_capacity(
+            ci.map(|reply| reply.runners.limit),
+            ci.and_then(|reply| reply.engine_capacity.as_ref()),
+            ci.and_then(|reply| reply.engine_capacity_error.as_deref()),
+        )
+    );
 }
 
 #[cfg(test)]
@@ -404,4 +423,10 @@ mod tests {
             "CI lane: admission limit 2; engine limits unavailable: a new 8 GiB Bosn engine does not fit\n"
         ));
     }
+}
+
+#[test]
+fn table_shows_task_argument_boundaries() {
+    let view = serde_json::json!({"jobs": [{"id": 1, "key": "manifest-app-task:app", "args": ["a", "b c"]}]});
+    assert!(format_table(&view, None).contains("args: [\"a\", \"b c\"]"));
 }
