@@ -21,7 +21,10 @@ def test_ci_schedules_no_hosted_mac() -> None:
     # proves Darwin wheels on Linux only, so no ci.yml job may name a Mac.
     root = Path(__file__).resolve().parents[1]
     ci = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
-    assert ci["jobs"]["lint-no-macos-runners"]["name"] == "CI policy (no hosted macOS runners)"
+    assert (
+        ci["jobs"]["lint-no-macos-runners"]["name"]
+        == "CI policy (hosted macOS: release smoke only)"
+    )
     assert "darwin-hosted-smoke" not in ci["jobs"]
     assert list(lint.offenders(ci)) == []
 
@@ -82,3 +85,18 @@ def test_lint_rejects_hosted_runner_outside_full_or_release(tmp_path: Path) -> N
         "    needs: darwin-cross-wheel\n    runs-on: macos-15\n"
     )
     assert lint.check(workflow) == 1
+
+
+def test_release_exemption_requires_exact_workflow_path(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    workflow = root / ".github/workflows/auto-release.yml"
+    release = yaml.safe_load(workflow.read_text())
+    path = "jobs.darwin-hosted-smoke.strategy.matrix"
+    assert lint._allowed_job(workflow, release, path)
+    for name in ("ci.yml", "auto-release.yml"):
+        copied = tmp_path / name
+        copied.write_text(yaml.safe_dump(release))
+        assert lint.check(copied) == 1
+    assert not lint._allowed_job(root / ".github/workflows/ci.yml", release, path)
+    release["jobs"]["darwin-hosted-smoke"]["if"] = "true"
+    assert not lint._allowed_job(workflow, release, path)

@@ -81,7 +81,7 @@ def _allowed_job(file: Path, document: object, path: str) -> bool:
         ("aarch64-apple-darwin", "macos-15"),
     }:
         return False
-    if file.name == "auto-release.yml":
+    if file.resolve() == Path(__file__).resolve().parents[1] / ".github/workflows/auto-release.yml":
         return (
             condition == "needs.guard.outputs.release == 'true'"
             and isinstance(needs, list)

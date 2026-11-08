@@ -181,7 +181,9 @@ living implementation spec.
 
 - **Hosted macOS runners are reserved for the release smoke check.**
   `ci/lint_no_macos_runners.py` rejects macOS runner labels outside that gated
-  `auto-release.yml` job; `ci.yml` schedules none.
+  `darwin-hosted-smoke` job in `.github/workflows/auto-release.yml`;
+  `ci.yml` schedules none. The check is named
+  `CI policy (hosted macOS: release smoke only)`.
   Both `x86_64-apple-darwin` and `aarch64-apple-darwin` wheels
   build on `ubuntu-latest` through `forge-ci/setup-soldr` (floating `@v0`) +
   `soldr prepare --target …`, using Soldr's LLVM 21.1.5 and managed Apple SDK 14.5 —

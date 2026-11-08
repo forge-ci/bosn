@@ -91,7 +91,7 @@ def test_required_wheel_matrix_cells_exist_on_every_tier() -> None:
 
 def test_required_status_names_remain() -> None:
     jobs = CI["jobs"]
-    assert jobs["lint-no-macos-runners"]["name"] == "CI policy (no hosted macOS runners)"
+    assert jobs["lint-no-macos-runners"]["name"] == "CI policy (hosted macOS: release smoke only)"
     assert jobs["rust"]["name"] == "Rust workspace (locked tests)"
     # It always runs on PR, queue and dispatch events, except that an attested,
     # trusted PR head may skip it (GATE-008/010, ci-attestations.yml); a
