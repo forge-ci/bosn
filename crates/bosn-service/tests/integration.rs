@@ -11,6 +11,7 @@ mod ci_cli;
 mod ci_live;
 mod compose_cli;
 mod daemon_cli;
+mod daemon_recovery;
 mod hermes_mcp;
 mod managed_retention_ci_docker;
 mod managed_retention_docker;

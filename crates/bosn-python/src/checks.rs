@@ -241,9 +241,9 @@ pub(crate) fn service_error(error: bosn_service::Error) -> PyErr {
         return PyRuntimeError::new_err(error.to_string());
     }
     let message = match error {
-        bosn_service::Error::Io(_) | bosn_service::Error::Deadline => {
-            "Bosn daemon is unavailable or did not respond in time"
-        }
+        bosn_service::Error::Io(_)
+        | bosn_service::Error::DaemonExiting
+        | bosn_service::Error::Deadline => "Bosn daemon is unavailable or did not respond in time",
         bosn_service::Error::Unauthorized => "Bosn daemon authentication failed",
         bosn_service::Error::EndpointOccupied(_) => "Bosn daemon endpoint is unavailable",
         bosn_service::Error::Protocol(_) => "Bosn daemon rejected the request",

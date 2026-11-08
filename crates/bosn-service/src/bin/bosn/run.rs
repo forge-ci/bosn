@@ -439,6 +439,8 @@ pub(crate) fn ensure_daemon(
     client: &Client,
     state_dir: &Path,
 ) -> Result<(), String> {
+    // Lifecycle probes observe exits; they must never trigger recovery themselves.
+    let client = &client.clone().without_recovery();
     // Before installing the executable: a disabled directory does no work at all (#670).
     bosn_service::daemon_switch::refuse_if_disabled(state_dir)?;
     let release = env!("CARGO_PKG_VERSION");

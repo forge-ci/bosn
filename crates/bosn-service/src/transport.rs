@@ -177,6 +177,15 @@ pub(crate) async fn read_frame_within(
     s: &mut AsyncStream,
     limit: Duration,
 ) -> Result<DaemonFrame, Error> {
+    read_frame_tracking(s, limit, &mut false).await
+}
+
+/// Preserve whether any reply byte arrived, even on an incomplete frame.
+pub(crate) async fn read_frame_tracking(
+    s: &mut AsyncStream,
+    limit: Duration,
+    received: &mut bool,
+) -> Result<DaemonFrame, Error> {
     let mut b = Vec::new();
     let deadline = async_engine::Deadline::after(limit);
     loop {
@@ -196,6 +205,7 @@ pub(crate) async fn read_frame_within(
                 if n == 0 {
                     return Err(Error::Protocol("eof"));
                 }
+                *received = true;
                 b.extend_from_slice(&chunk[..n]);
             }
         }
@@ -220,6 +230,10 @@ pub(crate) fn decode_response_frame(frame: DaemonFrame, request_id: u64) -> Resu
         return Err(Error::Protocol("response frame"));
     }
     let reply = ReplyWire::decode(frame.payload()).map_err(|_| Error::Protocol("reply decode"))?;
+    // #770: additive refusal code, no protocol bump. The request was not dispatched.
+    if reply.code == handoff::CODE_EXITING {
+        return Err(Error::DaemonExiting);
+    }
     decode_reply(reply)
 }
 

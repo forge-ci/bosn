@@ -5,6 +5,9 @@ use super::*;
 pub(crate) mod registry_identity;
 pub(crate) use registry_identity::*;
 mod cleanup_log;
+mod idle_exit;
+#[cfg(test)]
+pub(crate) use idle_exit::IdleGate;
 
 impl Service {
     pub fn new(state_dir: impl Into<PathBuf>) -> Self {
@@ -37,6 +40,8 @@ impl Service {
             idle_exit: None,
             #[cfg(test)]
             registry_storage_gate: None,
+            #[cfg(test)]
+            idle_gate: None,
         }
     }
     /// Exit once the daemon has been idle this long: no client connected and nothing
@@ -576,7 +581,6 @@ impl Service {
             #[cfg(test)]
             self.registry_storage_gate,
         );
-        let admission = ci.admission();
         let mut clients = async_engine::TaskGroup::new();
         let mut last_active = Instant::now();
         // A short idle limit is checked as often as it can expire.
@@ -592,19 +596,19 @@ impl Service {
                 && Instant::now() >= next_idle_check
             {
                 next_idle_check = Instant::now() + idle_check;
-                let _admission_guard = admission.lock().await;
                 if last_active.elapsed() >= idle
-                    && handoff::stop_if_idle(&actor, &jobs, &ci, &self.stop)
-                        .await
-                        .code
-                        == 30
+                    && idle_exit::stop_and_drain(
+                        &self.stop,
+                        #[cfg(test)]
+                        &self.idle_gate,
+                        &listener,
+                        &actor,
+                        &jobs,
+                        &ci,
+                    )
+                    .await
                 {
-                    daemon_log!(
-                        "bosn daemon: idle for {}s; exiting so the next command starts its own \
-                         release (containers and state are kept)",
-                        idle.as_secs()
-                    );
-                    continue;
+                    break;
                 }
             }
             // TaskGroup retains completed tasks until collected.  Reap only
@@ -642,7 +646,7 @@ impl Service {
             let state_dir = self.state_dir.clone();
             let identity = Arc::clone(&self.identity);
             let ci = ci.clone();
-            let admission = Arc::clone(&admission);
+            let admission = ci.admission();
             clients.spawn(async move {
                 handle(
                     stream,
@@ -662,6 +666,7 @@ impl Service {
                 .await
             });
         }
+        drop(listener);
         while clients.join_next().await.is_some() {}
         // Keep the sole registry writer alive while the job actor cancels and
         // drains typed work: a shutdown-cancelled setup ensure still needs its
@@ -682,6 +687,8 @@ impl Service {
 const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 pub struct Service {
+    #[cfg(test)]
+    pub(crate) idle_gate: Option<IdleGate>,
     #[cfg(test)]
     pub(crate) registry_storage_gate: Option<crate::registry_storage::CheckpointGate>,
     pub(crate) act_backend: Arc<dyn ci::engine::ActEngineBackend>,

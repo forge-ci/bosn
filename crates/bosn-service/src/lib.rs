@@ -201,6 +201,8 @@ pub enum Error {
     Io(std::io::Error),
     Registry(bosn_registry::Error),
     Deadline,
+    /// The exiting daemon guarantees this request was never dispatched.
+    DaemonExiting,
     Unauthorized,
     Random,
     EndpointOccupied(String),

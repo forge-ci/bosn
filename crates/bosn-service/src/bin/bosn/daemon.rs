@@ -76,19 +76,37 @@ pub(crate) fn run_daemon_autostart(mut arguments: impl Iterator<Item = std::ffi:
     }
 }
 
+/// Internal bridge for library retry through the normal CLI startup policy.
+fn run_ensure(arguments: impl Iterator<Item = std::ffi::OsString>) {
+    let (state, _) = parse_daemon_client_arguments(arguments).unwrap_or_else(|_| usage());
+    let runtime = RuntimeBuilder::multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap_or_else(|_| std::process::exit(1));
+    let client = Client::for_state(&state)
+        .unwrap_or_else(|_| std::process::exit(1))
+        .without_recovery();
+    if let Err(error) = super::run::ensure_daemon(&runtime, &client, &state) {
+        bosn_service::daemon_log!("bosn daemon ensure: {error}");
+        std::process::exit(1);
+    }
+}
+
 pub(crate) fn run_daemon(mut arguments: impl Iterator<Item = std::ffi::OsString>) {
     let Some(command) = arguments.next() else {
         usage();
     };
     // Autostart is not a daemon invocation: it never contacts a running daemon, and it
     // returns rather than entering the runtime below.
-    if command.to_string_lossy() == "autostart" {
-        run_daemon_autostart(arguments);
-        return;
-    }
-    if matches!(command.to_string_lossy().as_ref(), "disable" | "enable") {
-        crate::daemon_switch::run(&command.to_string_lossy(), arguments);
-        return;
+    match command.to_string_lossy().as_ref() {
+        "autostart" => return run_daemon_autostart(arguments),
+        "enable" | "disable" => {
+            crate::daemon_switch::run(&command.to_string_lossy(), arguments);
+            return;
+        }
+        "ensure" => return run_ensure(arguments),
+        _ => {}
     }
     let invocation = match command.to_string_lossy().as_ref() {
         "serve" => parse_daemon_serve_arguments(arguments)
