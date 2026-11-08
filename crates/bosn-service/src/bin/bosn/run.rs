@@ -48,6 +48,7 @@ const EXIT_INTERRUPTED: i32 = 130;
 #[derive(Debug, PartialEq, Eq)]
 pub struct RunArguments {
     pub task: Option<String>,
+    pub args: Vec<String>,
     pub stack: Option<String>,
     /// `None` means the nearest `bosn.toml` in the current directory or an
     /// ancestor, as the Python CLI resolved it.
@@ -74,12 +75,13 @@ pub fn run(arguments: impl Iterator<Item = OsString>) {
     std::process::exit(code)
 }
 
-pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
+pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [-- ARGS...]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
 
 pub fn parse_arguments(
     mut arguments: impl Iterator<Item = OsString>,
 ) -> Result<RunArguments, String> {
     let mut task = None;
+    let mut task_args = Vec::new();
     let mut stack = None;
     let mut manifest = None;
     let mut state_dir = None;
@@ -91,15 +93,11 @@ pub fn parse_arguments(
         let flag = flag
             .into_string()
             .map_err(|_| "arguments must be UTF-8".to_owned())?;
-        if flag == "--no-ensure" || flag == "--detach" {
-            let switch = if flag == "--detach" {
-                &mut detach
-            } else {
-                &mut no_ensure
-            };
-            if std::mem::replace(switch, true) {
-                return Err(format!("{flag} given twice"));
-            }
+        if flag == "--" {
+            task_args = task_args::collect_args(arguments)?;
+            break;
+        }
+        if task_args::set_switch(&flag, &mut no_ensure, &mut detach)? {
             continue;
         }
         let value = arguments
@@ -166,9 +164,14 @@ pub fn parse_arguments(
             other => return Err(format!("unknown option {other}")),
         }
     }
-    require_target(task.is_some(), stack.is_some(), no_ensure || detach)?;
+    require_target(
+        task.is_some(),
+        stack.is_some(),
+        no_ensure || detach || !task_args.is_empty(),
+    )?;
     Ok(RunArguments {
         task,
+        args: task_args,
         stack,
         manifest,
         state_dir,
@@ -305,6 +308,12 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
         arguments.task.as_deref(),
         arguments.stack.as_deref(),
     )?;
+    validate_task_args(
+        &manifest_text,
+        &workspace,
+        arguments.task.as_deref(),
+        &arguments.args,
+    )?;
     let state_dir = arguments
         .state_dir
         .clone()
@@ -354,6 +363,7 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
         manifest,
         stack,
         task_name: task.clone(),
+        args: arguments.args,
         deadline: arguments.deadline.unwrap_or(DEFAULT_TASK_DEADLINE),
         output_limit: arguments.output_limit,
     };
@@ -966,3 +976,7 @@ use start::{wait_for_started_daemon, wait_for_unit_daemon};
 #[cfg(all(test, unix))]
 #[path = "run_start_tests.rs"]
 mod start_tests;
+
+#[path = "run_task_args.rs"]
+mod task_args;
+use task_args::validate_task_args;

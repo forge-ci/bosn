@@ -76,7 +76,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
     {
         return Err(Error::Protocol("request frame"));
     }
-    let r = Request::decode(f.payload()).map_err(|_| Error::Protocol("request decode"))?;
+    let r = decode_task_request(f.payload())?;
     let changes_admission = matches!(r.operation, 4 | 8 | 9 | 10 | 21 | 22 | 23 | 24 | 39 | 40);
     let _admission_guard = if changes_admission {
         Some(admission.lock().await)
@@ -439,21 +439,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                 },
             },
             23 => match validate_manifest_app_task_request_wire(&r).and_then(|()| r.owner()) {
-                Ok(owner) => match jobs
-                    .submit_manifest_app_task(
-                        ManifestAppTaskJobRequest {
-                            workspace: PathBuf::from(r.workspace),
-                            manifest: r.setup_config,
-                            stack: r.stack,
-                            task_name: r.setup_task_name,
-                            deadline: Duration::from_millis(r.setup_deadline_ms),
-                            output_limit: r.setup_output_limit as usize,
-                        },
-                        (r.follow_lease_ms != 0).then(|| Duration::from_millis(r.follow_lease_ms)),
-                        owner,
-                    )
-                    .await
-                {
+                Ok(owner) => match submit_manifest_task(&jobs, r, owner).await {
                     Ok(job_id) => ReplyWire {
                         code: 40,
                         job_id,
@@ -962,4 +948,35 @@ fn ping_reply(identity: &DaemonIdentity) -> ReplyWire {
         daemon_protocol_min: identity.protocol_min,
         ..Default::default()
     }
+}
+
+fn decode_task_request(payload: &[u8]) -> Result<Request, Error> {
+    let request = Request::decode(payload).map_err(|_| Error::Protocol("request decode"))?;
+    if request.operation != 23 && !request.task_args.is_empty() {
+        return Err(Error::Protocol(
+            "task arguments require a manifest app task",
+        ));
+    }
+    Ok(request)
+}
+
+async fn submit_manifest_task(
+    jobs: &JobActor,
+    r: Request,
+    owner: Option<ClientOwner>,
+) -> Result<u64, Error> {
+    jobs.submit_manifest_app_task(
+        ManifestAppTaskJobRequest {
+            workspace: PathBuf::from(r.workspace),
+            manifest: r.setup_config,
+            stack: r.stack,
+            task_name: r.setup_task_name,
+            args: r.task_args,
+            deadline: Duration::from_millis(r.setup_deadline_ms),
+            output_limit: r.setup_output_limit as usize,
+        },
+        (r.follow_lease_ms != 0).then(|| Duration::from_millis(r.follow_lease_ms)),
+        owner,
+    )
+    .await
 }

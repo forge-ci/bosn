@@ -305,6 +305,7 @@ impl SetupAppTaskExecutor for DockerSetupAppTaskExecutor {
                     plan: &plan,
                     workspace_root: request.workspace,
                     task_name: request.task_name,
+                    args: Vec::new(),
                     passthrough_env: Vec::new(),
                     prepared_image: &prepared,
                     options: RunOptions::streaming(remaining, exec_output),

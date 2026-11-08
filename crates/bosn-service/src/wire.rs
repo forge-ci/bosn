@@ -671,6 +671,8 @@ pub(crate) struct Request {
     /// tells the owner from a later process that reuses its PID.
     #[prost(uint64, repeated, tag = "31")]
     pub(crate) owner_created: Vec<u64>,
+    #[prost(string, repeated, tag = "32")]
+    pub(crate) task_args: Vec<String>,
 }
 impl Request {
     pub(crate) fn operation(operation: u32) -> Self {
@@ -706,6 +708,7 @@ impl Request {
             client_protocol: DAEMON_PROTOCOL,
             owner_pid: 0,
             owner_created: Vec::new(),
+            task_args: Vec::new(),
         }
     }
     /// Stamp the owner of the work this request submits.

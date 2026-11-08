@@ -107,6 +107,7 @@ pub struct Task {
     pub name: String,
     pub stack: String,
     pub cmd: String,
+    pub args: bool,
     /// Daemon-owned secrets this task opts into, by name only (#308). The
     /// manifest never carries a secret value or path.
     pub secrets: Vec<String>,
@@ -217,7 +218,7 @@ pub fn parse_manifest_toml(source: &str, roots: ManifestRoots) -> Result<Manifes
         let body = table_value(body, "task")?;
         reject_unknown(
             body,
-            &["stack", "cmd", "secrets", "github_api", "keep"],
+            &["stack", "cmd", "args", "secrets", "github_api", "keep"],
             &format!("task.{name}"),
         )?;
         let secrets = parse_task_secrets(body, name)?;
@@ -258,6 +259,7 @@ pub fn parse_manifest_toml(source: &str, roots: ManifestRoots) -> Result<Manifes
                 name: name.clone(),
                 stack,
                 cmd,
+                args: optional_bool(body, "args", &format!("task.{name}"))?.unwrap_or(true),
                 secrets,
                 github_api_proxy,
                 keep,
@@ -944,4 +946,20 @@ fn reject_unknown(
         return err(format!("[{where_}] has unknown key {key:?}"));
     }
     Ok(())
+}
+
+impl Task {
+    /// Refuse arguments before work is submitted, and again at daemon admission.
+    pub fn validate_args(&self, args: &[String]) -> Result<(), ManifestError> {
+        if !args.is_empty() && !self.args {
+            return err(format!(
+                "task {} refuses extra arguments (args = false)",
+                self.name
+            ));
+        }
+        if args.iter().any(|arg| arg.contains('\0')) {
+            return err("task arguments contain NUL");
+        }
+        Ok(())
+    }
 }

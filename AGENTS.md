@@ -331,6 +331,14 @@ Decided 2026-10-09.
   ignored so existing configs keep working. A run whose wanted engine differs
   from the machine's engine waits for it to drain (#544), never gets its own.
 
+## Task argument contract (#724)
+
+`bosn run --task NAME -- ARGS...` preserves argument boundaries through shell
+positional parameters. Arguments participate in job identity and appear in jobs.
+`args = false` refuses extras before submission. Protocol 3 adds optional request
+tag 32; protocol 2 remains accepted without arguments. Clients refuse non-empty
+arguments to daemons older than protocol 3, which would silently ignore the field.
+
 ## Async daemon waits (decided 2026-10-17)
 
 Daemon IPC, startup readiness, handoff, job following and CI following wait on

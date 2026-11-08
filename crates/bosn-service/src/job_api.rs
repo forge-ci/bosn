@@ -395,6 +395,7 @@ pub(crate) fn jobs_view(jobs: &Jobs, runners: Option<&runners::Runners>) -> serd
                 "slot": job.slot,
                 "workspace": job.workspace,
                 "key": job.stack,
+                "args": job.args,
                 "submitted_ms": epoch_ms(Some(job.submitted_at)),
                 "started_ms": epoch_ms(job.started_at),
                 "finished_ms": epoch_ms(job.finished_at),

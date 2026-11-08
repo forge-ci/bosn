@@ -38,6 +38,7 @@ fn a_dead_owners_jobs_are_cancelled_and_a_live_owners_are_not() {
         manifest: "bosn.toml".into(),
         stack: "app".into(),
         task_name: task.into(),
+        args: Vec::new(),
         deadline: Duration::from_secs(600),
         output_limit: 4096,
     };

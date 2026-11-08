@@ -344,6 +344,7 @@ fn manifest_app_task_is_prompt_typed_and_clears_its_durable_session() {
                 manifest: "bosn.toml".into(),
                 stack: "app".into(),
                 task_name: "check".into(),
+                args: Vec::new(),
                 deadline: Duration::from_secs(2),
                 output_limit: 4096,
             };
@@ -420,6 +421,7 @@ fn a_followed_app_task_is_cancelled_once_its_follower_stops_polling() {
         manifest: "bosn.toml".into(),
         stack: "app".into(),
         task_name: task.into(),
+        args: Vec::new(),
         deadline: Duration::from_secs(600),
         output_limit: 4096,
     };
@@ -827,6 +829,7 @@ fn app_task(workspace: &str) -> ManifestAppTaskJobRequest {
         manifest: "bosn.toml".into(),
         stack: "act".into(),
         task_name: "act-ci".into(),
+        args: Vec::new(),
         deadline: Duration::from_secs(600),
         output_limit: 4096,
     }

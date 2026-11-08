@@ -83,6 +83,7 @@ pub struct Job {
     pub workspace: String,
     pub stack: String,
     pub digest: String,
+    pub args: Vec<String>,
     pub state: JobState,
     pub error: Option<String>,
     pub log_start: u64,
@@ -108,6 +109,7 @@ impl Job {
             workspace: self.workspace.clone(),
             stack: self.stack.clone(),
             digest: self.digest.clone(),
+            args: self.args.clone(),
             state: self.state,
             error: self.error.clone(),
             log_start: self.log_start,
@@ -255,6 +257,7 @@ impl Jobs {
                 workspace: workspace.into(),
                 stack: stack.into(),
                 digest: digest.into(),
+                args: Vec::new(),
                 state,
                 error: None,
                 log_start: 0,
@@ -606,6 +609,12 @@ impl Jobs {
     }
     /// Unfinished jobs plus up to `recent` most recently finished ones, for
     /// the `bosn jobs` accounting view.
+    pub(crate) fn set_args(&mut self, id: u64, args: Vec<String>) {
+        if let Some(job) = self.jobs.get_mut(&id) {
+            job.args = args;
+        }
+    }
+
     pub fn snapshot(&self, recent: usize) -> Vec<Job> {
         let mut out: Vec<Job> = self
             .jobs

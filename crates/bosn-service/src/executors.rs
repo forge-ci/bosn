@@ -117,6 +117,7 @@ pub struct ManifestAppTaskJobRequest {
     pub manifest: String,
     pub stack: String,
     pub task_name: String,
+    pub args: Vec<String>,
     pub deadline: Duration,
     pub output_limit: usize,
 }

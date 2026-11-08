@@ -162,3 +162,34 @@ mod tests {
         assert!(args[4].starts_with("PATH=\"${BOSN_IMAGE_PATH:+"));
     }
 }
+
+/// Forward arguments through both shell layers as positional parameters.
+pub fn task_shell_args_with_args(command: &str, args: &[String]) -> Vec<String> {
+    if args.is_empty() {
+        return task_shell_args(command).to_vec();
+    }
+    let launcher = format!(
+        "{TASK_UMASK}; BOSN_IMAGE_PATH=\"$PATH\"; export BOSN_IMAGE_PATH; script=$1; shift; exec sh -lc \"$script\" bosn-task \"$@\""
+    );
+    let mut argv = shell_args(launcher, &format!("{command} \"$@\"")).to_vec();
+    argv.extend_from_slice(args);
+    argv
+}
+
+#[cfg(test)]
+mod argument_tests {
+    #[test]
+    fn shell_preserves_argument_boundaries_and_literal_metacharacters() {
+        let args = ["a", "b c", "", "$(echo unsafe)", "a'b", "--flag"].map(str::to_owned);
+        let argv = super::task_shell_args_with_args("printf '<%s>\\n'", &args);
+        let output = std::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "<a>\n<b c>\n<>\n<$(echo unsafe)>\n<a'b>\n<--flag>\n"
+        );
+    }
+}

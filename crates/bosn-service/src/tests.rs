@@ -54,6 +54,7 @@ fi
                 container_name: "bosn-setup-test".into(),
                 task_token: "0123456789abcdef0123456789abcdef".into(),
                 passthrough_env,
+                args: Vec::new(),
                 command: "true".into(),
             },
             RunOptions::streaming(Duration::from_secs(10), 64 * 1024),
@@ -982,3 +983,5 @@ async fn wait_for_logs(client: &Client, id: u64) -> JobLogPage {
 
 mod manifest_recovery;
 use manifest_recovery::*;
+
+mod task_args;

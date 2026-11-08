@@ -809,6 +809,7 @@ fn manifest_stack_task_plan_reuses_declared_binds_and_container_workdir() {
             manifest: "bosn.toml".into(),
             stack: "app".into(),
             task_name: "check".into(),
+            args: Vec::new(),
             deadline: Duration::from_secs(1),
             output_limit: 64,
         }))
@@ -836,6 +837,7 @@ fn manifest_app_task_plan_retains_only_a_task_from_its_selected_stack() {
         manifest: "bosn.toml".into(),
         stack: "app".into(),
         task_name: "check".into(),
+        args: Vec::new(),
         deadline: Duration::from_secs(1),
         output_limit: 64,
     };
@@ -846,6 +848,7 @@ fn manifest_app_task_plan_retains_only_a_task_from_its_selected_stack() {
     assert_eq!(plan.tasks["check"].command, "printf ok");
     let foreign = ManifestAppTaskJobRequest {
         task_name: "foreign".into(),
+        args: Vec::new(),
         ..request
     };
     assert!(

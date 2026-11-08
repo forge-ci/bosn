@@ -38,14 +38,42 @@ pub(crate) async fn manifest_stack_task_setup_plan_at(
     request: &ManifestAppTaskJobRequest,
     state_dir: Option<&Path>,
 ) -> Result<ManifestRuntimePlan, String> {
-    manifest_stack_plan(
+    let validation = request.clone();
+    async_engine::launch_blocking(move || {
+        let (_, manifest) = load_native_manifest(&validation.workspace, &validation.manifest)?;
+        manifest
+            .task(&validation.task_name)
+            .map_err(|e| e.to_string())?
+            .validate_args(&validation.args)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "manifest argument validation worker failed".to_owned())??;
+    let mut plan = manifest_stack_plan(
         &request.workspace,
         &request.manifest,
         &request.stack,
         Some(&request.task_name),
         state_dir,
     )
-    .await
+    .await?;
+    if let Some(task) = &mut plan.guest_task
+        && !request.args.is_empty()
+    {
+        let mut argv = vec![
+            "sh".to_owned(),
+            "-c".into(),
+            format!("{} \"$@\"", task.command),
+            "bosn-task".into(),
+        ];
+        argv.extend_from_slice(&request.args);
+        task.command = argv
+            .iter()
+            .map(|arg| shell_single_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+    Ok(plan)
 }
 
 /// Re-read and validate one exact manifest snapshot before every engine
