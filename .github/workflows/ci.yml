@@ -233,9 +233,8 @@ jobs:
         run: ./install
 
   lint-no-macos-runners:
-    # Legacy required-check name in branch protection. The implementation now
-    # permits hosted Macs only in ci-full and release; keep this status stable.
-    name: CI policy (no hosted macOS runners)
+    # Hosted Macs are reserved for the gated release smoke job.
+    name: "CI policy (hosted macOS: release smoke only)"
     needs: [verify]
     # GATE-008/010: skipped only for an attested, trusted PR head.
     # Main pushes and the nightly schedule run it too (full tier).

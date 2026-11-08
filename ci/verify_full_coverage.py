@@ -12,7 +12,7 @@ from typing import Any
 from ci_queue_timing import fetch_run
 
 REQUIRED = (
-    "CI policy (no hosted macOS runners)",
+    "CI policy (hosted macOS: release smoke only)",
     "Rust workspace (locked tests)",
     "Linux (lint + unit + docker)",
     "Native wheel (ubuntu-latest)",
