@@ -13,6 +13,8 @@ pub(crate) const OP_STOP_IF_IDLE_LEGACY: u32 = 39;
 pub(crate) const OP_STOP_IF_IDLE: u32 = 40;
 /// Reply code for a daemon that refused the handoff because it is busy.
 pub(crate) const CODE_BUSY: u32 = 32;
+/// The request was refused without dispatch because the daemon is exiting.
+pub(crate) const CODE_EXITING: u32 = 33;
 
 /// What a daemon answered to an idle-handoff request.
 #[derive(Clone, Debug, PartialEq, Eq)]

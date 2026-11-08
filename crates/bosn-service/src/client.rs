@@ -6,6 +6,7 @@ use bosn_core::retention::RetentionPolicy;
 #[derive(Clone, Debug)]
 pub struct Client {
     pub(crate) state_dir: PathBuf,
+    recovery: bool,
 }
 /// Reply deadline for [`Client::managed_retention`]: a whole read-and-reclaim pass.
 const MANAGED_RETENTION_DEADLINE: Duration = Duration::from_secs(600);
@@ -14,7 +15,14 @@ impl Client {
     pub fn for_state(state: impl AsRef<Path>) -> Result<Self, Error> {
         Ok(Self {
             state_dir: state.as_ref().to_path_buf(),
+            recovery: true,
         })
+    }
+    /// Startup probes must not recursively invoke the startup helper.
+    #[doc(hidden)]
+    pub fn without_recovery(mut self) -> Self {
+        self.recovery = false;
+        self
     }
     pub async fn ping(&self) -> Result<(), Error> {
         self.daemon_version().await.map(drop)
@@ -486,7 +494,8 @@ impl Client {
     pub async fn shutdown_and_wait(&self, limit: Duration) -> Result<(), Error> {
         self.shutdown().await?;
         let deadline = async_engine::Deadline::after(limit);
-        while self.ping().await.is_ok() {
+        let probe = self.clone().without_recovery();
+        while probe.ping().await.is_ok() {
             if deadline.remaining().is_zero() {
                 return Err(Error::Deadline);
             }
@@ -877,6 +886,21 @@ impl Client {
         request: Request,
         reply_deadline: Duration,
     ) -> Result<Reply, Error> {
+        let mut received = false;
+        let result = self.exchange(&request, reply_deadline, &mut received).await;
+        if self.recovery && retry::should_retry(&request, &result, received) {
+            retry::restart(&self.state_dir).await?;
+            return self.exchange(&request, reply_deadline, &mut false).await;
+        }
+        result
+    }
+
+    async fn exchange(
+        &self,
+        request: &Request,
+        reply_deadline: Duration,
+        received: &mut bool,
+    ) -> Result<Reply, Error> {
         // Resolve on every call: a Client may have been constructed while a
         // fresh daemon was still creating its registry, before an inode-based
         // alias-stable endpoint name existed.
@@ -896,7 +920,7 @@ impl Client {
             DaemonFrame::request(PAYLOAD_PROTOCOL, payload).with_request_id(1),
         )
         .await?;
-        let frame = read_frame_within(&mut stream, reply_deadline).await?;
+        let frame = transport::read_frame_tracking(&mut stream, reply_deadline, received).await?;
         decode_response_frame(frame, 1)
     }
 }
@@ -912,3 +936,5 @@ mod ci_calls;
 #[cfg(test)]
 #[path = "client_tests.rs"]
 mod ci_tests;
+
+mod retry;

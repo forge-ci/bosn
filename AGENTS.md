@@ -295,7 +295,11 @@ Decided 2026-10-09.
   left machines on old releases. Exiting tears nothing down: containers keep
   running, and the registry and its writer fence pass to the next daemon,
   which reopens the same SQLite file. `Service` itself defaults to no idle
-  exit; the `bosn daemon serve` binary turns it on.
+  exit; the `bosn daemon serve` binary turns it on. At idle exit it drains
+  queued connections with code 33 (`DaemonExiting`) without dispatching them;
+  clients restart through the normal startup path and resend once. An EOF/reset
+  before any reply byte is retried once only for explicitly read-only operations;
+  submissions and stop are never retried on an ambiguous lost reply.
 - **Compatibility moves from release equality to a wire protocol (#509).**
   Every daemon reports `DAEMON_PROTOCOL` on its ping reply (zero means it
   predates the handshake). Bump it on any change to the request/reply wire or
