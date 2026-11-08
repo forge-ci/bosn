@@ -449,7 +449,8 @@ pub(crate) fn ensure_daemon(
         // Only a daemon that reports a protocol window (#509 phase 3 or
         // later) can be asked to hand off; older ones are never touched.
         && (identity.protocol_min == 0
-            || !crate::daemon_exe::is_newer_release(release, &identity.release)
+            || !crate::daemon_exe::needs_handoff(release, &identity,
+                crate::daemon_exe::installed_build(state_dir).as_ref())
             || !hand_off_idle_daemon(runtime, client, state_dir))
     {
         return matching_daemon(state_dir, &identity);
@@ -545,13 +546,13 @@ fn hand_off_idle_daemon(runtime: &Runtime, client: &Client, state_dir: &Path) ->
                 return false;
             }
             eprintln!(
-                "bosn: restarted the idle older bosn daemon for {} onto this release",
+                "bosn: restarted the idle bosn daemon for {} onto the installed build",
                 state_dir.display()
             );
             true
         }
         Ok(bosn_service::IdleHandoff::Busy(reason)) => {
-            eprintln!("bosn: the older bosn daemon is busy ({reason}); not restarting it");
+            eprintln!("bosn: the bosn daemon is busy ({reason}); not restarting it");
             false
         }
         Ok(bosn_service::IdleHandoff::Unsupported) | Err(_) => false,

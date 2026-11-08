@@ -39,6 +39,11 @@ pub(crate) fn warn_release_skew(state_dir: &Path, daemon: &bosn_service::DaemonI
         bosn_service::daemon_version_mismatch(state_dir, client, daemon)
             .map(|mismatch| format!("warning: bosn daemon/client mismatch: {mismatch}"))
     });
+    let warning = warning.or_else(|| {
+        (client == daemon.release && crate::daemon_exe::stale_build(
+            daemon, crate::daemon_exe::installed_build(state_dir).as_ref()))
+        .then(|| "warning: bosn daemon/client mismatch: daemon is running a stale build; it will be replaced when idle".to_owned())
+    });
     if let Some(warning) = warning
         && !WARNED.swap(true, Ordering::Relaxed)
     {

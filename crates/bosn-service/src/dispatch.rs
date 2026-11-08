@@ -40,6 +40,7 @@ fn protocol_window_refusal(identity: &DaemonIdentity, r: &Request) -> Option<Rep
     refused.then(|| ReplyWire {
         code: 5,
         daemon_version: identity.release.clone(),
+        daemon_build: identity.build.clone(),
         daemon_protocol: identity.protocol,
         daemon_protocol_min: identity.protocol_min,
         refused_client_protocol: r.client_protocol,
@@ -95,13 +96,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
         refusal
     } else {
         match r.operation {
-            1 => ReplyWire {
-                code: 10,
-                daemon_version: identity.release.clone(),
-                daemon_protocol: identity.protocol,
-                daemon_protocol_min: identity.protocol_min,
-                ..Default::default()
-            },
+            1 => ping_reply(&identity),
             2 => {
                 let status = actor.status().await?;
                 ReplyWire {
@@ -956,4 +951,15 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
         .encode(&mut p)
         .map_err(|_| Error::Protocol("reply encode"))?;
     write_frame(&mut s, DaemonFrame::response_to(&f, p)).await
+}
+
+fn ping_reply(identity: &DaemonIdentity) -> ReplyWire {
+    ReplyWire {
+        code: 10,
+        daemon_version: identity.release.clone(),
+        daemon_build: identity.build.clone(),
+        daemon_protocol: identity.protocol,
+        daemon_protocol_min: identity.protocol_min,
+        ..Default::default()
+    }
 }

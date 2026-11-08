@@ -273,6 +273,11 @@ Decided 2026-10-09.
   is self-contained since #265; by atomic rename, stamped in `bosn-daemon.release`)
   only when it is a newer release, or the same release from another build; an
   older client never downgrades it.
+- **Same-release rebuild handoff (#833).** Ping optionally reports the startup
+  build identity from the existing release/size/mtime stamp. A same-release
+  installed build mismatch requests idle handoff and warns once; status shows
+  both builds. Older daemons without build identity are left alone. This is
+  additive, no protocol bump; idle-exit rules are unchanged.
 - **Idle handoff only (#509 phase 4).** A client newer than the running
   daemon sends operation 39; the daemon stops only if it has no unfinished
   jobs, no queued or running CI runs and no held leases, and otherwise answers

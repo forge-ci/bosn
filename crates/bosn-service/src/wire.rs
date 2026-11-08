@@ -4,6 +4,8 @@ use super::*;
 
 #[derive(Message)]
 pub(crate) struct ReplyWire {
+    #[prost(message, optional, tag = "72")]
+    pub(crate) daemon_build: Option<crate::BuildIdentity>,
     #[prost(uint32, tag = "1")]
     pub(crate) code: u32,
     #[prost(string, tag = "2")]
@@ -440,12 +442,14 @@ pub(crate) fn decode_reply(v: ReplyWire) -> Result<Reply, Error> {
     match v.code {
         10 => Ok(Reply::Pong(DaemonIdentity {
             release: v.daemon_version,
+            build: v.daemon_build,
             protocol: v.daemon_protocol,
             protocol_min: v.daemon_protocol_min,
         })),
         5 => Err(Error::ProtocolUnsupported {
             daemon: DaemonIdentity {
                 release: v.daemon_version,
+                build: v.daemon_build,
                 protocol: v.daemon_protocol,
                 protocol_min: v.daemon_protocol_min,
             },
