@@ -420,10 +420,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 // (#383): stop the idle ones before this task uses them.
                 let workspace = plan.workspace_root.to_string_lossy();
                 stop_retired_generations(session, &workspace, &request.stack, logs).await?;
-                session
-                    .begin(manifest_app_task_session_container_identity(&observed))
-                    .await
-                    .map_err(|_| "manifest app task ownership recording unavailable".to_owned())?;
+                begin_manifest_task_session(session, &observed).await?;
                 let result = execute_setup_app_task(
                     &engine,
                     SetupAppTaskRequest {
@@ -824,4 +821,14 @@ pub(crate) fn bounded_guest_failure_detail(result: &CommandResult) -> String {
         detail = String::from_utf8_lossy(&result.stdout).trim().to_owned();
     }
     bounded_log_line(&detail)
+}
+
+async fn begin_manifest_task_session(
+    session: &dyn ManifestAppTaskSessionRecorder,
+    observed: &SetupEnsureResult,
+) -> Result<(), String> {
+    session
+        .begin(manifest_app_task_session_container_identity(observed))
+        .await
+        .map_err(|_| "manifest app task ownership recording unavailable".to_owned())
 }
