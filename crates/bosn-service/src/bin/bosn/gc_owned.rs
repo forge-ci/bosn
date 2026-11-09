@@ -155,7 +155,7 @@ fn owned_report(summary: &bosn_service::ManagedRetentionSummary, json_output: bo
             .collect::<Vec<_>>()
             .join(", ");
         return format!(
-            "Owned GC: {} planned, {} removed, {} deferred, {} failed\neager (containers, volumes and images): {}{}",
+            "Owned GC: {} planned, {} removed, {} deferred, {} failed\neager (containers, volumes and images): {}{}{}",
             summary.planned,
             summary.removed,
             summary.deferred,
@@ -164,7 +164,12 @@ fn owned_report(summary: &bosn_service::ManagedRetentionSummary, json_output: bo
             summary
                 .refused
                 .as_ref()
-                .map_or(String::new(), |detail| format!("\nrefused: {detail}"))
+                .map_or(String::new(), |detail| format!("\nrefused: {detail}")),
+            if summary.compaction_advisory {
+                format!("\n{}", bosn_core::retention::COMPACTION_ADVISORY)
+            } else {
+                String::new()
+            }
         );
     }
     json!({
@@ -178,6 +183,7 @@ fn owned_report(summary: &bosn_service::ManagedRetentionSummary, json_output: bo
         "failed": summary.failed,
         "failures": summary.failures,
         "refused": summary.refused,
+        "compaction_advisory": summary.compaction_advisory,
         "held": summary
             .held
             .iter()
@@ -274,7 +280,7 @@ mod report_tests {
 
     #[test]
     fn gc_owned_reports_image_family_cap_in_human_and_json_output() {
-        let summary = bosn_service::ManagedRetentionSummary {
+        let mut summary = bosn_service::ManagedRetentionSummary {
             applied: false,
             planned: 2,
             removed: 0,
@@ -283,6 +289,7 @@ mod report_tests {
             failed: 0,
             failures: Vec::new(),
             refused: None,
+            compaction_advisory: false,
             held: Default::default(),
             eager: [
                 (bosn_core::EagerReason::FamilyCap, 2),
@@ -298,5 +305,11 @@ mod report_tests {
         assert_eq!(report["eager"]["family-cap"], 2);
         assert_eq!(report["eager"]["branch-merged"], 1);
         assert!(owned_report(&summary, false).contains("branch-merged: 1"));
+        assert!(!owned_report(&summary, false).contains("compaction advisory"));
+        summary.compaction_advisory = true;
+        assert!(owned_report(&summary, false).contains(bosn_core::retention::COMPACTION_ADVISORY));
+        let report: serde_json::Value =
+            serde_json::from_str(&owned_report(&summary, true)).unwrap();
+        assert_eq!(report["compaction_advisory"], true);
     }
 }

@@ -957,12 +957,12 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // #784 error parsing and #777 reply encoder extraction change no wire fields.
 // #767 adds the optional `engine_capacity_error` to two replies; older clients
 // ignore it, so the daemon protocol is unchanged.
-// #833 ping build identity and #671 defaulted owner_pids are additive, no bump.
+// #833/#671 diagnostics and #777 advisory reply tag 73 (default false) are additive, no bump.
 // #724: protocol 3 adds request tag 32 (task args). Protocol 2 requests omit it;
 // non-empty args require protocol 3 to prevent silent argument loss.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "95895e11d181ca022b122f8f862ac12edd3ab3b28cfdc4bb0c2513379de9e1fa",
+    "24847137b373cc73eef5019657a2cab939ab6c94bc6526dacb5403eaf76e878b",
 );
 
 #[test]

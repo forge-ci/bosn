@@ -75,6 +75,9 @@ pub const PRESSURE_FREE_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 /// pinning volumes the zero budget could otherwise reclaim.
 pub const PRESSURE_CONTAINER_TTL: Duration = Duration::from_secs(3600);
 
+/// Diagnostic only: the current plan cannot cover the measured free-space shortfall.
+pub const COMPACTION_ADVISORY: &str = "deficit exceeds reclaimable; compaction advisory";
+
 /// Free and total bytes of the filesystem holding Docker's data root, as measured by the caller.
 /// The planner never measures it: the service probes and passes a pressured policy in.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,6 +97,20 @@ impl DiskSpace {
         let low_fraction = u128::from(self.free_bytes) * 100
             < u128::from(self.total_bytes) * u128::from(PRESSURE_FREE_PERCENT);
         low_fraction || self.free_bytes < PRESSURE_FREE_BYTES
+    }
+
+    /// Bytes needed to clear both pressure thresholds; zero for an absent/empty report.
+    #[must_use]
+    pub fn deficit_bytes(self) -> i128 {
+        if !self.under_pressure() {
+            return 0;
+        }
+        let percentage =
+            (i128::from(self.total_bytes) * i128::from(PRESSURE_FREE_PERCENT) + 99) / 100;
+        percentage
+            .max(i128::from(PRESSURE_FREE_BYTES))
+            .saturating_sub(i128::from(self.free_bytes))
+            .max(0)
     }
 
     /// Free space as a percentage of the filesystem, for the log line.
@@ -373,6 +390,12 @@ pub struct RetentionPlan {
 }
 
 impl RetentionPlan {
+    /// Advisory only; never changes candidates or their eviction order (#777).
+    #[must_use]
+    pub fn compaction_advisory(&self, disk: Option<DiskSpace>) -> bool {
+        disk.is_some_and(|space| space.deficit_bytes() > self.bytes.max(0))
+    }
+
     /// How many observed objects each reason held (#545). An object nothing reclaimed is never
     /// silent: "no candidates" and "held for a reason" read differently.
     #[must_use]
@@ -583,3 +606,6 @@ pub use footprint::{DEFAULT_OWNED_CEILING, OwnedFootprint};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod pressure_tests;

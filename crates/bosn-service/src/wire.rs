@@ -161,6 +161,9 @@ pub(crate) struct ReplyWire {
     /// older daemon.
     #[prost(message, repeated, tag = "71")]
     pub(crate) owned_eager: Vec<HeldCountWire>,
+    /// Code 230: advisory only; omitted/default false with older peers (#777).
+    #[prost(bool, tag = "73")]
+    pub(crate) owned_compaction_advisory: bool,
 }
 /// One `HoldReason` and how many observed objects it kept.
 impl From<ManagedRetentionSummary> for ReplyWire {
@@ -177,6 +180,7 @@ impl From<ManagedRetentionSummary> for ReplyWire {
             owned_held: HeldCountWire::encode_counts(&summary.held),
             owned_eager: HeldCountWire::encode_eager(&summary.eager),
             owned_refused: summary.refused.unwrap_or_default(),
+            owned_compaction_advisory: summary.compaction_advisory,
             ..Default::default()
         }
     }
@@ -606,6 +610,7 @@ pub(crate) fn decode_reply(v: ReplyWire) -> Result<Reply, Error> {
             refused: (!v.owned_refused.is_empty()).then_some(v.owned_refused),
             held: HeldCountWire::decode_counts(v.owned_held),
             eager: HeldCountWire::decode_eager(v.owned_eager),
+            compaction_advisory: v.owned_compaction_advisory,
         })),
         1 => Err(Error::Protocol("unsupported protocol")),
         2 => Err(Error::Protocol("unknown operation")),

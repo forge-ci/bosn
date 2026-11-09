@@ -30,6 +30,21 @@ fn measure(root: &Path) -> Option<DiskSpace> {
     })
 }
 
+/// Measure before any removal, compare only supplied plan bytes, and log once per pass.
+pub(super) fn compaction_advisory(
+    engine: &DockerEngine,
+    plan: &bosn_core::retention::RetentionPlan,
+) -> bool {
+    let advisory = plan.compaction_advisory(docker_root_disk(engine));
+    if advisory {
+        daemon_log!(
+            "bosn retention: {}",
+            bosn_core::retention::COMPACTION_ADVISORY
+        );
+    }
+    advisory
+}
+
 /// `policy` adjusted for the measured disk, logging the decision.
 pub fn policy_for_disk(policy: RetentionPolicy, disk: Option<DiskSpace>) -> RetentionPolicy {
     match disk {
