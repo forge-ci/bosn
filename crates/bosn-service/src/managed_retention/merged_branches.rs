@@ -43,7 +43,7 @@ fn log_failure() {
     }
 }
 
-fn command(program: &str, directory: &Path, args: &[&str]) -> io::Result<String> {
+pub(super) fn command(program: &str, directory: &Path, args: &[&str]) -> io::Result<String> {
     let spec = SpawnSpec::new(program)
         .current_dir(directory)
         .stdin(StreamMode::Null)
@@ -190,6 +190,21 @@ pub(super) fn observe(facts: &mut EagerFacts) {
             Err(_) => log_failure(),
         }
     }
+}
+
+/// Revalidate the current HEAD against an existing merged proof; never spend a new lookup.
+pub(super) fn still_merged(directory: &Path) -> bool {
+    let Ok(Some(checkout)) = checkout_with(|args| command("git", directory, args)) else {
+        return false;
+    };
+    let Some(mut cache) = CACHE.get().and_then(|cache| cache.lock().ok()) else {
+        return false;
+    };
+    merged_with(&checkout, &mut cache, &mut 0, Instant::now(), |_| {
+        Err(io::Error::other(
+            "recheck requires an existing merged proof",
+        ))
+    })
 }
 
 #[cfg(test)]
