@@ -70,7 +70,7 @@ fn typed_job_submission_is_authenticated_and_coalesces() {
 
 #[test]
 fn setup_prepare_job_is_prompt_coalesced_logged_and_cancellable_without_docker() {
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let temporary = super::setup_ensure::submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -190,7 +190,7 @@ fn setup_prepare_coalescing_digest_covers_every_immutable_input() {
 
 #[test]
 fn setup_task_job_is_prompt_coalesced_bounded_and_cancellable_without_docker() {
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let temporary = super::setup_ensure::submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -266,7 +266,7 @@ fn setup_task_job_is_prompt_coalesced_bounded_and_cancellable_without_docker() {
 
 #[test]
 fn setup_app_task_is_prompt_typed_and_clears_its_durable_session() {
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let temporary = super::setup_ensure::submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
