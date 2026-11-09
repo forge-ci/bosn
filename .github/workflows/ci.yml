@@ -281,6 +281,9 @@ jobs:
           save-cache-remote: ${{ github.ref == 'refs/heads/main' && 'auto' || 'false' }}
           prebuild-deps: none
       - name: Lint every declared target
+        env:
+          # soldr#3999: nightly not derived from the dylint libraries; drop when fixed
+          SOLDR_DYLINT_TOOLCHAIN: nightly-2026-05-28
         # Soldr supplies --workspace --all-targets and -D warnings to Clippy.
         # Cargo.toml declares the same target set locally and remotely.
         run: soldr lint rust --cross-dylint --check --locked --features bosn-python/embedded-python-tests

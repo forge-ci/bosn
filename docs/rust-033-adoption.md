@@ -13,6 +13,12 @@ declarations, not evidence: a failed lane must never stamp either gate.
 The lint job runs on PRs and merge groups and is a dependency of `CI summary`;
 branch protection still requires only `CI summary`.
 
+The workflow lint step sets `SOLDR_DYLINT_TOOLCHAIN=nightly-2026-05-28`
+as the workaround for [soldr#3999](https://github.com/forge-ci/soldr/issues/3999).
+This must track the `channel` in both `_vender/kernal-api/dylints/*/rust-toolchain.toml`
+files and must be removed when soldr#3999 is fixed. The local lint lane replays
+this same step, so it receives the same environment as hosted CI.
+
 ## Unresolved dependencies
 
 - Shared ci-lint has not implemented RUST-033's special lint enforcement in
