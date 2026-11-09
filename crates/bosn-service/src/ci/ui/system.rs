@@ -1,9 +1,8 @@
 //! Host metrics for the `/system` page: a background sampler keeps one hour of
-//! history in memory, so a page load never touches the host. Linux reads
+//! bounded persistent history, so a page load never touches the host. Linux reads
 //! `/proc`; a metric a platform cannot report is `null`, never a guessed zero.
 
 use std::{
-    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -14,8 +13,14 @@ use bosn_engine::{DockerEngine, RunOptions};
 use kernal_api::async_engine;
 use serde::{Deserialize, Serialize};
 
+pub mod history;
+mod store;
+
+use history::{History, Point, Range};
+
 const INTERVAL: Duration = Duration::from_secs(10);
 /// One hour at [`INTERVAL`].
+#[cfg(test)]
 const HISTORY: usize = 360;
 const DOCKER_DEADLINE: Duration = Duration::from_secs(5);
 const DOCKER_OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
@@ -90,33 +95,141 @@ pub struct Sample {
 pub struct SystemReply {
     pub interval_secs: u64,
     pub host: HostInfo,
-    pub samples: VecDeque<Sample>,
+    pub range: Range,
+    pub samples: Vec<Point>,
+    pub latest: Option<Sample>,
+}
+
+struct MonitorState {
+    host: HostInfo,
+    latest: Option<Sample>,
+    history: History,
+}
+struct Inner {
+    state: Mutex<MonitorState>,
+    store: Mutex<Option<store::Store>>,
+}
+impl Drop for Inner {
+    fn drop(&mut self) {
+        let store = self
+            .store
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        let mut history = self
+            .state
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .history
+            .clone();
+        if let Some(mut store) = store {
+            async_engine::launch_blocking(move || {
+                if let Err(error) = store.flush(&mut history, now_ms()) {
+                    crate::daemon_log!("bosn system history: final flush failed: {error}");
+                }
+            })
+            .detach();
+        }
+    }
 }
 
 /// Shared with the listener's handlers; dropping the server stops the sampler.
 #[derive(Clone)]
 pub struct SystemMonitor {
-    state: Arc<Mutex<SystemReply>>,
+    inner: Arc<Inner>,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 impl SystemMonitor {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            state: Arc::new(Mutex::new(SystemReply {
-                interval_secs: INTERVAL.as_secs(),
-                host: HostInfo::default(),
-                samples: VecDeque::with_capacity(HISTORY),
-            })),
+            inner: Arc::new(Inner {
+                state: Mutex::new(MonitorState {
+                    host: HostInfo::default(),
+                    latest: None,
+                    history: History::default(),
+                }),
+                store: Mutex::new(None),
+            }),
         }
+    }
+
+    pub async fn open(state_dir: PathBuf) -> Self {
+        let monitor = Self::new();
+        let worker = monitor.clone();
+        if let Err(error) = async_engine::launch_blocking(move || {
+            *worker
+                .inner
+                .store
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(store::Store::new(&state_dir));
+            worker.flush_blocking();
+        })
+        .await
+        {
+            crate::daemon_log!("bosn system history: startup worker failed: {error}");
+        }
+        monitor
     }
 
     #[must_use]
     pub fn reply(&self) -> SystemReply {
-        self.state
+        self.reply_range(Range::Hour)
+    }
+
+    #[must_use]
+    pub fn reply_range(&self, range: Range) -> SystemReply {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        SystemReply {
+            interval_secs: history::TIERS[range.tier()].0 / 1000,
+            range,
+            host: state.host.clone(),
+            latest: state.latest.clone(),
+            samples: state.history.points(range, now_ms()),
+        }
+    }
+
+    pub async fn flush(&self) {
+        let worker = self.clone();
+        if let Err(error) = async_engine::launch_blocking(move || worker.flush_blocking()).await {
+            crate::daemon_log!("bosn system history: flush worker failed: {error}");
+        }
+    }
+
+    fn flush_blocking(&self) {
+        let mut store = self
+            .inner
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(store) = store.as_mut() else { return };
+        let mut history = self
+            .inner
+            .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+            .history
+            .clone();
+        if let Err(error) = store.flush(&mut history, now_ms()) {
+            crate::daemon_log!("bosn system history: flush failed: {error}");
+        }
+        self.inner
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .history = history;
     }
 
     /// One listed container's details, or `None` for anything else: this is
@@ -146,27 +259,38 @@ impl SystemMonitor {
     }
 
     fn record(&self, host: HostInfo, sample: Sample) {
+        let _writer = self
+            .inner
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut state = self
+            .inner
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.host = host;
-        if state.samples.len() == HISTORY {
-            state.samples.pop_front();
-        }
-        state.samples.push_back(sample);
+        state.history.record(&sample);
+        state.latest = Some(sample);
     }
 
     /// Sample until the returned task is dropped. Reads run off the async lane.
-    pub fn spawn_sampler(&self, disk_path: PathBuf) -> async_engine::Task<()> {
+    pub fn spawn_sampler(
+        &self,
+        disk_path: PathBuf,
+        stop: async_engine::CancellationToken,
+    ) -> async_engine::Task<()> {
         let monitor = self.clone();
         async_engine::launch(async move {
             let mut previous = None;
+            let mut last_flush = std::time::Instant::now();
             // The disk retention watches; the state directory until Docker answers.
             let mut docker_root = None;
-            loop {
+            while !stop.is_cancelled() {
+                let started = std::time::Instant::now();
                 let path = disk_path.clone();
                 let known_root = docker_root.clone();
+                let worker = monitor.clone();
                 let observed = async_engine::launch_blocking(move || {
                     let ticks = read_proc("stat").and_then(|s| parse_cpu_ticks(&s));
                     let root = known_root.or_else(|| {
@@ -174,16 +298,28 @@ impl SystemMonitor {
                             .filter(|root| kernal_api::resources_total_space(root).is_ok())
                     });
                     let (host, sample) = observe(root.as_deref().unwrap_or(&path), previous, ticks);
-                    (host, sample, ticks, root)
+                    worker.record(host, sample);
+                    (ticks, root)
                 })
                 .await;
                 // A lost worker leaves a gap in the history, never an invented point.
-                if let Ok((host, sample, ticks, root)) = observed {
+                if let Ok((ticks, root)) = observed {
                     docker_root = root;
-                    monitor.record(host, sample);
                     previous = ticks;
                 }
-                async_engine::sleep(INTERVAL).await;
+                if last_flush.elapsed() >= Duration::from_secs(60) {
+                    monitor.flush().await;
+                    last_flush = std::time::Instant::now();
+                }
+                if async_engine::cancellable(
+                    &stop,
+                    async_engine::sleep(INTERVAL.saturating_sub(started.elapsed())),
+                )
+                .await
+                .is_err()
+                {
+                    break;
+                }
             }
         })
     }
@@ -516,17 +652,67 @@ mod tests {
     #[test]
     fn history_is_bounded_to_the_newest_hour() {
         let monitor = SystemMonitor::new();
-        for at_ms in 0..=HISTORY as u64 {
+        for i in 0..HISTORY * 2 {
             monitor.record(
                 HostInfo::default(),
                 Sample {
-                    at_ms,
+                    at_ms: now_ms() + i as u64 * 10_000,
                     ..Sample::default()
                 },
             );
         }
-        let reply = monitor.reply();
-        assert_eq!(reply.samples.len(), HISTORY);
-        assert_eq!(reply.samples.front().map(|s| s.at_ms), Some(1));
+        assert_eq!(
+            monitor.inner.state.lock().unwrap().history.tiers[0]
+                .iter()
+                .flatten()
+                .count(),
+            HISTORY
+        );
+    }
+    #[test]
+    fn monitor_reloads_history_and_flushes_on_drop() {
+        crate::ci::lifecycle::tests::with_registry(|_registry, dir| async move {
+            let monitor = SystemMonitor::open(dir.clone()).await;
+            monitor.record(
+                HostInfo::default(),
+                Sample {
+                    at_ms: now_ms(),
+                    cpu_percent: Some(12.0),
+                    ..Sample::default()
+                },
+            );
+            monitor.flush().await;
+            monitor.record(
+                HostInfo::default(),
+                Sample {
+                    at_ms: now_ms(),
+                    cpu_percent: Some(24.0),
+                    ..Sample::default()
+                },
+            );
+            drop(monitor);
+            // The final flush runs on a blocking worker. Opening retries a held
+            // lock on each flush, exactly as the handoff sampler does.
+            let restored = SystemMonitor::open(dir).await;
+            for _ in 0..100 {
+                restored.flush().await;
+                if restored
+                    .reply()
+                    .samples
+                    .iter()
+                    .any(|p| p.avg.cpu_percent == Some(24.0))
+                {
+                    break;
+                }
+                async_engine::sleep(Duration::from_millis(10)).await;
+            }
+            assert!(
+                restored
+                    .reply()
+                    .samples
+                    .iter()
+                    .any(|p| p.avg.cpu_percent == Some(24.0))
+            );
+        });
     }
 }

@@ -685,6 +685,11 @@ reported by `bosn ci doctor`. An enrolled cohort policy replaces this budget.
 Don't raise the budget to avoid a cold cache; see `docs/ci.md` "Shared cache
 budget". There is no Bosn-side pass.
 
+
+- **System history (#821).** `/system` uses the separate bounded
+  `<state>/system-history.sqlite3` database; never store history in or migrate
+  the registry database. SQLite and lock operations run on a blocking worker.
+
 ## Design principles (fleet directives, forge-ci/ci.yml#163)
 
 Agent and review guidance from forge-ci/ci.yml `docs/policy-rust.md` ("Design principles, narrowed"). Not enforced by ci-lint; no rule ID.

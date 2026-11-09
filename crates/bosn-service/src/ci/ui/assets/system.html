@@ -20,6 +20,18 @@
   </nav>
   <main class="content">
     <div class="pane-title" id="title">Node</div>
+    <div class="history-controls">
+      <div role="group" aria-label="History range">
+        <button type="button" data-range="hour">Hour</button>
+        <button type="button" data-range="day">Day</button>
+        <button type="button" data-range="week">Week</button>
+        <button type="button" data-range="month">Month</button>
+      </div>
+      <div role="group" aria-label="Aggregation">
+        <button type="button" data-mode="avg">Average</button>
+        <button type="button" data-mode="max">Maximum</button>
+      </div>
+    </div>
     <div class="grid">
       <section class="panel" aria-labelledby="status-title">
         <h2 id="status-title">Status</h2>

@@ -2,7 +2,17 @@
 // recent CI runs from /v1/runs. Read-only. Helpers come from /shared.js.
 "use strict";
 
-const REFRESH_MS = 10000;
+const RANGES = { hour: 3600000, day: 86400000, week: 604800000, month: 2678400000 };
+const preference = (key, choices, fallback) => {
+  try { const value = localStorage.getItem(key); return choices.includes(value) ? value : fallback; }
+  catch { return fallback; }
+};
+let range = preference("system-range", Object.keys(RANGES), "hour");
+let mode = preference("system-mode", ["avg", "max"], "avg");
+let refreshTimer;
+let refreshGeneration = 0;
+let updatedAt = null;
+let lastSystem = null;
 const SVG = "http://www.w3.org/2000/svg";
 const GIB = 1024 ** 3;
 const VIEW = { w: 620, h: 190, left: 60, right: 8, top: 8, bottom: 22 };
@@ -20,7 +30,9 @@ function svg(tag, attrs = {}, ...children) {
   return node;
 }
 
-const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const clock = (ms) => new Date(ms).toLocaleString([], {
+  ...(range === "hour" ? {} : { month: "short", day: "numeric" }), hour: "2-digit", minute: "2-digit",
+});
 const stamp = (secs) => (secs == null ? "–" : new Date(secs * 1000).toLocaleString([], {
   month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
 }));
@@ -50,11 +62,11 @@ function chart(id, spec, samples) {
   }
   if (!series.some((s) => s.points.length > 1)) {
     // CPU needs two readings for its first point, so one early point or none is not yet a verdict.
-    const reported = series.some((s) => s.points.length > 0) || samples.length < 3;
+    const reported = series.some((s) => s.points.length > 0) || samples.filter((p) => Object.values(p).some((v, i) => i > 0 && v != null)).length < 3;
     $(id).replaceChildren(head, el("p", { class: "empty" }, reported ? "Collecting samples…" : "Not reported on this platform."));
     return;
   }
-  const t0 = samples[0].at_ms;
+  const t0 = samples[samples.length - 1].at_ms - RANGES[range];
   const t1 = samples[samples.length - 1].at_ms;
   const peak = Math.max(spec.min, ...series.flatMap((s) => s.points.map(s.value)));
   const step = niceStep(spec.max ?? peak * 1.05);
@@ -63,7 +75,7 @@ function chart(id, spec, samples) {
   const y = (v) => VIEW.h - VIEW.bottom - v / top * (VIEW.h - VIEW.top - VIEW.bottom);
   const root = svg("svg", {
     class: "chart", viewBox: `0 0 ${VIEW.w} ${VIEW.h}`,
-    role: "img", "aria-label": `${spec.title}, last hour`,
+    role: "img", "aria-label": `${spec.title}, last ${range}, ${mode === "avg" ? "average" : "maximum"}`,
   });
   for (let v = 0; v <= top + step / 1000; v += step) {
     root.append(svg("line", { class: "gridline", x1: VIEW.left, x2: VIEW.w - VIEW.right, y1: y(v), y2: y(v) }));
@@ -78,10 +90,22 @@ function chart(id, spec, samples) {
   }
   for (const s of series) {
     if (s.points.length < 2) continue;
-    const coords = s.points.map((p) => `${x(p.at_ms).toFixed(1)},${y(s.value(p)).toFixed(1)}`);
-    const base = y(0).toFixed(1);
-    const area = `M${x(s.points[0].at_ms).toFixed(1)},${base}L${coords.join("L")}L${x(s.points[s.points.length - 1].at_ms).toFixed(1)},${base}Z`;
-    root.append(svg("path", { class: `area ${s.cls}`, d: area }), svg("path", { class: `line ${s.cls}`, d: `M${coords.join("L")}` }));
+    // Each null bucket or null metric starts a new segment: never bridge downtime.
+    const segments = [];
+    let segment = [];
+    for (const point of samples) {
+      if (s.value(point) == null) {
+        if (segment.length) segments.push(segment);
+        segment = [];
+      } else segment.push(point);
+    }
+    if (segment.length) segments.push(segment);
+    for (const points of segments) {
+      const coords = points.map((p) => `${x(p.at_ms).toFixed(1)},${y(s.value(p)).toFixed(1)}`);
+      const base = y(0).toFixed(1);
+      const area = `M${x(points[0].at_ms).toFixed(1)},${base}L${coords.join("L")}L${x(points[points.length - 1].at_ms).toFixed(1)},${base}Z`;
+      root.append(svg("path", { class: `area ${s.cls}`, d: area }), svg("path", { class: `line ${s.cls}`, d: `M${coords.join("L")}` }));
+    }
   }
   const cross = svg("line", { class: "cross", y1: VIEW.top, y2: VIEW.h - VIEW.bottom, visibility: "hidden" });
   root.append(cross);
@@ -284,31 +308,60 @@ function renderTasks() {
 }
 
 async function refresh() {
+  clearTimeout(refreshTimer);
+  const requestedRange = range;
+  const generation = ++refreshGeneration;
   try {
     const [system, list, capacity] = await Promise.all([
-      request("/v1/system"),
+      request(`/v1/system?range=${requestedRange}`),
       request("/v1/runs?limit=100"),
       // A failure here is one line of the page, not the whole refresh.
       request("/v1/runners").catch((error) => ({ engine_capacity_error: error.message })),
     ]);
+    if (generation !== refreshGeneration) return;
+    lastSystem = system;
     lastCapacity = capacity;
     lastHost = system.host;
     lastRuns = list.runs;
     lastRunners = list.runners;
-    renderStatus(system.host, system.samples[system.samples.length - 1]);
-    renderCharts(system.host, system.samples);
+    renderStatus(system.host, system.latest);
+    renderCharts(system.host, system.samples.map((p) => ({ at_ms: p.at_ms, ...p[mode] })));
     renderTree();
     renderTasks();
     renderContainers();
     renderDetail();
-    $("live").textContent = `Updated ${new Date().toLocaleTimeString()} · last hour, ${system.interval_secs} s samples`;
+    updatedAt = new Date();
+    updateLive();
   } catch (error) {
+    if (generation !== refreshGeneration) return;
     $("live").textContent = error instanceof Unauthorized
       ? "Session expired: run `bosn ui --path /system` for a new link."
       : `Update failed: ${error.message}`;
+  } finally {
+    if (generation === refreshGeneration) refreshTimer = setTimeout(refresh, range === "hour" ? 10000 : 60000);
   }
 }
 
 $("detail-close").onclick = () => selectContainer(null);
+function updateLive() {
+  if (lastSystem && updatedAt) $("live").textContent = `Updated ${updatedAt.toLocaleTimeString()} · last ${range}, ${mode === "avg" ? "average" : "maximum"}, ${lastSystem.interval_secs} s samples`;
+}
+
+function controls() {
+  for (const button of document.querySelectorAll("[data-range]")) button.setAttribute("aria-pressed", button.dataset.range === range);
+  for (const button of document.querySelectorAll("[data-mode]")) button.setAttribute("aria-pressed", button.dataset.mode === mode);
+}
+for (const button of document.querySelectorAll("[data-range], [data-mode]")) {
+  button.onclick = () => {
+    if (button.dataset.range) range = button.dataset.range;
+    if (button.dataset.mode) mode = button.dataset.mode;
+    try { localStorage.setItem("system-range", range); localStorage.setItem("system-mode", mode); } catch { /* Storage may be disabled. */ }
+    controls();
+    if (button.dataset.mode && lastSystem?.range === range) {
+      renderCharts(lastSystem.host, lastSystem.samples.map((p) => ({ at_ms: p.at_ms, ...p[mode] })));
+      updateLive();
+    } else refresh();
+  };
+}
+controls();
 refresh();
-setInterval(refresh, REFRESH_MS);
