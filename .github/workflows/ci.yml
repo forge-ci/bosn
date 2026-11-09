@@ -224,8 +224,11 @@ jobs:
           save-cache-remote: auto
           key: ${{ env.ACT && 'auto' || '' }}
           target-cache: false
-          cargo-registry-cache: false
-          prebuild-deps: none
+          cargo-registry-cache: true
+          # Restore dependency build outputs, including vendored OpenSSL C
+          # artifacts, before building the checked-out dev wheel (#727).
+          prebuild-deps: soldr-cook
+          prebuild-deps-flags: --profile dev --package bosn-python -- --features wheel
       # ./install is the linux lane's compile surface (dev-profile PyO3 wheel
       # via `uv sync`); ./test below it is execution, which is validation and
       # stays with the queue.
@@ -412,8 +415,11 @@ jobs:
           # Automatic key under act only, as in the rust job (#503, #756).
           key: ${{ env.ACT && 'auto' || '' }}
           target-cache: false
-          cargo-registry-cache: false
-          prebuild-deps: none
+          cargo-registry-cache: true
+          # Restore dependency build outputs, including vendored OpenSSL C
+          # artifacts, before building the checked-out dev wheel (#727).
+          prebuild-deps: soldr-cook
+          prebuild-deps-flags: --profile dev --package bosn-python -- --features wheel
 
       - name: Install
         if: needs.select-tier.outputs.test == 'true'
