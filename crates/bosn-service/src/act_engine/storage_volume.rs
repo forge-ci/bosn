@@ -234,6 +234,13 @@ async fn remove_private_storage(
     Ok(())
 }
 
+async fn storage_control(
+    engine: &DockerEngine,
+    args: Vec<String>,
+) -> Result<Vec<u8>, ActEngineError> {
+    super::create::docker_control_budget(engine, args, super::budgets::STORAGE_CONTROL).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,11 +404,4 @@ else: sys.exit(2)
                 });
         }
     }
-}
-
-async fn storage_control(
-    engine: &DockerEngine,
-    args: Vec<String>,
-) -> Result<Vec<u8>, ActEngineError> {
-    super::create::docker_control_budget(engine, args, super::budgets::STORAGE_CONTROL).await
 }

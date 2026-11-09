@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(target_os = "linux")]
 const SLOTS: &str = include_str!("slots.sh");
 
 fn holder(run: &str, pid: u32) -> Holder {

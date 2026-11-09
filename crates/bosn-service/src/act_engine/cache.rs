@@ -74,7 +74,7 @@ pub(crate) fn creation_profile_with_tools(
 /// dedicated startup process. The command digest freezes both artifact hashes
 /// and the exact install/INIT chain before durable registration and creation.
 /// Engines without a shared cache retain their historical command identity.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn engine_command_with_cache(
     cache: Option<&ActEngineCacheVolume>,
 ) -> Result<Vec<String>, ActEngineError> {

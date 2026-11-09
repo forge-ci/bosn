@@ -7,7 +7,8 @@ use super::{
 };
 use crate::ci::{CacheClass, CacheComponent, CacheUsage};
 
-#[cfg(test)]
+// These tests share the Unix shell transport fixture from engine.rs.
+#[cfg(all(test, unix))]
 mod durability_tests;
 mod footprint;
 #[cfg(test)]

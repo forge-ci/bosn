@@ -21,7 +21,7 @@ impl Default for SourceCursor {
 }
 
 impl SourceCursor {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn for_context(owner: &str) -> Self {
         assert_eq!(owner.len(), 64);
         assert!(

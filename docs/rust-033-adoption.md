@@ -30,3 +30,16 @@ branch protection still requires only `CI summary`.
 
 Until lint succeeds and the final committed tree passes the shared local gate,
 this change must not be merged or described as fixing #799. Use `Refs #799`.
+
+## Validation evidence
+
+`./lint` passed. The focused isolated suite (`test_local_gate_wiring`,
+`test_tests_lane_inputs`, `test_bosn_gate_proof`) passed all 12 tests.
+
+Soldr 0.9.52, unchanged tree `7b74ba466d2879fb5d95efc288fd431ed863ca02`:
+cold attempt 413.11 seconds, warm attempt 133.18 seconds, limit 41.31 seconds.
+Both stopped at the same Windows test compile error (the durability tests
+imported a Unix-only fixture). These are failed-attempt measurements, not a
+successful full-lint benchmark. The host was shared with other builds and the
+cold attempt also overlapped `./lint`; the warm attempt ran after it finished.
+The Windows fixture condition is corrected in a separate commit.
