@@ -119,16 +119,23 @@ def test_ci_verifies_with_the_ci_lint_the_gate_runs() -> None:
 
 
 def test_full_lint_phase_cannot_be_narrowed_by_replay() -> None:
-    command = next(
-        step["run"]
+    lint_step = next(
+        step
         for step in WORKFLOW["jobs"]["lint"]["steps"]
         if step.get("name") == "Lint every declared target"
     )
+    command = lint_step["run"]
     assert command.splitlines()[-1] == (
         "soldr lint rust --cross-dylint --check --locked "
         "--features bosn-python/embedded-python-tests"
     )
     manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    libraries = manifest["workspace"]["metadata"]["dylint"]["libraries"]
+    assert len(libraries) == 1
+    assert libraries[0]["git"] == "https://github.com/forge-ci/kernal-api"
+    assert libraries[0]["pattern"] == "dylints/*"
+    assert len(libraries[0]["rev"]) == 40
+    assert 'soldr rustup target add --toolchain "$SOLDR_DYLINT_TOOLCHAIN"' in command
     contract = tomllib.loads((ROOT / "ci.toml").read_text(encoding="utf-8"))
     targets = set(manifest["workspace"]["metadata"]["soldr"]["targets"])
     assert {platform["target"] for platform in contract["platforms"].values()} <= targets

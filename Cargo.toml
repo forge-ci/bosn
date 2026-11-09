@@ -24,3 +24,6 @@ targets = [
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
 ]
+
+[workspace.metadata.dylint]
+libraries = [{ git = "https://github.com/forge-ci/kernal-api", rev = "fc634e507024d63ccaaf75fa564818b9dcfbff36", pattern = "dylints/*" }]

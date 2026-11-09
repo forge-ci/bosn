@@ -288,6 +288,8 @@ jobs:
         # Cargo.toml declares the same target set locally and remotely.
         run: |
           soldr rustup toolchain install "$SOLDR_DYLINT_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          mapfile -t lint_targets < <(python3 -c 'import tomllib; print("\n".join(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["metadata"]["soldr"]["targets"]))')
+          soldr rustup target add --toolchain "$SOLDR_DYLINT_TOOLCHAIN" "${lint_targets[@]}"
           soldr lint rust --cross-dylint --check --locked --features bosn-python/embedded-python-tests
 
   rust:

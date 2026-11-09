@@ -21,6 +21,14 @@ this same step, so it receives the same environment as hosted CI.
 The step provisions nightly rustfmt and Clippy through `soldr rustup` too:
 the override selects this toolchain for the entire canonical lint command,
 and Dylint's automatic provisioning alone omits the formatting component.
+It also provisions the nightly standard libraries for every target read from
+`[workspace.metadata.soldr].targets`: Soldr's automatic cross-target preparation
+otherwise installs stable std while this overridden command invokes nightly.
+The root Dylint metadata explicitly selects the two kernal-api lint libraries
+at the clean vendored checkout's commit `fc634e507024d63ccaaf75fa564818b9dcfbff36`.
+It uses a pinned Git source because `_vender/` is ignored and absent from clean
+CI checkouts; an empty library discovery cannot supply coverage. This pin and
+the nightly channel must be updated together when adopting newer lint libraries.
 
 ## Unresolved dependencies
 
@@ -29,10 +37,6 @@ and Dylint's automatic provisioning alone omits the formatting component.
   for missing proof in shadow mode. Bosn retains its existing enforce mode;
   changing to shadow cannot yet meet #799. Runtime lanes retain their existing
   behavior until the shared tool supports the requested split.
-- Bosn currently has no `[workspace.metadata.dylint]` libraries. Selecting an
-  arbitrary fleet library would introduce a new code policy, so this adoption
-  does not invent one or certify an empty pass. A real configured Dylint engine
-  is needed before this lane can produce valid Dylint evidence.
 - The initial Soldr 0.9.51 host-only diagnostic passed Clippy, then failed with
   `rust-nightly-versions.v1.json has no nightly mapping for Rust 1.95`
   (58.62 seconds). Soldr's related resolver issue is forge-ci/soldr#3999.
