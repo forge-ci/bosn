@@ -954,7 +954,7 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // #780 adds optional defaulted stage observations to run records and reports.
 // Older clients ignore them and newer clients read older records as empty,
 // so the daemon protocol remains 2.
-// #784 error parsing and #777 reply encoder extraction change no wire fields.
+// #784 error parsing and #777 reply codec extraction change no wire fields.
 // #767 adds the optional `engine_capacity_error` to two replies; older clients
 // ignore it, so the daemon protocol is unchanged.
 // #833/#671 diagnostics and #777 advisory reply tag 73 (default false) are additive, no bump.
@@ -962,7 +962,7 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // non-empty args require protocol 3 to prevent silent argument loss.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "24847137b373cc73eef5019657a2cab939ab6c94bc6526dacb5403eaf76e878b",
+    "de5a01e5947a782fc2d58cec9d2d3bc87c20697e76a45a2a755103a86d8c85b0",
 );
 
 #[test]

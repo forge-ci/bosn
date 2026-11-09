@@ -186,6 +186,24 @@ impl From<ManagedRetentionSummary> for ReplyWire {
     }
 }
 
+impl From<ReplyWire> for ManagedRetentionSummary {
+    fn from(v: ReplyWire) -> Self {
+        Self {
+            applied: v.owned_applied,
+            planned: v.owned_planned,
+            removed: v.owned_removed,
+            removed_bytes: i128::from(v.owned_removed_bytes),
+            deferred: v.owned_deferred,
+            failed: v.owned_failed,
+            failures: v.owned_failures,
+            refused: (!v.owned_refused.is_empty()).then_some(v.owned_refused),
+            held: HeldCountWire::decode_counts(v.owned_held),
+            eager: HeldCountWire::decode_eager(v.owned_eager),
+            compaction_advisory: v.owned_compaction_advisory,
+        }
+    }
+}
+
 #[derive(Message)]
 pub(crate) struct HeldCountWire {
     #[prost(string, tag = "1")]
@@ -599,19 +617,7 @@ pub(crate) fn decode_reply(v: ReplyWire) -> Result<Reply, Error> {
             refused: (!v.unmanaged_refused.is_empty()).then_some(v.unmanaged_refused),
         })),
         220 => Ok(Reply::Jobs(v.jobs_json)),
-        230 => Ok(Reply::ManagedRetention(ManagedRetentionSummary {
-            applied: v.owned_applied,
-            planned: v.owned_planned,
-            removed: v.owned_removed,
-            removed_bytes: i128::from(v.owned_removed_bytes),
-            deferred: v.owned_deferred,
-            failed: v.owned_failed,
-            failures: v.owned_failures,
-            refused: (!v.owned_refused.is_empty()).then_some(v.owned_refused),
-            held: HeldCountWire::decode_counts(v.owned_held),
-            eager: HeldCountWire::decode_eager(v.owned_eager),
-            compaction_advisory: v.owned_compaction_advisory,
-        })),
+        230 => Ok(Reply::ManagedRetention(v.into())),
         1 => Err(Error::Protocol("unsupported protocol")),
         2 => Err(Error::Protocol("unknown operation")),
         _ => Err(Error::Protocol("daemon error")),
