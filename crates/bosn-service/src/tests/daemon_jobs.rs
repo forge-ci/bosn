@@ -404,12 +404,10 @@ async fn next_task_start(wait: &mut async_engine::Receiver<String>) -> String {
         .unwrap()
 }
 
-/// #357: a `bosn run` client killed by SIGTERM/SIGHUP/SIGKILL stops
-/// polling. Its job, running or still queued, must be cancelled rather
-/// than run on to its deadline; a job without a lease, or one whose
-/// follower keeps polling, must not be.
+/// #777: a missed heartbeat cannot prove owner death, including across sleep.
+
 #[test]
-fn a_followed_app_task_is_cancelled_once_its_follower_stops_polling() {
+fn a_followed_app_task_survives_heartbeat_silence() {
     let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
@@ -446,8 +444,7 @@ fn a_followed_app_task_is_cancelled_once_its_follower_stops_polling() {
                 "a lease below the minimum is refused"
             );
 
-            // A follower that goes silent, with a second job of its
-            // queued behind the first.
+            // A legacy follower has no owner identity: keep both running and queued work.
             let running = client
                 .follow_manifest_app_task(request("running"), lease)
                 .await
@@ -457,20 +454,12 @@ fn a_followed_app_task_is_cancelled_once_its_follower_stops_polling() {
                 .follow_manifest_app_task(request("queued"), lease)
                 .await
                 .unwrap();
-            // Silence first: polling is what renews a lease. Then wait for the teardown.
             async_engine::sleep(Duration::from_secs(3)).await;
+            assert_eq!(client.job_status(running).await.unwrap().state, "Running");
+            assert_eq!(client.job_status(queued).await.unwrap().state, "Queued");
+            client.cancel_job(queued).await.unwrap();
+            client.cancel_job(running).await.unwrap();
             wait_for_job_state(&client, running, "Cancelled").await;
-            wait_for_job_state(&client, queued, "Cancelled").await;
-            assert!(
-                client
-                    .job_logs(running, 0, 16)
-                    .await
-                    .unwrap()
-                    .records
-                    .iter()
-                    .any(|record| record.line.contains("stopped polling")),
-                "the job log says why it was cancelled"
-            );
 
             // Without a lease, silence changes nothing (#12: the job
             // outlives its CLI unless that CLI asked otherwise).
@@ -496,6 +485,8 @@ fn a_followed_app_task_is_cancelled_once_its_follower_stops_polling() {
                 async_engine::sleep(Duration::from_millis(200)).await;
             }
             async_engine::sleep(Duration::from_secs(5)).await;
+            assert_eq!(client.job_status(followed).await.unwrap().state, "Running");
+            client.cancel_job(followed).await.unwrap();
             wait_for_job_state(&client, followed, "Cancelled").await;
 
             client.shutdown().await.unwrap();

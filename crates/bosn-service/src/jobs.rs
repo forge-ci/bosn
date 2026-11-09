@@ -151,9 +151,8 @@ struct Slot {
     active: Option<u64>,
     pending: Option<u64>,
 }
-/// A follower's promise to keep polling a job (#357). `bosn run` streams a
-/// job until it ends; when it dies (SIGTERM, SIGHUP, SIGKILL, a crash) the
-/// polls stop, and the job is cancelled instead of running to its deadline.
+/// Poll freshness controls admission only (#357, #777). Silence is never
+/// proof that a client died: only its PID plus creation key can cancel work.
 #[derive(Clone, Copy, Debug)]
 struct Lease {
     period: Duration,
@@ -309,23 +308,13 @@ impl Jobs {
         if self.closing {
             return;
         }
-        let mut lapsed = Vec::new();
         for class in [JobClass::Control, JobClass::Runner] {
             let mut deferred = Vec::new();
             while self.running.get(&class).copied().unwrap_or(0) < self.cap(class) {
                 let Some(id) = self.next_queued(class) else {
                     break;
                 };
-                // A follower that is already gone never gets its job
-                // started: its lease lapsed while the job waited.
-                if self.lease_lapsed(id, now) {
-                    lapsed.push(id);
-                    continue;
-                }
-                // A follower that has not polled for half its lease is
-                // probably gone: hold the job (and leave the slot free)
-                // until it polls again or its lease lapses. A live `bosn
-                // run` polls every 200 ms against a 30 s lease.
+                // A quiet follower waits for its next poll; TTL never cancels work.
                 if self.lease_stale(id, now) {
                     deferred.push(id);
                     continue;
@@ -357,26 +346,13 @@ impl Jobs {
                     .push_front(id);
             }
         }
-        for id in lapsed {
-            let _ = self.log(
-                id,
-                "[bosn] cancelling: the client following this job stopped polling before it started"
-                    .into(),
-            );
-            // Finishing a never-started job admits the next one in turn.
-            self.finish_at(id, JobState::Cancelled, Some("cancelled".into()), now);
-        }
     }
     fn lease_stale(&self, id: u64, now: Instant) -> bool {
         self.leases
             .get(&id)
             .is_some_and(|lease| now.saturating_duration_since(lease.seen) > lease.period / 2)
     }
-    fn lease_lapsed(&self, id: u64, now: Instant) -> bool {
-        self.leases
-            .get(&id)
-            .is_some_and(|lease| now.saturating_duration_since(lease.seen) > lease.period)
-    }
+
     /// Pop the next admissible job of `class`, round-robin by workspace.
     /// Entries that stopped being queued (cancelled or superseded) are
     /// dropped on the way.
@@ -456,21 +432,6 @@ impl Jobs {
         });
         orphaned
     }
-    /// Queued or running jobs whose follower has not polled within its lease.
-    /// A job already cancelling is left to finish.
-    pub fn expired_leases(&self, now: Instant) -> Vec<u64> {
-        self.leases
-            .iter()
-            .filter(|(id, lease)| {
-                now.saturating_duration_since(lease.seen) > lease.period
-                    && self.jobs.get(id).is_some_and(|job| {
-                        matches!(job.state, JobState::Queued | JobState::Running)
-                    })
-            })
-            .map(|(id, _)| *id)
-            .collect()
-    }
-    /// Drain newly admitted running jobs exactly once.
     pub fn take_started(&mut self) -> Vec<u64> {
         self.started.drain(..).collect()
     }

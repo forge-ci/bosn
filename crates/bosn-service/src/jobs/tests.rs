@@ -69,65 +69,25 @@ fn log_page_reports_eviction_gap_and_bounded_next_cursor() {
 }
 
 #[test]
-fn a_follow_lease_expires_for_queued_and_running_jobs_until_polled() {
+fn follow_lease_silence_keeps_running_and_queued_work() {
     let mut jobs = Jobs::new(1);
     let start = Instant::now();
-    let lease = Duration::from_secs(30);
-    let running = match jobs.submit("a", "s", "x").unwrap() {
-        Submission::Started(id) => id,
-        other => panic!("{other:?}"),
-    };
-    let queued = match jobs.submit("b", "s", "x").unwrap() {
-        Submission::Queued(id) => id,
-        other => panic!("{other:?}"),
-    };
-    let unleased = match jobs.submit("c", "s", "x").unwrap() {
-        Submission::Queued(id) => id,
-        other => panic!("{other:?}"),
-    };
-    jobs.lease(running, lease, start);
-    jobs.lease(queued, lease, start);
-    assert!(jobs.expired_leases(start + lease).is_empty(), "not yet");
-
-    // Polling one job renews only that job's lease.
-    jobs.touch(running, start + Duration::from_secs(20));
-    let later = start + Duration::from_secs(31);
-    assert_eq!(jobs.expired_leases(later), vec![queued]);
-    let much_later = start + Duration::from_secs(51);
-    assert_eq!(jobs.expired_leases(much_later), vec![running, queued]);
-    assert!(!jobs.expired_leases(much_later).contains(&unleased));
-
-    // A queued job that expires is cancelled before it ever starts.
-    jobs.cancel(queued).unwrap();
-    assert_eq!(jobs.jobs[&queued].state, JobState::Cancelled);
-    // A running one is left to its executor once it is cancelling.
-    jobs.cancel(running).unwrap();
-    assert!(jobs.expired_leases(much_later).is_empty());
-    jobs.settle(running, false).unwrap();
-    assert!(jobs.leases.is_empty(), "finished jobs forget their lease");
-
-    // The slot passes to the unleased job, which never expires.
-    assert_eq!(jobs.jobs[&unleased].state, JobState::Running);
-    assert!(
-        jobs.expired_leases(start + Duration::from_secs(3600))
-            .is_empty()
-    );
-
-    // A second follower can only shorten a lease; a finished job cannot
-    // be leased again.
-    let next = match jobs.submit("d", "s", "x").unwrap() {
-        Submission::Queued(id) => id,
-        other => panic!("{other:?}"),
-    };
-    jobs.lease(next, lease, start);
-    jobs.lease(next, Duration::from_secs(5), start);
-    assert_eq!(
-        jobs.expired_leases(start + Duration::from_secs(6)),
-        vec![next]
-    );
-    jobs.cancel(next).unwrap();
-    jobs.lease(next, lease, start);
-    assert!(jobs.leases.is_empty());
+    let running = started(jobs.submit_class("a", "s", "x", JobClass::Runner).unwrap());
+    let queued = queued(jobs.submit_class("b", "s", "x", JobClass::Runner).unwrap());
+    for id in [running, queued] {
+        jobs.lease(id, Duration::from_secs(30), start);
+        jobs.own(id, Some(client(10)), true);
+    }
+    let resumed = start + Duration::from_secs(86400);
+    jobs.pump_at(resumed);
+    assert!(jobs.orphaned(alive(&[10])).is_empty());
+    assert!(jobs.orphaned(|_| Liveness::Unknown).is_empty());
+    assert_eq!(jobs.jobs[&running].state, JobState::Running);
+    assert_eq!(jobs.jobs[&queued].state, JobState::Queued);
+    jobs.touch(running, resumed);
+    assert_eq!(jobs.leases[&running].seen, resumed);
+    assert_eq!(jobs.leases[&queued].seen, start);
+    assert_eq!(jobs.orphaned(alive(&[])).len(), 2);
 }
 
 #[test]
@@ -298,7 +258,7 @@ fn finished_jobs_are_retained_boundedly() {
 }
 
 #[test]
-fn a_queued_job_whose_follower_is_gone_is_cancelled_not_started() {
+fn a_queued_job_with_a_late_follower_is_kept_not_started() {
     let mut jobs = Jobs::new(1);
     let start = Instant::now();
     let running = started(jobs.submit_class("a", "s", "x", JobClass::Runner).unwrap());
@@ -307,7 +267,7 @@ fn a_queued_job_whose_follower_is_gone_is_cancelled_not_started() {
     jobs.lease(gone, Duration::from_millis(1), start);
     jobs.settle_with_error_at(running, true, None, start + Duration::from_millis(5))
         .unwrap();
-    assert_eq!(jobs.jobs[&gone].state, JobState::Cancelled);
+    assert_eq!(jobs.jobs[&gone].state, JobState::Queued);
     assert!(jobs.jobs[&gone].started_at.is_none(), "never started");
     assert_eq!(
         jobs.jobs[&next].state,

@@ -60,7 +60,11 @@ fn a_dead_owners_jobs_are_cancelled_and_a_live_owners_are_not() {
             );
             let client = wait_for_client(&state).await;
             let submit = |task: &'static str, owner: Option<ClientOwner>| {
-                client.submit_manifest_app_task_with_lease(request(task), None, owner)
+                client.submit_manifest_app_task_with_lease(
+                    request(task),
+                    Some(Duration::from_secs(1)),
+                    owner,
+                )
             };
             let running = submit("running", Some(doomed_owner)).await.unwrap();
             assert_eq!(next_start(&mut started_wait).await, "running");
