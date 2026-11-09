@@ -393,7 +393,10 @@ boundary; readiness and handoff remain async waits.
   Cancelling stops the container work (CI scope close, the #357 task stop).
 - An identical submission that joins work adds its owner; a detached joiner
   pins it; work created unowned never gains an owner. The 30 s follow lease of
-  `bosn run` (#357) stays as a backstop.
+  `bosn run` (#357) controls queued admission only (#777); heartbeat silence never
+  cancels work. Registry retention protects every recorded lease without TTL expiry,
+  including after restart or sleep. Legacy followers without a recorded owner stay
+  kept until explicit cancellation or their task deadline.
 
 **CI cancellation display (#675).** Accepting cancellation of a running run
 records `cancel_requested_at` before signalling the engine. The wire lifecycle

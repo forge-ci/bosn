@@ -175,7 +175,7 @@ fn name_digest_and_namespace_must_all_agree() {
 }
 
 #[test]
-fn a_lease_or_session_protects_the_object() {
+fn a_recorded_lease_survives_restart_and_arbitrarily_late_heartbeat() {
     let name = "bosn-v-stack-leased";
     let id = format!("manifest-volume:{name}");
     let root = state_with(&[record(&id, ResourceKind::Volume, name, Retention::Warm)]);
@@ -197,9 +197,29 @@ fn a_lease_or_session_protects_the_object() {
     }
     let ownership = RegisteredOwnership::load(root.path()).unwrap();
     let proof = ownership
-        .normalize(ResourceKind::Volume, name, &setup_labels(name), NOW)
+        .normalize(
+            ResourceKind::Volume,
+            name,
+            &setup_labels(name),
+            NOW + 86400.0,
+        )
         .unwrap();
-    assert!(proof.protected, "a leased object is in use");
+    assert!(
+        proof.protected,
+        "TTL, restart and sleep never release recorded leases"
+    );
+    let reloaded = RegisteredOwnership::load(root.path()).unwrap();
+    assert!(
+        reloaded
+            .normalize(
+                ResourceKind::Volume,
+                name,
+                &setup_labels(name),
+                NOW + 172800.0
+            )
+            .unwrap()
+            .protected
+    );
 }
 
 #[test]
