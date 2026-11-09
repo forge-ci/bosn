@@ -21,7 +21,7 @@ ENV UV_PROJECT_ENVIRONMENT=/venv \
     CARGO_TARGET_DIR=/target \
     PYTHONDONTWRITEBYTECODE=1
 
-# zackees/ci.yml GATE-005: the test guards (tests/conftest.py,
+# forge-ci/ci.yml GATE-005: the test guards (tests/conftest.py,
 # ci/test_guard.sh) let bosn's suites run here and refuse a bare host.
 ENV BOSN_TEST_ISOLATED=1
 

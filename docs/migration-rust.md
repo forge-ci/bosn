@@ -1,6 +1,6 @@
 # Rust migration status
 
-Bosn is being migrated under [issue #153](https://github.com/zackees/bosn/issues/153).
+Bosn is being migrated under [issue #153](https://github.com/forge-ci/bosn/issues/153).
 The application domain, daemon protocol, SQLite state registry, Docker engine
 seam, native CLI, PyO3 binding, MCP server, and URL setup path are Rust code.
 `kernal-api` is the OS boundary, pinned exactly to the published crates.io
@@ -79,11 +79,11 @@ does not close it. What remains is the supervised destructive acceptance run
 first-run autostart, a configurable free-space floor, and the macOS state
 directory).
 
-[#147]: https://github.com/zackees/bosn/issues/147
-[#148]: https://github.com/zackees/bosn/issues/148
-[#149]: https://github.com/zackees/bosn/issues/149
-[#268]: https://github.com/zackees/bosn/issues/268
-[#281]: https://github.com/zackees/bosn/issues/281
+[#147]: https://github.com/forge-ci/bosn/issues/147
+[#148]: https://github.com/forge-ci/bosn/issues/148
+[#149]: https://github.com/forge-ci/bosn/issues/149
+[#268]: https://github.com/forge-ci/bosn/issues/268
+[#281]: https://github.com/forge-ci/bosn/issues/281
 
 macOS artifact builds no longer consume hosted Mac capacity: the two Darwin
 wheel targets are cross-built on Linux with Soldr's pinned LLVM 21.1.5 and
@@ -120,7 +120,7 @@ consumer such as clud migrates as follows.
    are rate-limited and the daemon prints a warning.
 4. **Install native Bosn** in place of the Python CLI. From a checkout of
    `main` (no release carries this yet):
-   `uv tool install --force 'bosn @ git+https://github.com/zackees/bosn@main'`
+   `uv tool install --force 'bosn @ git+https://github.com/forge-ci/bosn@main'`
    (building needs the Rust toolchain and `soldr`), or install the published
    wheel once one is released.
 5. **Cut over the daemon.** The Python CLI and native Bosn default to the

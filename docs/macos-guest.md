@@ -264,12 +264,12 @@ bosn does not automate this; it is here so the manifest above has something to p
    dockurr/macos:latest` plus `COPY storage/ /storage/`, pushed after stopping the container
    first so the disk is quiescent — a baked image of a live filesystem is a torn one —
    produces an image for running the guest with plain `docker run` on a dev box, or for CI
-   outside Bosn, such as the kernal-api `ghcr.io/zackees/kernal-api/macos-x64-guest:ventura`
+   outside Bosn, such as the kernal-api `ghcr.io/forge-ci/kernal-api/macos-x64-guest:ventura`
    shape. The `macos-x64-guest` stack kind refuses such an image: its runtime accepts only
    `dockurr/macos` (or a Docker Hub registry alias) pinned by digest, because the fixed
    KVM/tun/NET_ADMIN create shape must never run a manifest-selected privileged image.
 5. Point the stack's `image` at `dockurr/macos@sha256:<digest>` and keep the pinned
    `storage` volume declared above. Bosn then boots the guest installed in steps 1–3.
 
-Working reference scripts for these steps live in `zackees/kernal-api` under
+Working reference scripts for these steps live in `forge-ci/kernal-api` under
 `ci/macos-x64/`.

@@ -1,6 +1,6 @@
 # Concurrent runners, accounting, and act job caches
 
-Issue [#358](https://github.com/zackees/bosn/issues/358). The daemon used to run
+Issue [#358](https://github.com/forge-ci/bosn/issues/358). The daemon used to run
 one job at a time on the whole machine (`Jobs::new(1)`), so one session's
 `bosn run --task act-ci-*` queued every other session behind it, including
 their seconds-long stack ensures. This document describes what replaced that:

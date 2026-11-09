@@ -66,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 ci/cancel_superseded.py
 
-  # GATE-002/003 (zackees/ci.yml#166, bosn#361): the head commit carries a
+  # GATE-002/003 (forge-ci/ci.yml#166, bosn#361): the head commit carries a
   # tree-bound `Local-Gate:` attestation from `ci-lint local-gate run`
   # (local-gate.toml), and every other job needs this one. It supersedes the
   # former GEN-021 shadow reuse report: attestations are the authoritative
@@ -96,7 +96,7 @@ jobs:
       - name: Checkout CI policy
         uses: actions/checkout@v4
         with:
-          repository: zackees/ci.yml
+          repository: forge-ci/ci.yml
           ref: 96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e
           path: .ci-lint
           persist-credentials: false
@@ -144,7 +144,7 @@ jobs:
           --manual-sha "$MANUAL_SHA"
           --output "$GITHUB_OUTPUT"
 
-  # GEN-021/GEN-022 (zackees/ci.yml#432): these two push-only writers are the
+  # GEN-021/GEN-022 (forge-ci/ci.yml#432): these two push-only writers are the
   # single remote savers of the base zccache family and the linux-gate suffix
   # (validation lanes never save remotely): build-only, no gate signal, never
   # a required check. The base family warms
@@ -169,7 +169,7 @@ jobs:
       - name: Install uv for isolated compiler fixtures
         uses: astral-sh/setup-uv@v5
       - name: Set up Soldr
-        uses: zackees/setup-soldr@v0
+        uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
           version: "0.9.45"
@@ -211,7 +211,7 @@ jobs:
       - name: Docker engine version
         run: docker version
       - name: Set up Soldr (linux-gate suffix)
-        uses: zackees/setup-soldr@v0
+        uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
           version: "0.9.45"
@@ -300,7 +300,7 @@ jobs:
       # No hand-keyed target cache (#361 phase 3): the former
       # Swatinem/rust-cache `rust-workspace-v1` key was invalidated by hand.
       # Compiled artifacts come from setup-soldr's content-keyed zccache
-      # build cache above (nearest-ancestor restore per zackees/ci.yml
+      # build cache above (nearest-ancestor restore per forge-ci/ci.yml
       # CACHE-024), and an attested PR head skips this job altogether.
 
       # No apt-get (#600): pkg-config and libssl-dev ship in both GitHub's
@@ -427,7 +427,7 @@ jobs:
 
       - name: Validate shared local-gate policy
         if: needs.select-tier.outputs.test == 'true'
-        run: uvx --from git+https://github.com/zackees/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e --with pyyaml==6.0.2 ci-lint local-gate lint
+        run: uvx --from git+https://github.com/forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e --with pyyaml==6.0.2 ci-lint local-gate lint
 
       - name: Test (unit + docker)
         if: needs.select-tier.outputs.test == 'true'
@@ -785,7 +785,7 @@ jobs:
       # setup-soldr's ancestor-build family.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          repository: zackees/ci.yml
+          repository: forge-ci/ci.yml
           ref: 41fcbca60a7901c8707411c4abf4d0b41dd71426
           path: .ci-lint
           persist-credentials: false

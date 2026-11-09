@@ -19,6 +19,6 @@ binding (`import bosn`) and a stdio MCP server (`bosn mcp`).
 This crate is published as one self-contained package; its modules (`core`,
 `engine`, `generation`, `registry`, `setup`, `service`) are Bosn's internal
 crates, amalgamated at release. See the
-[repository](https://github.com/zackees/bosn) for documentation.
+[repository](https://github.com/forge-ci/bosn) for documentation.
 
 License: MIT

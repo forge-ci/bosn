@@ -1,7 +1,7 @@
 # Local GitHub Actions planning
 
 `bosn act payload` is the first repository adapter. It emits a versioned JSON
-envelope for `zackees/bosn`'s committed `ci.yml` selector: `pull_request`
+envelope for `forge-ci/bosn`'s committed `ci.yml` selector: `pull_request`
 minimal/test/full maps to no label/`ci-test`/`ci-full`, `push` maps to minimal
 on main, and `release` maps to full `workflow_dispatch` with `commit_sha`.
 PR payloads require `--pr-number`. All forms require a 40-hex `--sha`.

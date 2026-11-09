@@ -32,7 +32,7 @@ fn bosn_payload_maps_literal_ci_labels_and_release_dispatch() {
             String::from_utf8_lossy(&result.stderr).contains("`bosn act payload` is deprecated")
         );
         assert_eq!(value["github_event"], expected_event);
-        assert_eq!(value["payload"]["repository"]["full_name"], "zackees/bosn");
+        assert_eq!(value["payload"]["repository"]["full_name"], "forge-ci/bosn");
         assert_eq!(value["executable"], false);
         if event == "release" {
             assert_eq!(value["payload"]["inputs"]["tier"], "full");

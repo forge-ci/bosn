@@ -9,7 +9,7 @@ the SLO the matrix is held to, and who to call when it is breached.
 
 ## What happened (before-change trace)
 
-Run [34865549628](https://github.com/zackees/bosn/actions/runs/34865549628)
+Run [34865549628](https://github.com/forge-ci/bosn/actions/runs/34865549628)
 (push to `main`, 2026-09-14 15:57:33 UTC) declared seven independent jobs. All
 seven were created at the same instant; they started over the next 26 minutes.
 Queue time is job start minus job creation; execution time is job completion
@@ -141,7 +141,7 @@ separately (run the probe to refresh):
 
 | Run | Created (UTC) | Max queue | Max exec | Breaches |
 |---|---|---:|---:|---|
-| [34876130390](https://github.com/zackees/bosn/actions/runs/34876130390) | 2026-09-14 17:40 | 0.1 min | 5.3 min | none |
+| [34876130390](https://github.com/forge-ci/bosn/actions/runs/34876130390) | 2026-09-14 17:40 | 0.1 min | 5.3 min | none |
 
 The fixture for that run is `tests/fixtures/ci_queue_timing/run_34876130390.json`.
 Further rows are appended from the probe as main-branch runs accumulate; the

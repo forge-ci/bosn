@@ -21,7 +21,7 @@
 {"v":1,"elapsed_sec":423.55,"event":"checks","checks":{"total":11,"pending":4,"failed":0,"succeeded":7,"skipped":0},"mergeable":"MERGEABLE","merge_state_status":"BLOCKED"}
 {"v":1,"elapsed_sec":423.55,"event":"coderabbit","coderabbit":{"state":"not_detected","sampled_merged_prs":5}}
 {"v":1,"elapsed_sec":453.57,"event":"checks","checks":{"total":11,"pending":2,"failed":1,"succeeded":8,"skipped":0},"mergeable":"MERGEABLE","merge_state_status":"BLOCKED"}
-{"v":1,"elapsed_sec":454.78,"event":"required_failure","check":{"name":"Full CI coverage (exact candidate SHA)","state":"cancelled","link":"https://github.com/zackees/bosn/actions/runs/36921386990/job/110571674218","workflow":".github/workflows/ci.yml"}}
+{"v":1,"elapsed_sec":454.78,"event":"required_failure","check":{"name":"Full CI coverage (exact candidate SHA)","state":"cancelled","link":"https://github.com/forge-ci/bosn/actions/runs/36921386990/job/110571674218","workflow":".github/workflows/ci.yml"}}
 {"v":1,"elapsed_sec":461.34,"event":"cancel_item","watcher_pid":855149,"watcher_host":"nixos","mode":"runs","item_id":36921386466,"status":"cancelled"}
 {"v":1,"elapsed_sec":461.34,"event":"cancel","trigger":"fail","attempts":1,"mode":"runs"}
 {"v":1,"elapsed_sec":461.34,"event":"EXIT","code":1,"reason":"fail"}

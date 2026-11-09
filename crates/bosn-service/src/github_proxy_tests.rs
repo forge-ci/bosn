@@ -273,10 +273,10 @@ fn credential_comes_from_gh_then_stored_secret_then_anonymous() {
 fn allowlist_accepts_reads_and_refuses_writes_and_other_endpoints() {
     for ok in [
         "/rate_limit",
-        "/repos/zackees/soldr",
-        "/repos/zackees/soldr/releases/latest",
-        "/repos/zackees/soldr/releases/tags/v0.9.25",
-        "/repos/zackees/soldr/releases/assets/123",
+        "/repos/forge-ci/soldr",
+        "/repos/forge-ci/soldr/releases/latest",
+        "/repos/forge-ci/soldr/releases/tags/v0.9.25",
+        "/repos/forge-ci/soldr/releases/assets/123",
         "/repos/actions/python-versions/git/trees/main",
         "/repos/actions/python-versions/git/blobs/abc",
         "/repos/o/r/git/ref/heads/main",

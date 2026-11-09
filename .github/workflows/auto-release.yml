@@ -1,6 +1,6 @@
 name: Release
 
-# The pretag release gate (AGENTS.md "Releasing"; zackees/soldr#3343/#3345).
+# The pretag release gate (AGENTS.md "Releasing"; forge-ci/soldr#3343/#3345).
 # A release is requested only by dispatching this workflow with an exact
 # candidate SHA on main and the ID of a successful full CI run of that SHA:
 #

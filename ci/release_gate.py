@@ -3,7 +3,7 @@
 
 A release is requested by dispatching ``auto-release.yml`` with an exact candidate
 SHA on ``main`` and the ID of a successful full CI run of that same SHA (the fleet
-pattern of zackees/soldr#3343, zackees/soldr#3345). An optional release-request
+pattern of forge-ci/soldr#3343, forge-ci/soldr#3345). An optional release-request
 issue names the same SHA and tag, and the release posts its result there.
 
 ``resolve`` runs in the release workflow's guard job, on a checkout of the
@@ -179,7 +179,7 @@ class GitResult:
 
 
 def _git(*args: str) -> GitResult:
-    # Output goes to a file, never a pipe the parent waits on (zackees/ci.yml PY-003).
+    # Output goes to a file, never a pipe the parent waits on (forge-ci/ci.yml PY-003).
     with tempfile.TemporaryFile("w+", encoding="utf-8") as out:
         code = subprocess.run(["git", *args], stdout=out, check=False).returncode
         out.seek(0)

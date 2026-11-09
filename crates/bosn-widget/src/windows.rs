@@ -2,7 +2,7 @@
 //!
 //! Pure data: no window is created here. Each window is sized at open and
 //! never resized, because a resize after the first frame is not applied on
-//! KDE Plasma Wayland (zackees/kernal-api#390).
+//! KDE Plasma Wayland (forge-ci/kernal-api#390).
 
 use kernal_api::webview::{WebviewWindowOptions, WebviewWindowSupport, WindowOptionsError};
 

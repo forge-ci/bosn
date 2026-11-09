@@ -4,7 +4,7 @@
 //! makes inside the engine carries its run label, so closing the scope
 //! removes exactly that set and leaves other runs untouched.
 //!
-//! act2's serve mode owns the scope inside the engine (zackees/act2#62,
+//! act2's serve mode owns the scope inside the engine (forge-ci/act2#62,
 //! #67): admission, the cgroup and its limits, the network, the work tree,
 //! the run's Docker proxy, act's process, and the label cleanup that proves
 //! nothing is left; and, per engine, the runner image, the tool cache and the

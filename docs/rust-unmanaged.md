@@ -1,9 +1,9 @@
 # Unmanaged Docker artifacts: census, warning, and cleanup
 
-This is the native re-base of the ruleset in [#148](https://github.com/zackees/bosn/issues/148),
-under the goal in [#149](https://github.com/zackees/bosn/issues/149) and the findings in
-[#147](https://github.com/zackees/bosn/issues/147). It is slice S1 of
-[#268](https://github.com/zackees/bosn/issues/268): **the contract**. S2 lands the census,
+This is the native re-base of the ruleset in [#148](https://github.com/forge-ci/bosn/issues/148),
+under the goal in [#149](https://github.com/forge-ci/bosn/issues/149) and the findings in
+[#147](https://github.com/forge-ci/bosn/issues/147). It is slice S1 of
+[#268](https://github.com/forge-ci/bosn/issues/268): **the contract**. S2 lands the census,
 S3 the warning and the cleanup command, S4 unattended operation, S5 pressure attribution.
 
 The ruleset is unchanged in intent from #148. What changed is the implementation it

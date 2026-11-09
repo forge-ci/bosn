@@ -59,7 +59,7 @@ fn janitor_reads_are_forwarded_for_the_runs_own_repository_only() {
         "/repos/obs-rust/obs-studio/pulls/123",
         "/repos/obs-rust/obs-studio/pulls",
         // The read-only allowlist still applies, to any repository.
-        "/repos/zackees/soldr/releases/latest",
+        "/repos/forge-ci/soldr/releases/latest",
         "/rate_limit",
     ] {
         assert_eq!(

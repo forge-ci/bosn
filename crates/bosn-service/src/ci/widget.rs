@@ -511,7 +511,7 @@ mod tests {
     fn only_https_allowlisted_hosts_open_externally() {
         let extra = ["git.example.org".to_string()];
         assert!(external_allowed(
-            "https://github.com/zackees/bosn/pull/1",
+            "https://github.com/forge-ci/bosn/pull/1",
             &extra
         ));
         assert!(external_allowed("https://GitLab.com/x", &extra));

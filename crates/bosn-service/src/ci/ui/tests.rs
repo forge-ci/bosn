@@ -560,7 +560,7 @@ fn the_dashboard_drives_the_widget_only_through_queued_allowlisted_commands() {
                 "/v1/widget/open-external",
                 &cookie,
                 Some(&origin),
-                r#"{"url":"https://github.com/zackees/bosn"}"#,
+                r#"{"url":"https://github.com/forge-ci/bosn"}"#,
             ),
         )
         .await;
@@ -606,7 +606,7 @@ fn the_dashboard_drives_the_widget_only_through_queued_allowlisted_commands() {
             poll.commands,
             [
                 WidgetCommand::OpenExternal {
-                    url: "https://github.com/zackees/bosn".into()
+                    url: "https://github.com/forge-ci/bosn".into()
                 },
                 WidgetCommand::Toggle,
             ]

@@ -19,7 +19,7 @@ use kernal_api::{
 
 const SESSION_POLL: Duration = Duration::from_millis(20);
 /// How long `DockerCommand::stream` waits on a full event queue before it
-/// declares the consumer stalled and reaps the client (zackees/ci.yml#166:
+/// declares the consumer stalled and reaps the client (forge-ci/ci.yml#166:
 /// `soldr ci-test`'s warning burst was reaped after a momentary full queue).
 const CONSUMER_STALL_LIMIT: Duration = Duration::from_secs(60);
 

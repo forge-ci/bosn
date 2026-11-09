@@ -26,7 +26,7 @@ release check and `ci/verify_kernel_boundary.py`.
 For source inspection only (never as a Cargo path dependency), use:
 
 ```text
-git clone https://github.com/zackees/kernal-api _vender/kernal-api
+git clone https://github.com/forge-ci/kernal-api _vender/kernal-api
 git -C _vender/kernal-api checkout v0.1.31
 ```
 
