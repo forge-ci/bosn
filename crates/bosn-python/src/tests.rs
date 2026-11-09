@@ -23,6 +23,23 @@ use std::{
 #[cfg(feature = "embedded-python-tests")]
 const SUBMIT_RETURNS_BEFORE_TASK: Duration = Duration::from_millis(1_500);
 
+// Timing fixtures measure admission, not overlay-filesystem fsync latency.
+#[cfg(feature = "embedded-python-tests")]
+fn submission_fixture_directory() -> kernal_api::platform::fs::TemporaryDirectory {
+    // This timing fixture measures asynchronous admission, which also awaits
+    // the SQLite audit commit. Linux overlay fsync latency is machine-load
+    // dependent; use memory-backed storage for the protocol timing check.
+    #[cfg(target_os = "linux")]
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::in_directory(
+        std::path::Path::new("/dev/shm"),
+        "bosn-python-ensure-",
+    )
+    .unwrap();
+    #[cfg(not(target_os = "linux"))]
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    temporary
+}
+
 // A promptness fixture must own its interpreter: other parallel libtest
 // cases can hold the process-wide GIL while its Python thread starts.
 #[cfg(feature = "embedded-python-tests")]
@@ -450,17 +467,7 @@ fn python_client_submits_and_cancels_coalesced_fake_setup_ensure_without_docker(
         return;
     }
     Python::initialize();
-    // This timing fixture measures asynchronous admission, which also awaits
-    // the SQLite audit commit. Linux overlay fsync latency is machine-load
-    // dependent; use memory-backed storage for the protocol timing check.
-    #[cfg(target_os = "linux")]
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::in_directory(
-        std::path::Path::new("/dev/shm"),
-        "bosn-python-ensure-",
-    )
-    .unwrap();
-    #[cfg(not(target_os = "linux"))]
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let temporary = submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
