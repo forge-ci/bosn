@@ -18,6 +18,9 @@ as the workaround for [soldr#3999](https://github.com/forge-ci/soldr/issues/3999
 This must track the `channel` in both `_vender/kernal-api/dylints/*/rust-toolchain.toml`
 files and must be removed when soldr#3999 is fixed. The local lint lane replays
 this same step, so it receives the same environment as hosted CI.
+The step provisions nightly rustfmt and Clippy through `soldr rustup` too:
+the override selects this toolchain for the entire canonical lint command,
+and Dylint's automatic provisioning alone omits the formatting component.
 
 ## Unresolved dependencies
 

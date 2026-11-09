@@ -124,7 +124,7 @@ def test_full_lint_phase_cannot_be_narrowed_by_replay() -> None:
         for step in WORKFLOW["jobs"]["lint"]["steps"]
         if step.get("name") == "Lint every declared target"
     )
-    assert command == (
+    assert command.splitlines()[-1] == (
         "soldr lint rust --cross-dylint --check --locked "
         "--features bosn-python/embedded-python-tests"
     )

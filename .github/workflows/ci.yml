@@ -286,7 +286,9 @@ jobs:
           SOLDR_DYLINT_TOOLCHAIN: nightly-2026-05-28
         # Soldr supplies --workspace --all-targets and -D warnings to Clippy.
         # Cargo.toml declares the same target set locally and remotely.
-        run: soldr lint rust --cross-dylint --check --locked --features bosn-python/embedded-python-tests
+        run: |
+          soldr rustup toolchain install "$SOLDR_DYLINT_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          soldr lint rust --cross-dylint --check --locked --features bosn-python/embedded-python-tests
 
   rust:
     name: Rust workspace (locked tests)
