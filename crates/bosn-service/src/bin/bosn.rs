@@ -36,6 +36,10 @@ mod act;
 mod args;
 #[path = "bosn/bounded_output.rs"]
 mod bounded_output;
+#[path = "bosn/capacity.rs"]
+mod capacity;
+#[path = "bosn/capacity_daemon.rs"]
+mod capacity_daemon;
 #[path = "bosn/ci.rs"]
 mod ci;
 #[path = "bosn/daemon.rs"]
@@ -122,6 +126,7 @@ fn main() {
         "setup" => run_setup(arguments),
         "job" => run_job(arguments),
         "jobs" => jobs::run(arguments),
+        "capacity" => capacity::run(arguments),
         "registry" => run_registry(arguments),
         "gc" => run_gc(arguments),
         "scan" => run_scan(arguments),

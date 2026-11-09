@@ -71,6 +71,7 @@ pub mod act_registry;
 pub mod act_runtime;
 pub mod autostart;
 pub mod capacity;
+pub mod capacity_observation;
 pub mod ci;
 mod client;
 mod cpu_reweight;
