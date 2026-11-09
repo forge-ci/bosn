@@ -63,8 +63,10 @@ impl EagerReason {
 /// touches the filesystem.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EagerFacts {
-    /// Workspaces proven absent (not found, as opposed to unreadable).
+    /// Workspaces absent in two passes with their parent directory present.
     pub gone_workspaces: BTreeSet<String>,
+    /// Present, attached workspaces with no changes or commits missing from upstream.
+    pub clean_workspaces: BTreeSet<String>,
     /// Present workspaces whose current HEAD is proven merged by the service.
     pub merged_workspaces: BTreeSet<String>,
     /// Workspace → its repository family (the canonical git common directory).
@@ -147,6 +149,8 @@ pub(super) fn promote(
             .and_then(|key| {
                 if facts.gone_workspaces.contains(&key.workspace) {
                     Some(EagerReason::WorkspaceGone)
+                } else if !facts.clean_workspaces.contains(&key.workspace) {
+                    None
                 } else if facts.merged_workspaces.contains(&key.workspace) {
                     Some(EagerReason::BranchMerged)
                 } else if over_cap.contains(&(key.workspace.clone(), key.stack.clone())) {

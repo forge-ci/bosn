@@ -624,6 +624,12 @@ Every ownership, liveness and pin gate and the re-check (now at the idle floor w
 budget) are unchanged; each early removal logs its reason, and `bosn gc owned` reports
 `eager` counts.
 
+**Derived signals keep unfinished work (#777).** Workspace-gone requires a present parent
+and two consecutive maintenance observations. Present workspaces qualify for branch-merged
+or family-cap only with an attached HEAD, a clean worktree (including untracked
+files), and no commits missing from upstream. Unknown upstream or git errors keep work.
+The service reads git off the async lane and repeats safety before eager removal.
+
 **Merged-branch reclamation (#732).** Present family workspaces whose current branch has a
 merged GitHub PR at exactly their local HEAD reclaim idle stack/spec volumes past the 1 h
 floor as `branch-merged`, even within the family cap. Detached HEAD and default branches

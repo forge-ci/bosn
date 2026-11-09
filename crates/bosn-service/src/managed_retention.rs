@@ -188,7 +188,6 @@ pub fn managed_retention_pass(
         footprint.images = bytes;
     }
     let policy = pressure::policy_for_footprint(policy, footprint);
-    // #659: deleted workspaces and a family's older checkouts are reclaimed early.
     let mut facts = workspaces::observe(&artifacts);
     merged_branches::observe(&mut facts);
     image_facts::observe(engine, &artifacts, &mut facts, &authority);
@@ -202,8 +201,6 @@ pub fn managed_retention_pass(
         for candidate in &plan.candidates {
             // Re-verify this exact object immediately before removing it. A container that
             // started while the pass was running must never be removed by a stale plan.
-            // An object that is already gone has reached the desired state: neither a removal
-            // nor a failure, and nothing reclaimed is accounted for (#550).
             let outcome = revalidate(
                 engine,
                 state_dir,
@@ -542,11 +539,7 @@ enum Recheck {
 }
 
 /// Re-check one candidate immediately before its removal.
-///
-/// Returns the size measured by that same fresh inspection (`None` inside when the engine did
-/// not report one), or [`Recheck::Gone`] when the object no longer exists. Every field of the decision comes from this read: the plan's `bytes` is a
-/// snapshot from the start of the pass and must never stand in for a value the engine did not
-/// give us now, because the summary's `removed_bytes` is an account of what actually went away.
+/// Returns bytes from the fresh read, never the plan snapshot; absence is `Recheck::Gone`.
 fn revalidate(
     engine: &DockerEngine,
     state_dir: &Path,
@@ -555,7 +548,6 @@ fn revalidate(
     policy: RetentionPolicy,
 ) -> Result<Recheck, String> {
     let options = RunOptions::bounded(RETENTION_READ_DEADLINE, RETENTION_OUTPUT_LIMIT);
-    // A fresh registry read: a lease or session taken since the plan was built must protect.
     let authority = authority::Authority::load(state_dir, false);
     let mut tags = None;
     let (name, labels, age, in_use, bytes) = match candidate.kind {
@@ -640,6 +632,12 @@ fn revalidate(
         bytes,
         age_seconds: Some(proven.age),
     };
+    if candidate
+        .eager
+        .is_some_and(|reason| !workspaces::recheck(&fresh, reason))
+    {
+        return Err(format!("{} workspace safety changed", candidate.id));
+    }
     match classify_managed(&fresh, our_registry, policy.recheck_gates()).hold {
         None => Ok(Recheck::Reclaimable(bytes)),
         Some(reason) => Err(format!(

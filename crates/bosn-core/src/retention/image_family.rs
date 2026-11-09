@@ -91,7 +91,11 @@ pub(super) fn promote(
     for images in families.values_mut() {
         images.sort_by(|left, right| left.1.total_cmp(&right.1).then(left.0.id.cmp(&right.0.id)));
         for (image, age) in images.iter().skip(IMAGE_FAMILY_KEEP) {
-            if *age < policy.idle_volume_floor.as_secs_f64()
+            if !image
+                .labels
+                .get(crate::LABEL_WORKSPACE)
+                .is_some_and(|workspace| facts.clean_workspaces.contains(workspace))
+                || *age < policy.idle_volume_floor.as_secs_f64()
                 || !removable_references(image, artifacts, plan, facts)
             {
                 continue;

@@ -28,6 +28,7 @@ fn ids(plan: &RetentionPlan) -> Vec<(&str, Option<EagerReason>)> {
 
 fn facts(gone: &[&str], families: &[(&str, &str)]) -> EagerFacts {
     EagerFacts {
+        clean_workspaces: families.iter().map(|(w, _)| (*w).to_owned()).collect(),
         merged_workspaces: Default::default(),
         image_containers: BTreeMap::new(),
         gone_workspaces: gone.iter().map(|w| (*w).to_owned()).collect(),
@@ -205,7 +206,7 @@ fn image_family_cap_keeps_three_and_reports_two() {
         &family_images(),
         Some(REGISTRY),
         RetentionPolicy::default(),
-        &EagerFacts::default(),
+        &facts(&[], &[(image_workspace(), "/common")]),
     );
     assert_eq!(
         ids(&plan),
@@ -237,7 +238,7 @@ fn image_family_cap_preserves_live_pinned_young_and_unlabelled_images() {
             &images,
             Some(REGISTRY),
             RetentionPolicy::default(),
-            &EagerFacts::default(),
+            &facts(&[], &[(image_workspace(), "/common")]),
         );
         assert!(!plan.candidates.iter().any(|item| item.id == "image-4"));
     }
@@ -258,7 +259,7 @@ fn image_family_cap_separates_tasks_and_shares_repository_family() {
             &images,
             Some(REGISTRY),
             RetentionPolicy::default(),
-            &EagerFacts::default()
+            &facts(&[], &[(image_workspace(), "/common")])
         )
         .candidates
         .is_empty()
@@ -295,7 +296,7 @@ fn image_family_cap_removes_superseded_setup_container_before_image() {
         false,
         &[("com.zackees.bosn.setup-managed", "v1")],
     );
-    let mut facts = EagerFacts::default();
+    let mut facts = facts(&[], &[(image_workspace(), "/common")]);
     facts
         .image_containers
         .insert("image-4".into(), vec![container.id.clone()]);
@@ -348,4 +349,58 @@ fn merged_branch_reclaims_only_idle_unprotected_volumes_past_the_floor() {
     );
     assert_eq!(plan.eager_counts()[&EagerReason::BranchMerged], 1);
     assert_eq!(plan.held.len(), 4);
+}
+
+#[test]
+fn merged_and_family_cap_keep_dirty_unpushed_or_unknown_checkouts() {
+    let artifacts = vec![
+        stack_volume("old", "/w/old", 8.0),
+        stack_volume("a", "/w/a", 2.0),
+        stack_volume("b", "/w/b", 3.0),
+        stack_volume("c", "/w/c", 4.0),
+    ];
+    let mut observed = facts(
+        &[],
+        &[
+            ("/w/old", "/clone/.git"),
+            ("/w/a", "/clone/.git"),
+            ("/w/b", "/clone/.git"),
+            ("/w/c", "/clone/.git"),
+        ],
+    );
+    observed.merged_workspaces.insert("/w/old".into());
+    observed.clean_workspaces.remove("/w/old");
+    assert!(
+        plan_managed_with(
+            &artifacts,
+            Some(REGISTRY),
+            RetentionPolicy::default(),
+            &observed
+        )
+        .candidates
+        .is_empty()
+    );
+    observed.clean_workspaces.insert("/w/old".into());
+    assert_eq!(
+        plan_managed_with(
+            &artifacts,
+            Some(REGISTRY),
+            RetentionPolicy::default(),
+            &observed
+        )
+        .candidates
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn image_family_cap_requires_clean_workspace() {
+    let plan = plan_managed_with(
+        &family_images(),
+        Some(REGISTRY),
+        RetentionPolicy::default(),
+        &EagerFacts::default(),
+    );
+    assert!(plan.candidates.is_empty());
 }

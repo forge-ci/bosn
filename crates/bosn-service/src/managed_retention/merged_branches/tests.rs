@@ -153,3 +153,38 @@ fn lookup_budget_and_fresh_mismatch_keep_volumes() {
         |_| Ok(merged(&"b".repeat(40)))
     ));
 }
+
+#[test]
+fn recheck_uses_only_cached_proof_for_the_exact_current_head() {
+    let mut cache = Cache::new();
+    let now = Instant::now();
+    let mut branch = checkout();
+    let mut budget = 1;
+    assert!(merged_with(&branch, &mut cache, &mut budget, now, |_| Ok(
+        merged(&branch.head)
+    )));
+    assert_eq!(budget, 0);
+    assert!(merged_with(
+        &branch,
+        &mut cache,
+        &mut budget,
+        now,
+        |_| panic!("no recheck lookup")
+    ));
+    branch.head = "b".repeat(40);
+    assert!(!merged_with(
+        &branch,
+        &mut cache,
+        &mut budget,
+        now,
+        |_| panic!("no recheck lookup")
+    ));
+    branch.branch = "other".into();
+    assert!(!merged_with(
+        &branch,
+        &mut cache,
+        &mut budget,
+        now,
+        |_| panic!("no recheck lookup")
+    ));
+}
