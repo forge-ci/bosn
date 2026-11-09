@@ -11,7 +11,7 @@ use std::path::Path;
 
 use bosn_core::{
     Acknowledgement, Census, CensusConfig, EngineObservation, InspectedVolume, Plan,
-    ProtectedReason, SystemDfReport, census, observe, plan, pressure_decision, removal_rank,
+    SystemDfReport, census, observe, plan, removal_rank,
 };
 use bosn_engine::{CensusRead, DockerEngine, RunOptions};
 use serde::{Deserialize, Serialize};
@@ -213,58 +213,6 @@ pub fn maintenance_pass(
     let scan = unmanaged_census(&engine, our_registry.as_deref(), config);
     let warning = bosn_core::warning(&scan.census, bosn_core::WarningThreshold::default());
     (scan, warning)
-}
-
-/// The free-space floor below which a machine is under pressure, and the pressure call itself.
-///
-/// #517: `pressure_decision` had no non-test caller, so the rule it encodes — that eviction is
-/// only suppressed when it provably cannot help — governed nothing. This is the caller. It
-/// *reports*; it does not delete. Turning a `may_evict_owned` verdict into an actual eviction
-/// stays a product decision, because the non-goals forbid autonomous deletion of anything not
-/// provably ours, and this is the place that decision has to be made deliberately.
-#[must_use]
-pub fn pressure_report(engine: &DockerEngine, census: &Census) -> Option<PressureReport> {
-    let owned_bytes: i128 = census
-        .protected
-        .iter()
-        .filter(|summary| summary.reason == ProtectedReason::OwnedByThisRegistry)
-        .map(|summary| summary.bytes)
-        .sum();
-    let root = docker_root_dir(engine)?;
-    let free_bytes = i128::from(kernal_api::resources_available_space(&root).ok()?);
-    let min_free_bytes = MIN_FREE_BYTES;
-    let under_pressure = free_bytes < min_free_bytes;
-    let decision = pressure_decision(
-        under_pressure,
-        true,
-        free_bytes,
-        min_free_bytes,
-        owned_bytes,
-        !census.partial,
-    );
-    Some(PressureReport {
-        free_bytes,
-        min_free_bytes,
-        owned_bytes,
-        decision,
-    })
-}
-
-/// The free-space floor a machine is held to.
-///
-/// Five percent of nothing is not a number, so this is a fixed floor rather than a fraction:
-/// large enough that a build does not fail for want of space, small enough that a machine
-/// reports pressure long before it is unusable.
-pub const MIN_FREE_BYTES: i128 = 20 * (1 << 30);
-
-/// What the pressure rule decided, for the maintenance log.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PressureReport {
-    pub free_bytes: i128,
-    pub min_free_bytes: i128,
-    /// Bytes owned by this registry, i.e. the only bytes pressure could reclaim.
-    pub owned_bytes: i128,
-    pub decision: bosn_core::PressureDecision,
 }
 
 /// The Docker root directory, or `None` when the engine will not say.

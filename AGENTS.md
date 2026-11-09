@@ -606,6 +606,8 @@ liveness and pin gate, and the re-check, are unchanged. The probe lives in the
 service (`managed_retention/pressure.rs`); the planner only gets the policy. A
 root the daemon cannot stat is no pressure, logged once. The pass logs
 `bosn retention: disk pressure (X GiB free, Y%); idle volume budget 0`.
+The census-based `pressure_decision` / `ForeignBytesDominate` veto was retired unwired
+(#871, decided 2026-11-09); ownership gates, not shortfall attribution, protect foreign bytes.
 
 **Eager reclamation by workspace and family** (decided 2026-10-16, implemented
 2026-10-23, #659). A stack or spec volume's identity hashes its workspace path, so a worktree
