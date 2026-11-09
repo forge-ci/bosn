@@ -28,6 +28,7 @@ fn ids(plan: &RetentionPlan) -> Vec<(&str, Option<EagerReason>)> {
 
 fn facts(gone: &[&str], families: &[(&str, &str)]) -> EagerFacts {
     EagerFacts {
+        merged_workspaces: Default::default(),
         image_containers: BTreeMap::new(),
         gone_workspaces: gone.iter().map(|w| (*w).to_owned()).collect(),
         families: families
@@ -306,4 +307,45 @@ fn image_family_cap_removes_superseded_setup_container_before_image() {
     *images.last_mut().unwrap() = container;
     let plan = plan_managed_with(&images, Some(REGISTRY), RetentionPolicy::default(), &facts);
     assert!(!plan.candidates.iter().any(|item| item.id == "image-4"));
+}
+
+#[test]
+fn merged_branch_reclaims_only_idle_unprotected_volumes_past_the_floor() {
+    let mut mounted = stack_volume("mounted", "/w/merged", 2.0);
+    mounted.signals.in_use = true;
+    let mut pinned = stack_volume("pinned", "/w/merged", 2.0);
+    pinned
+        .labels
+        .insert(LABEL_RETENTION.into(), "pinned".into());
+    let artifacts = vec![
+        stack_volume("merged", "/w/merged", 2.0),
+        stack_volume("young", "/w/merged", 0.5),
+        stack_volume("ordinary", "/w/ordinary", 2.0),
+        mounted,
+        pinned,
+    ];
+    let mut observed = facts(&[], &[("/w/merged", "/clone/.git")]);
+    assert!(
+        plan_managed_with(
+            &artifacts,
+            Some(REGISTRY),
+            RetentionPolicy::default(),
+            &observed
+        )
+        .candidates
+        .is_empty()
+    );
+    observed.merged_workspaces.insert("/w/merged".into());
+    let plan = plan_managed_with(
+        &artifacts,
+        Some(REGISTRY),
+        RetentionPolicy::default(),
+        &observed,
+    );
+    assert_eq!(
+        ids(&plan),
+        vec![("merged", Some(EagerReason::BranchMerged))]
+    );
+    assert_eq!(plan.eager_counts()[&EagerReason::BranchMerged], 1);
+    assert_eq!(plan.held.len(), 4);
 }

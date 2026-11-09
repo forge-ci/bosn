@@ -34,16 +34,19 @@ pub enum EagerReason {
     WorkspaceGone,
     /// Its workspace is older than the family's [`FAMILY_KEEP`] most recently used ones.
     FamilyCap,
+    /// Its checked-out HEAD is the head of a merged GitHub pull request.
+    BranchMerged,
 }
 
 impl EagerReason {
-    pub const ALL: [Self; 2] = [Self::WorkspaceGone, Self::FamilyCap];
+    pub const ALL: [Self; 3] = [Self::WorkspaceGone, Self::FamilyCap, Self::BranchMerged];
 
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WorkspaceGone => "workspace-gone",
             Self::FamilyCap => "family-cap",
+            Self::BranchMerged => "branch-merged",
         }
     }
 
@@ -62,6 +65,8 @@ impl EagerReason {
 pub struct EagerFacts {
     /// Workspaces proven absent (not found, as opposed to unreadable).
     pub gone_workspaces: BTreeSet<String>,
+    /// Present workspaces whose current HEAD is proven merged by the service.
+    pub merged_workspaces: BTreeSet<String>,
     /// Workspace → its repository family (the canonical git common directory).
     pub families: BTreeMap<String, String>,
     /// Complete Docker container references per image; absent means unknown.
@@ -142,6 +147,8 @@ pub(super) fn promote(
             .and_then(|key| {
                 if facts.gone_workspaces.contains(&key.workspace) {
                     Some(EagerReason::WorkspaceGone)
+                } else if facts.merged_workspaces.contains(&key.workspace) {
+                    Some(EagerReason::BranchMerged)
                 } else if over_cap.contains(&(key.workspace.clone(), key.stack.clone())) {
                     Some(EagerReason::FamilyCap)
                 } else {

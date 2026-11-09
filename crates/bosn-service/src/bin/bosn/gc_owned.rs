@@ -284,14 +284,19 @@ mod report_tests {
             failures: Vec::new(),
             refused: None,
             held: Default::default(),
-            eager: [(bosn_core::EagerReason::FamilyCap, 2)]
-                .into_iter()
-                .collect(),
+            eager: [
+                (bosn_core::EagerReason::FamilyCap, 2),
+                (bosn_core::EagerReason::BranchMerged, 1),
+            ]
+            .into_iter()
+            .collect(),
         };
         assert!(owned_report(&summary, false).contains("family-cap: 2"));
         assert!(owned_report(&summary, false).contains("images"));
         let report: serde_json::Value =
             serde_json::from_str(&owned_report(&summary, true)).unwrap();
         assert_eq!(report["eager"]["family-cap"], 2);
+        assert_eq!(report["eager"]["branch-merged"], 1);
+        assert!(owned_report(&summary, false).contains("branch-merged: 1"));
     }
 }
