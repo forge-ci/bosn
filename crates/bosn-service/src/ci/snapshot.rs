@@ -240,7 +240,7 @@ pub fn snapshot(
         } else {
             continue; // sockets, FIFOs and devices are never source
         }
-        hasher.update([b'\n']);
+        hasher.update(*b"\n");
     }
     // An edit between the status probe and the copy must not produce a
     // snapshot labelled clean: probe again after copying.
