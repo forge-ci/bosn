@@ -601,7 +601,16 @@ the registry: only a present workspace can be in a family, a gone one falls to
 `workspace-gone`, and a registry schema bump would lock older daemons out of the registry.
 Every ownership, liveness and pin gate and the re-check (now at the idle floor whatever the
 budget) are unchanged; each early removal logs its reason, and `bosn gc owned` reports
-`eager` counts. Merged-branch purging is #732.
+`eager` counts.
+
+**Merged-branch reclamation (#732).** Present family workspaces whose current branch has a
+merged GitHub PR at exactly their local HEAD reclaim idle stack/spec volumes past the 1 h
+floor as `branch-merged`, even within the family cap. Detached HEAD and default branches
+are excluded. The service observes git and bounded `gh` lookups on the blocking worker;
+answers are cached per repository/branch for the daemon lifetime (negative answers expire
+after 1 h), with at most eight lookups per pass. Missing tools, auth, network or uncertain
+observations mean no signal and keep the volume. The planner receives only typed facts;
+every ownership, liveness, pin gate and pre-removal re-check remains unchanged.
 
 **Image family cap (#663).** Images with explicit workspace, stack and task labels share
 #659's canonical repository family (or their exact workspace path when unavailable).

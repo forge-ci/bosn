@@ -189,6 +189,7 @@ pub fn managed_retention_pass(
     let policy = pressure::policy_for_footprint(policy, footprint);
     // #659: deleted workspaces and a family's older checkouts are reclaimed early.
     let mut facts = workspaces::observe(&artifacts);
+    merged_branches::observe(&mut facts);
     image_facts::observe(engine, &artifacts, &mut facts, &authority);
     let plan = plan_managed_with(&artifacts, our_registry.as_deref(), policy, &facts);
     let mut removed = 0_u64;
@@ -984,6 +985,7 @@ pub use catalog::{Release, labelled_registries, release_registry};
 mod idle;
 mod image_facts;
 mod images;
+mod merged_branches;
 mod pressure;
 mod registered;
 mod running;
