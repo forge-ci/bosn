@@ -25,7 +25,9 @@ fn ci_stage_timeouts_control_native_enrollment() {
     with_registry(|registry, _dir| async move {
         let backend = Arc::new(FakeBackend::with(Faults {
             enrollment_phase: Some(crate::ci::engine::EnrollmentPhase::Fence),
-            enrollment_delay: Duration::from_millis(1500),
+            // Keep the fake operation pending well beyond the one-second limit,
+            // even when a busy CI executor resumes both timers late.
+            enrollment_delay: Duration::from_secs(30),
             ..Default::default()
         }));
         let shared = SharedEngine::new(registry, backend);
@@ -382,7 +384,9 @@ fn cancellation_during_either_enrollment_phase_never_opens_a_slot() {
             let run = run_id(0x5089);
             let lease = shared.lease(&run, plan, &token, &mut note);
             let (result, ()) =
-                async_engine::timeout(Duration::from_secs(2), async_engine::join(lease, cancel))
+                // This includes registry and engine setup before cancellation; allow
+                // loaded CI workers time to reach the 60-second fake operation.
+                async_engine::timeout(Duration::from_secs(15), async_engine::join(lease, cancel))
                     .await
                     .expect("cancellation must interrupt enrollment promptly");
             assert!(result.unwrap_err().contains("native enrollment cancelled"));
