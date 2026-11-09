@@ -4,7 +4,8 @@ This is the native re-base of the ruleset in [#148](https://github.com/forge-ci/
 under the goal in [#149](https://github.com/forge-ci/bosn/issues/149) and the findings in
 [#147](https://github.com/forge-ci/bosn/issues/147). It is slice S1 of
 [#268](https://github.com/forge-ci/bosn/issues/268): **the contract**. S2 lands the census,
-S3 the warning and the cleanup command, S4 unattended operation, S5 pressure attribution.
+S3 the warning and the cleanup command, S4 unattended operation. The S5 pressure-attribution
+design was retired unwired (#871, decided 2026-11-09).
 
 The ruleset is unchanged in intent from #148. What changed is the implementation it
 describes: #148 was written against a Python implementation that no longer exists, and every
@@ -30,7 +31,7 @@ bosn had no way to say so.**
 
 ## Current native state
 
-This is the honest baseline. It is the reason S2–S5 are not a port but a build.
+The census and unmanaged cleanup coexist with the live managed-retention path.
 
 | Surface | Native state | Evidence |
 |---|---|---|
@@ -44,7 +45,7 @@ This is the honest baseline. It is the reason S2–S5 are not a port but a build
 | `gc --unmanaged` | **present** since S3 (#271) and S3b (#276): the preview is read-only and local, the removal is a daemon operation | `crates/bosn-service/src/bin/bosn.rs` `run_gc_unmanaged`; daemon op 35 in `crates/bosn-service/src/lib.rs` |
 | Autostart | **present** since S4 (#272): `bosn daemon autostart enable\|disable\|status` writes the platform entry **and registers it** (`systemctl --user enable --now`, `launchctl load -w`) | `crates/bosn-service/src/autostart.rs` |
 | Maintenance pass | **present** since S4 (#272): the daemon runs the census at start and every hour, logging the warning | `crates/bosn-service/src/lib.rs` `serve` |
-| Retention / pressure / verdict model | **Implemented and tested, and unwired.** `Pressure::assess`, `evaluate`, `collectable_ordered`, `container_should_stop`, `lease_expired`, `retention_signals`, `RetentionConfig` have **zero production consumers** (`PolicyDefaults` was retired with the unwired machine-policy resolver, #527) | `crates/bosn-core/src/lib.rs:362-570`; exercised only by `crates/bosn-core/tests/domain.rs` |
+| Managed retention / disk pressure | **Live**: the daemon probes Docker-root free and total bytes; `policy_for_disk` selects `RetentionPolicy::under_disk_pressure` below 15% or 100 GiB free (#658). The independent owned-footprint ceiling is 256 GiB (#508). | `crates/bosn-service/src/managed_retention/pressure.rs`, `crates/bosn-core/src/retention.rs` |
 
 Two consequences worth stating plainly, because both change what the remaining slices are:
 
@@ -53,12 +54,13 @@ Two consequences worth stating plainly, because both change what the remaining s
    registry row for. #147's 31 dangling images were built by plain `docker compose build` —
    no row, no label, therefore invisible by construction. Extending this counter would
    reproduce the blind spot it is being asked to fix.
-2. **There is no live retention engine.** The pure `bosn-core` model above is correct and
-   tested, but the daemon does not call it: today's GC is two token-bound, registry-scoped,
-   per-candidate SQL previews. The machine-wide pressure path that G7/S5 describes therefore
-   cannot fire today. S5 is not a bug fix for live behaviour; it is the guarantee that the
-   pressure path is foreign-aware **when it is wired**, plus the pure-domain change that
-   makes that provable now.
+2. **Managed retention is the canonical disk-pressure path.** `policy_for_disk` selects
+   `RetentionPolicy::under_disk_pressure`: zero idle-volume budget and a 1 h stopped-container
+   gate. The #508 owned-footprint ceiling selects the same policy independently. Ownership,
+   liveness, pinning, the 1 h volume floor and pre-removal revalidation still apply. Foreign
+   bytes are protected by ownership gates, not a shortfall-attribution veto. The S5
+   "foreign-aware when wired" design is retired (#871, #517); the unmanaged census does not
+   decide whether managed retention may reclaim eligible owned objects.
 
 ## The census (S2)
 
