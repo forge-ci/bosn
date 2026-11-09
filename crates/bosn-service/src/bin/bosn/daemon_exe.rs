@@ -181,6 +181,7 @@ mod tests {
     #[test]
     fn running_windows_executable_keeps_its_stamp_until_exit() {
         use std::io::{BufRead, Write};
+        use std::os::windows::fs::OpenOptionsExt;
         use std::process::{Command, Stdio};
 
         struct RunningImage(std::process::Child);
@@ -219,6 +220,15 @@ mod tests {
         assert_eq!(ready.trim(), "ready");
         assert!(running.0.try_wait().unwrap().is_none());
 
+        // Modern Windows can rename some running images. Explicitly retain a
+        // read-sharing handle without FILE_SHARE_DELETE to exercise the denied
+        // replacement path deterministically while the real image is running.
+        let image_handle = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ
+            .open(&target)
+            .unwrap();
+
         // Do not mutate the original source: installation may have hard-linked it.
         let rebuilt = dir.path().join("rebuilt.exe");
         let mut different_build = original.clone();
@@ -228,7 +238,7 @@ mod tests {
         assert_ne!(wanted, original_stamp);
         assert_eq!(install_from(&rebuilt, &target, release).unwrap(), target);
         assert!(running.0.try_wait().unwrap().is_none());
-        assert_eq!(std::fs::read(&target).unwrap(), original);
+        assert!(std::fs::read(&target).unwrap() == original);
         assert_eq!(std::fs::read_to_string(&stamp).unwrap(), original_stamp);
         assert_eq!(stamp_for(release, &target), original_stamp);
         // Only the executable, release stamp and persistent install lock remain.
@@ -245,8 +255,9 @@ mod tests {
             .write_all(b"exit\r\n")
             .unwrap();
         assert!(running.0.wait().unwrap().success());
+        drop(image_handle);
         assert_eq!(install_from(&rebuilt, &target, release).unwrap(), target);
-        assert_eq!(std::fs::read(&target).unwrap(), different_build);
+        assert!(std::fs::read(&target).unwrap() == different_build);
         assert_eq!(std::fs::read_to_string(&stamp).unwrap(), wanted);
         assert_eq!(stamp_for(release, &target), wanted);
         assert_eq!(
