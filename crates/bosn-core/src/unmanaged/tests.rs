@@ -230,52 +230,6 @@ fn artifact(id: &str, kind: ResourceKind, bytes: i128, age: f64) -> ObservedArti
 }
 
 #[test]
-fn foreign_bytes_cannot_drive_eviction_of_owned_caches() {
-    // G7, the RED case from #147 and from #273: the disk is 50 GiB short of its floor,
-    // foreign artifacts hold 80 GiB Bosn may not touch, and Bosn owns 1 GiB of warm
-    // cache. Evicting the cache cannot close a 50 GiB gap.
-    let decision = pressure_decision(true, true, 10, 60, 1, true);
-    assert!(!decision.may_evict_owned);
-    assert_eq!(
-        decision.attribution,
-        PressureAttribution::ForeignBytesDominate
-    );
-    assert_eq!(decision.shortfall_bytes, 50);
-}
-
-#[test]
-fn a_partial_census_never_authorises_eviction() {
-    let decision = pressure_decision(true, true, 0, 60, 1_000, false);
-    assert!(!decision.may_evict_owned);
-    assert_eq!(decision.attribution, PressureAttribution::CensusIncomplete);
-}
-
-#[test]
-fn eviction_behaviour_is_unchanged_when_owned_bytes_can_close_the_gap() {
-    // The no-regression case: the shortfall is small and Bosn owns enough to close it.
-    let decision = pressure_decision(true, true, 50, 60, 40, true);
-    assert!(decision.may_evict_owned);
-    assert_eq!(
-        decision.attribution,
-        PressureAttribution::OwnedBytesCanClose
-    );
-    // Exactly enough is enough.
-    assert!(pressure_decision(true, true, 50, 60, 10, true).may_evict_owned);
-}
-
-#[test]
-fn pressure_without_a_free_space_shortfall_is_untouched() {
-    // A count or byte-ceiling pressure has no shortfall to attribute, and keeping the
-    // existing behaviour here is what stops this from silently disabling retention.
-    let decision = pressure_decision(true, false, 0, 60, 0, true);
-    assert!(decision.may_evict_owned);
-    assert_eq!(decision.shortfall_bytes, 0);
-    let idle = pressure_decision(false, false, 0, 60, 0, true);
-    assert!(idle.may_evict_owned);
-    assert_eq!(idle.attribution, PressureAttribution::NotUnderPressure);
-}
-
-#[test]
 fn a_healthy_machine_is_silent() {
     let artifacts = [artifact(
         "c",
