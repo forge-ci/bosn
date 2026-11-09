@@ -633,6 +633,13 @@ or family-cap only with an attached HEAD, a clean worktree (including untracked
 files), and no commits missing from upstream. Unknown upstream or git errors keep work.
 The service reads git off the async lane and repeats safety before eager removal.
 
+**Workspace identity (#777).** Windows drive, MSYS, WSL and verbatim/UNC spellings
+use one pure normalization over explicit path-style and filesystem case facts. The service
+observes alternate-case object identities, never guesses case from an OS name. Only ASCII
+case is folded; unproven Unicode distinctions remain separate. Scoped volume
+hashes and repository-family keys use the same identity. Case-sensitive POSIX path bytes and
+the existing Linux volume hash remain unchanged; labels retain the actual canonical path.
+
 **Merged-branch reclamation (#732).** Present family workspaces whose current branch has a
 merged GitHub PR at exactly their local HEAD reclaim idle stack/spec volumes past the 1 h
 floor as `branch-merged`, even within the family cap. Detached HEAD and default branches

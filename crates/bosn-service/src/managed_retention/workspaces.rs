@@ -56,10 +56,10 @@ fn observe_with(artifacts: &[ObservedArtifact], absent: &mut BTreeSet<String>) -
                 if clean_checkout(Path::new(workspace)) {
                     facts.clean_workspaces.insert(workspace.to_owned());
                 }
-                if let Some(family) = common_dir(Path::new(workspace)) {
-                    facts
-                        .families
-                        .insert(workspace.to_owned(), family.to_string_lossy().into_owned());
+                if let Some(family) = common_dir(Path::new(workspace))
+                    .and_then(|path| crate::workspace_identity::observe(&path).ok())
+                {
+                    facts.families.insert(workspace.to_owned(), family);
                 }
             }
             Err(_) => {}

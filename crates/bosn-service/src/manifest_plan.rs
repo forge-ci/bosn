@@ -306,8 +306,7 @@ pub(crate) async fn manifest_stack_plan(
     }
     let job_caches = manifest_job_caches(stack, host_docker_socket.is_some());
     let task_names = tasks.keys().cloned().collect();
-    let workspace_string = workspace.to_string_lossy().into_owned();
-    let volumes = manifest_named_volumes(stack, &workspace_string, &generation)?;
+    let volumes = workspace_identity::plan_volumes(stack, &workspace, &generation).await?;
     let volume_modes = manifest_volume_modes(stack, &volumes);
     let mut macos_guest = macos_guest;
     if let Some(guest) = &mut macos_guest {
@@ -442,7 +441,9 @@ pub(crate) fn load_native_manifest(
     request_workspace: &Path,
     request_manifest: &str,
 ) -> Result<(PathBuf, bosn_core::Manifest), String> {
-    let workspace = fs::canonical_context_path(request_workspace)
+    let request_workspace = workspace_identity::native_path(request_workspace)
+        .map_err(|error| format!("invalid workspace identity: {error}"))?;
+    let workspace = fs::canonical_context_path(&request_workspace)
         .map_err(|_| "manifest workspace cannot be canonicalized".to_owned())?;
     let metadata = fs::context_path_metadata_no_follow(&workspace)
         .map_err(|_| "manifest workspace is not a directory".to_owned())?;

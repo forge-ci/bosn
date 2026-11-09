@@ -129,6 +129,7 @@ mod transport;
 pub mod unmanaged;
 mod wire;
 mod wire_validate;
+mod workspace_identity;
 pub use client::*;
 pub use diagnostics::*;
 use diagnostics_validate::*;
