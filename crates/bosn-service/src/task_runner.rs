@@ -40,35 +40,37 @@ pub(crate) async fn attach(
     proxy_dir: Option<&str>,
     rules: &[CacheRule],
     logs: &crate::raw_run_log::JobLogSink,
+    request: Option<bosn_core::manifest::CpuRequest>,
 ) -> RunnerAttachment {
     let runners = &context.runners;
     let record = &context.record;
     let capacity = runners.capacity();
     let job = record.job_id;
+    let available = async_engine::launch_blocking(crate::capacity::host_cpus)
+        .await
+        .unwrap_or(None)
+        .unwrap_or(1) as f64;
+    let cpus = runners.task_cpus(job, request, available);
     runners.update(job, |r| r.container = Some(container.to_owned()));
     let slot = record.slot.map_or_else(
         || "-".to_owned(),
         |s| format!("{}/{}", s + 1, capacity.runner_slots),
     );
-    let mut limits = Vec::new();
-    if capacity.cpus_per_slot > 0.0 {
-        limits.push(format!("--cpus={}", capacity.cpus_per_slot));
-    }
+    // Zero resets a quota left by a previous task on this container.
+    let mut limits = vec![format!("--cpus={cpus}")];
     if let Some(memory) = capacity.memory_per_slot {
         // Swap equal to memory: the limit is a real ceiling.
         limits.push(format!("--memory={memory}"));
         limits.push(format!("--memory-swap={memory}"));
     }
-    let mut summary = format!("[bosn] runner slot {slot}, run {}", record.run);
+    let requested = request.map_or_else(|| "default".into(), |r| r.to_string());
+    let max = capacity.max_task_cpus.unwrap_or(capacity.cpus_per_slot);
+    let mut summary = format!(
+        "[bosn] runner slot {slot}, run {}, cpus={cpus} (requested {requested}, max {max})",
+        record.run
+    );
     if !limits.is_empty() {
-        let mut args = vec!["update".to_owned()];
-        args.extend(limits.iter().cloned());
-        args.push(container.to_owned());
-        match DockerEngine::docker()
-            .with_args(args)
-            .capture_async(RunOptions::bounded(CONTROL_DEADLINE, CONTROL_OUTPUT))
-            .await
-        {
+        match update_limits(DockerEngine::docker(), &limits, container).await {
             Ok(result) if result.ok() => {
                 summary.push_str(&format!(", limits {}", limits.join(" ")))
             }
@@ -80,18 +82,7 @@ pub(crate) async fn attach(
         }
     }
     let _ = logs.send(summary).await;
-    let mut env = vec![
-        ("BOSN_JOB_ID".to_owned(), job.to_string()),
-        ("BOSN_RUN".to_owned(), record.run.clone()),
-        (
-            "BOSN_RUNNER_CPUS".to_owned(),
-            if capacity.cpus_per_slot > 0.0 {
-                capacity.cpus_per_slot.to_string()
-            } else {
-                String::new()
-            },
-        ),
-    ];
+    let mut env = runner_env(job, &record.run, cpus);
     if let Some(slot) = record.slot {
         env.push(("BOSN_RUNNER_SLOT".to_owned(), slot.to_string()));
     }
@@ -114,7 +105,7 @@ pub(crate) async fn attach(
                 run: record.run.clone(),
                 name_suffix: crate::runners::run_suffix(&record.run),
                 labels: runners.labels(record),
-                nano_cpus: capacity.nano_cpus(),
+                nano_cpus: nano_cpus(cpus),
                 memory: capacity.memory_per_slot,
                 cgroup_parent: None,
                 volumes: Arc::new(volumes),
@@ -244,5 +235,84 @@ async fn cache_keys(workspace: &Path) -> CacheKeys {
             short_hash(origin.as_deref().unwrap_or(&path).as_bytes(), 10)
         ),
         workspace: format!("w{}", short_hash(path.as_bytes(), 10)),
+    }
+}
+
+fn runner_env(job: u64, run: &str, cpus: f64) -> Vec<(String, String)> {
+    vec![
+        ("BOSN_JOB_ID".into(), job.to_string()),
+        ("BOSN_RUN".into(), run.into()),
+        (
+            "BOSN_RUNNER_CPUS".into(),
+            if cpus > 0.0 {
+                cpus.to_string()
+            } else {
+                String::new()
+            },
+        ),
+    ]
+}
+
+fn nano_cpus(cpus: f64) -> i64 {
+    (cpus * 1e9).round() as i64
+}
+
+async fn update_limits(
+    engine: DockerEngine,
+    limits: &[String],
+    container: &str,
+) -> Result<bosn_engine::CommandResult, bosn_engine::CommandError> {
+    engine
+        .with_args(["update"])
+        .with_args(limits)
+        .with_args([container])
+        .capture_async(RunOptions::bounded(CONTROL_DEADLINE, CONTROL_OUTPUT))
+        .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[cfg(unix)]
+    fn resolved_cpu_reaches_update_proxy_and_environment() {
+        kernal_api::async_engine::RuntimeBuilder::multi_thread()
+            .build()
+            .unwrap()
+            .run(async {
+                let engine = DockerEngine::synthetic_for_test(
+                    "/bin/sh",
+                    ["-c", "printf '%s\\n' \"$@\"", "docker"],
+                );
+                let result = update_limits(engine, &["--cpus=0.5".into()], "task-container")
+                    .await
+                    .unwrap();
+                assert!(result.ok());
+                assert_eq!(
+                    String::from_utf8(result.stdout).unwrap(),
+                    "update\n--cpus=0.5\ntask-container\n"
+                );
+                let reset = update_limits(
+                    DockerEngine::synthetic_for_test(
+                        "/bin/sh",
+                        ["-c", "printf '%s\\n' \"$@\"", "docker"],
+                    ),
+                    &["--cpus=0".into()],
+                    "task-container",
+                )
+                .await
+                .unwrap();
+                assert!(
+                    String::from_utf8(reset.stdout)
+                        .unwrap()
+                        .contains("--cpus=0\n")
+                );
+            });
+    }
+    #[test]
+    fn resolved_cpu_reaches_proxy_quota_and_environment() {
+        assert_eq!(nano_cpus(0.5), 500_000_000);
+        assert!(runner_env(1, "run", 0.5).contains(&("BOSN_RUNNER_CPUS".into(), "0.5".into())));
+        assert_eq!(nano_cpus(0.0), 0);
     }
 }

@@ -311,3 +311,31 @@ fn task_keep_and_default_target_volume_are_typed_booleans() {
     assert!(parse("default_target_volume='no'", "").is_err());
     assert!(parse("", "ephemeral=true").is_err());
 }
+
+#[test]
+fn task_cpu_requests_are_typed_and_unknown_keys_stay_rejected() {
+    for value in ["2", "0.25", "\"auto\""] {
+        let text =
+            format!("[stack.dev]\nimage = 'test'\n[task.test]\ncmd = 'true'\ncpus = {value}");
+        assert!(
+            parse_manifest_toml(&text, roots()).unwrap().tasks["test"]
+                .cpus
+                .is_some()
+        );
+    }
+    for setting in [
+        "cpus = 0",
+        "cpus = -1",
+        "cpus = nan",
+        "cpus = 'bad'",
+        "cpu = 2",
+    ] {
+        let text = format!("[stack.dev]\nimage = 'test'\n[task.test]\ncmd = 'true'\n{setting}");
+        assert!(
+            parse_manifest_toml(&text, roots())
+                .unwrap_err()
+                .0
+                .contains("task.test")
+        );
+    }
+}

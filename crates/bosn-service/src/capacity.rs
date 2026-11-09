@@ -25,6 +25,8 @@
 //! environment variables, `<state-dir>/runners.toml`, then the defaults.
 
 use std::{path::Path, time::Duration};
+mod task_cpu;
+pub(crate) use task_cpu::resolve_task_cpus;
 
 pub const DEFAULT_CPUS_PER_SLOT: f64 = 4.0;
 pub const DEFAULT_STALL_SECONDS: u64 = 30 * 60;
@@ -55,6 +57,8 @@ pub struct RunnerCapacity {
     pub control_slots: usize,
     /// CPU quota per runner slot; `0.0` means no limit.
     pub cpus_per_slot: f64,
+    /// None follows cpus_per_slot, including its legacy unlimited setting.
+    pub max_task_cpus: Option<f64>,
     /// Memory limit per runner slot in bytes; `None` means no limit.
     pub memory_per_slot: Option<u64>,
     /// `None` disables stall teardown.
@@ -70,6 +74,7 @@ impl RunnerCapacity {
             runner_slots: default_runner_slots(ncpu),
             control_slots: default_control_slots(ncpu),
             cpus_per_slot: DEFAULT_CPUS_PER_SLOT,
+            max_task_cpus: None,
             memory_per_slot: None,
             stall_after: Some(Duration::from_secs(DEFAULT_STALL_SECONDS)),
             docker_proxy: cfg!(target_os = "linux"),
@@ -121,6 +126,7 @@ impl RunnerCapacity {
             ("BOSN_RUNNER_SLOTS", "slots"),
             ("BOSN_CONTROL_SLOTS", "control_slots"),
             ("BOSN_RUNNER_CPUS", "cpus"),
+            ("BOSN_MAX_TASK_CPUS", "max_task_cpus"),
             ("BOSN_RUNNER_MEMORY", "memory"),
             ("BOSN_STALL_SECONDS", "stall_seconds"),
             ("BOSN_DOCKER_PROXY", "docker_proxy"),
@@ -150,6 +156,17 @@ impl RunnerCapacity {
                     ));
                 }
                 self.cpus_per_slot = cpus;
+            }
+            "max_task_cpus" => {
+                let cpus: f64 = value
+                    .parse()
+                    .map_err(|_| format!("`{key}` must be positive CPUs"))?;
+                if !cpus.is_finite() || cpus <= 0.0 || cpus > MAX_CPUS_PER_SLOT {
+                    return Err(format!(
+                        "`{key}` must be positive and <= {MAX_CPUS_PER_SLOT}"
+                    ));
+                }
+                self.max_task_cpus = Some(cpus);
             }
             "memory" => {
                 self.memory_per_slot = match parse_bytes(value)? {

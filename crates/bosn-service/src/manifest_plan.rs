@@ -92,11 +92,8 @@ pub(crate) async fn manifest_stack_plan(
     let stack = manifest
         .stack(request_stack)
         .map_err(|_| "selected manifest stack does not exist".to_owned())?;
-    // `default` is the only existing manifest declaration that selects an
-    // application at document scope. Reuse that established selection rule
-    // for daemon-start intent: exactly one explicit default wins, and a
-    // one-stack manifest is implicitly selected. A non-default stack can
-    // still be explicitly ensured and run; it is simply not a startup target.
+    // Exactly one explicit default or a sole stack selects daemon startup.
+    // Other stacks remain available for explicit ensure and run.
     let autostart = manifest
         .default_stack()
         .is_ok_and(|default| default.name == stack.name);
@@ -250,6 +247,7 @@ pub(crate) async fn manifest_stack_plan(
     let mut secrets = Vec::new();
     let mut github_api_proxy = false;
     let mut keep = false;
+    let mut cpus = None;
     if let Some(task_name) = task_name {
         let task = manifest
             .task(task_name)
@@ -269,6 +267,7 @@ pub(crate) async fn manifest_stack_plan(
         secrets.clone_from(&task.secrets);
         github_api_proxy = task.github_api_proxy;
         keep = task.keep;
+        cpus = task.cpus;
         tasks.insert(
             task.name.clone(),
             SetupTask {
@@ -368,6 +367,7 @@ pub(crate) async fn manifest_stack_plan(
         job_caches,
         volume_modes,
         keep,
+        cpus,
     })
 }
 
@@ -494,6 +494,7 @@ pub(crate) fn manifest_converge_stack_names(
 }
 #[derive(Clone, Debug)]
 pub(crate) struct ManifestRuntimePlan {
+    pub(crate) cpus: Option<bosn_core::manifest::CpuRequest>,
     pub(crate) plan: SetupPlan,
     pub(crate) generation: String,
     pub(crate) volumes: Vec<ManifestVolumeResource>,

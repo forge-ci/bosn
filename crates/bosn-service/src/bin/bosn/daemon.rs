@@ -309,6 +309,7 @@ fn idle_exit_from_env() -> Option<std::time::Duration> {
 const DAEMON_RUNNER_FLAGS: &[(&str, &str)] = &[
     ("--runner-slots", "slots"),
     ("--runner-cpus", "cpus"),
+    ("--max-task-cpus", "max_task_cpus"),
     ("--runner-memory", "memory"),
     ("--control-slots", "control_slots"),
     ("--stall-seconds", "stall_seconds"),
@@ -512,6 +513,25 @@ pub(crate) fn run_mcp(mut arguments: impl Iterator<Item = std::ffi::OsString>) {
 #[cfg(test)]
 mod client_argument_tests {
     use super::*;
+
+    #[test]
+    fn max_task_cpu_flag_overrides_file_and_environment() {
+        let (_, overrides) = parse_daemon_serve_arguments(
+            ["--state-dir", "/tmp/bosn", "--max-task-cpus", "12"]
+                .into_iter()
+                .map(Into::into),
+        )
+        .unwrap();
+        let mut capacity = bosn_service::capacity::RunnerCapacity::defaults(Some(16));
+        capacity.apply_file("max_task_cpus = 6").unwrap();
+        capacity
+            .apply_env(|k| (k == "BOSN_MAX_TASK_CPUS").then(|| "8".into()))
+            .unwrap();
+        for (key, value) in overrides {
+            capacity.set(key, &value).unwrap();
+        }
+        assert_eq!(capacity.max_task_cpus, Some(12.0));
+    }
 
     #[test]
     fn a_client_command_defaults_to_the_default_state_directory() {

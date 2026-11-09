@@ -278,6 +278,38 @@ impl Runners {
         self.persist();
     }
 
+    /// Resolve and record under one lock so simultaneous auto requests see each other.
+    pub(crate) fn task_cpus(
+        &self,
+        job: u64,
+        request: Option<bosn_core::manifest::CpuRequest>,
+        available: f64,
+    ) -> f64 {
+        let cpus = {
+            let mut inner = self.inner.lock().unwrap();
+            let other = inner
+                .runs
+                .values()
+                .filter(|r| r.record.job_id != job && r.record.slot.is_some())
+                .map(|r| {
+                    if r.record.nano_cpus == 0 {
+                        available
+                    } else {
+                        r.record.nano_cpus as f64 / 1e9
+                    }
+                })
+                .sum();
+            let cpus =
+                crate::capacity::resolve_task_cpus(request, &self.capacity, available, other);
+            if let Some(run) = inner.runs.get_mut(&job) {
+                run.record.nano_cpus = (cpus * 1e9).round() as i64;
+            }
+            cpus
+        };
+        self.persist();
+        cpus
+    }
+
     /// Forget a finished run and release its cache leases.
     pub fn finish(&self, job_id: u64) -> Option<RunRecord> {
         let record = {
@@ -722,6 +754,22 @@ mod tests {
         Runners::new(dir, capacity)
             .with_api(None)
             .with_lock_dir(dir.join("locks"))
+    }
+
+    #[test]
+    fn auto_accounts_for_other_resolved_task_quotas_and_releases_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut capacity = RunnerCapacity::defaults(Some(16));
+        capacity.max_task_cpus = Some(12.0);
+        let runners = Runners::new(dir.path(), capacity);
+        runners.begin(1, "work", "dev", "one", Some(0));
+        runners.begin(2, "work", "dev", "two", Some(1));
+        let auto = Some(bosn_core::manifest::CpuRequest::Auto);
+        assert_eq!(runners.task_cpus(1, auto, 16.0), 12.0);
+        assert_eq!(runners.task_cpus(2, auto, 16.0), 4.0);
+        assert_eq!(runners.views()[0].record.nano_cpus, 12_000_000_000);
+        runners.finish(1);
+        assert_eq!(runners.task_cpus(2, auto, 16.0), 12.0);
     }
 
     #[test]

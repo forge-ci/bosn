@@ -219,7 +219,7 @@ fn usage() -> ! {
         "   or: bosn secret set github_token [--from-gh] [--state-dir STATE_DIR] (value on stdin)\n   or: bosn secret status [--state-dir STATE_DIR] [--json]\n   or: bosn secret remove github_token [--state-dir STATE_DIR]"
     );
     eprintln!(
-        "   or: bosn daemon serve --state-dir STATE_DIR [--runner-slots N] [--runner-cpus CPUS] [--runner-memory SIZE] [--control-slots N] [--stall-seconds S] [--docker-proxy true|false]"
+        "   or: bosn daemon serve --state-dir STATE_DIR [--runner-slots N] [--runner-cpus CPUS] [--max-task-cpus CPUS] [--runner-memory SIZE] [--control-slots N] [--stall-seconds S] [--docker-proxy true|false]"
     );
     eprintln!("   or: bosn daemon status [--state-dir STATE_DIR] [--json]");
     eprintln!("   or: bosn daemon url [--state-dir STATE_DIR] [--json]");
