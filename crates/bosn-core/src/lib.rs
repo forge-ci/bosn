@@ -13,6 +13,7 @@ pub mod retention;
 pub mod runner_images;
 pub mod setup;
 pub mod unmanaged;
+pub mod workspace_identity;
 
 pub use compose::{
     BuildSpec, COMPOSE_PLAN_VERSION, COMPOSE_SETUP_PLAN_VERSION, ComposeDocument, ComposeError,

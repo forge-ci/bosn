@@ -131,6 +131,7 @@ pub(crate) fn unpinned_dockerfile_image_message(dockerfile: &str, reference: &st
 pub(crate) fn manifest_named_volumes(
     stack: &bosn_core::manifest::Stack,
     workspace: &str,
+    workspace_identity: &str,
     generation: &str,
 ) -> Result<Vec<ManifestVolumeResource>, String> {
     let mut targets = std::collections::BTreeSet::new();
@@ -143,8 +144,8 @@ pub(crate) fn manifest_named_volumes(
                 return Err("manifest volume target is unsafe or duplicated".into());
             }
             let scope_key = match volume.scope {
-                Scope::Spec => format!("{workspace}\0{generation}"),
-                Scope::Stack => workspace.into(),
+                Scope::Spec => format!("{workspace_identity}\0{generation}"),
+                Scope::Stack => workspace_identity.into(),
                 Scope::Machine => stack.family.clone().unwrap_or_else(|| stack.name.clone()),
             };
             let mut hasher = Sha256Hasher::new();
