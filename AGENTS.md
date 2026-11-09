@@ -109,6 +109,10 @@ living implementation spec.
   optimisation is proven. Fleet precedent: soldr's own backend defaults to
   `--profile dev` for dev installs and builds release only for `soldr wheel --release`.
   Never set `BOSN_WHEEL_PROFILE` in a release or native-wheel lane.
+  The Linux test lane and its cache writer restore Soldr cook dependencies with
+  `--profile dev --package bosn-python -- --features wheel` (#727). Keep these flags
+  aligned with the backend: the cache includes vendored OpenSSL build outputs,
+  but the CLI and extension are still built from the checked-out sources.
 
 ## Releasing (the pretag release gate)
 
