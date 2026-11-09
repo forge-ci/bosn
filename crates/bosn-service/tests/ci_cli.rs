@@ -587,3 +587,160 @@ fn pr_title_reaches_plan_and_other_events_refuse_it() {
     assert_eq!(refused.status.code(), Some(3));
     assert!(!state.exists());
 }
+
+#[test]
+fn gate012_human_summary_is_golden_and_json_is_unchanged() {
+    let root = tempfile::Builder::new().prefix("bnotes").tempdir().unwrap();
+    let repo = repo(root.path());
+    let state = root.path().join("s");
+    let _daemon = Daemon {
+        cwd: &repo,
+        state: &state,
+    };
+    assert!(
+        bosn(&["ci", "runners", "drain"], &repo, &state)
+            .status
+            .success()
+    );
+    let submitted = bosn(
+        &["ci", "run", "--detach", "--verbose", "--json"],
+        &repo,
+        &state,
+    );
+    let submitted: bosn_service::ci::SubmitReply =
+        serde_json::from_slice(&submitted.stdout).unwrap();
+    let run = &submitted.run;
+    let shown = bosn(&["ci", "show", run, "--json"], &repo, &state);
+    let mut view: bosn_service::ci::RunView = serde_json::from_slice(&shown.stdout).unwrap();
+    assert!(bosn(&["daemon", "stop"], &repo, &state).status.success());
+    seed_gate012_tree(&mut view);
+    let store = bosn_service::ci::store::Store::new(&state);
+    store.save_run(&view.record);
+    let before = bosn(&["ci", "show", run, "--json"], &repo, &state).stdout;
+    let source = root.path().join("workflow.yml");
+    std::fs::write(&source, "on: [push]\njobs:\n  remote-a:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        leg: [a, b]\n    env:\n      CI_REMOTE_ONLY: needs GitHub\n    steps:\n      - run: echo local\n  remote-b:\n    runs-on: ubuntu-latest\n    env:\n      CI_REMOTE_ONLY: needs GitHub\n    steps:\n      - run: echo local\n  remote-c:\n    runs-on: ubuntu-latest\n    env:\n      CI_REMOTE_ONLY: needs GitHub\n    steps:\n      - run: echo local\n  pages:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/configure-pages@v5\n      - uses: actions/configure-pages@v5\n").unwrap();
+    let mut localized = bosn_service::ci::checkout::Localized::default();
+    bosn_service::ci::checkout::localize(
+        &source,
+        &root.path().join("overlay.yml"),
+        "example/demo",
+        &Default::default(),
+        &mut localized,
+    )
+    .unwrap();
+    assert_eq!(localized.remote_only.len(), 3);
+    assert_eq!(localized.pages_stubbed.len(), 2);
+    // Persist exactly the localization boundary data, including duplicate stub steps.
+    let notes = bosn_service::ci::notes::Notes::from(&localized);
+    store.save_notes(run, &notes).unwrap();
+    let output = bosn(&["ci", "show", run], &repo, &state);
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("local failure detail"));
+    let lines: Vec<_> = text
+        .lines()
+        .filter(|line| line.contains("GATE-012"))
+        .collect();
+    assert_eq!(
+        lines,
+        [format!(
+            "GATE-012: 3 remote-only, 1 stubbed locally (bosn ci show {run} --notes)"
+        )]
+    );
+    for flag in ["--verbose", "--notes"] {
+        let output = bosn(&["ci", "show", run, flag], &repo, &state);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            text.lines()
+                .filter(|line| line.contains("GATE-012"))
+                .count(),
+            4
+        );
+        for job in ["remote-a", "remote-b", "remote-c", "pages"] {
+            assert_eq!(
+                text.lines()
+                    .filter(|line| line.starts_with(&format!("job {job}")))
+                    .count(),
+                1
+            );
+        }
+        assert_eq!(
+            before,
+            bosn(&["ci", "show", run, flag, "--json"], &repo, &state).stdout
+        );
+    }
+    let retried = bosn(
+        &["ci", "retry", run, "--detach", "--verbose", "--json"],
+        &repo,
+        &state,
+    );
+    assert!(
+        retried.status.success(),
+        "{}",
+        String::from_utf8_lossy(&retried.stderr)
+    );
+}
+
+// A finished provider tree still carries the generated remote stub section names.
+fn seed_gate012_tree(view: &mut bosn_service::ci::RunView) {
+    use bosn_service::ci::model::{Group, ItemConclusion, ItemStatus, Job, Section};
+    let jobs = [
+        ("remote-a", "a"),
+        ("remote-a", "b"),
+        ("remote-b", ""),
+        ("remote-c", ""),
+        ("remote-a", "local"),
+    ]
+    .into_iter()
+    .map(|(id, leg)| Job {
+        key: format!("{id}/{leg}"),
+        job_id: id.into(),
+        name: id.into(),
+        matrix: None,
+        identity: None,
+        output_evidence: None,
+        status: ItemStatus::Completed,
+        conclusion: Some(if leg == "local" {
+            ItemConclusion::Failure
+        } else {
+            ItemConclusion::RemoteOnly
+        }),
+        reason: (leg != "local").then(|| "needs GitHub".into()),
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
+        sections: vec![Section {
+            id: "1".into(),
+            name: if leg == "local" {
+                "local failure detail"
+            } else {
+                "Remote-only: runs on GitHub, not under act (GATE-012)"
+            }
+            .into(),
+            stage: "Main".into(),
+            status: ItemStatus::Completed,
+            conclusion: Some(if leg == "local" {
+                ItemConclusion::Failure
+            } else {
+                ItemConclusion::Success
+            }),
+            first_seq: None,
+            last_seq: None,
+            duration_ms: None,
+            started_at: None,
+            completed_at: None,
+            exit_code: None,
+        }],
+    })
+    .collect();
+    view.record.tree.groups = vec![Group {
+        name: "CI".into(),
+        jobs,
+    }];
+    view.record
+        .finish(bosn_service::ci::Conclusion::Failure, None);
+}

@@ -14,8 +14,8 @@ use bosn_service::github_ci_policy::GithubWrites;
 use bosn_service::{
     Client,
     ci::{
-        Conclusion, DispatcherHealth, JsonReply, LogsQuery, RunState, RunView, RunnerAction,
-        RunnerStatus, SubmitOptions, SubmitReply,
+        Conclusion, DispatcherHealth, JsonReply, LogsQuery, RunState, RunnerAction, RunnerStatus,
+        SubmitOptions, SubmitReply,
         model::{ItemConclusion, ItemStatus},
         params::RunParams,
         provider::{Mode, Provider, Trigger},
@@ -27,15 +27,15 @@ use crate::stop_signal::{StopRequest, StopSignals};
 
 pub const USAGE: &str = "usage: bosn ci plan [--workspace P] [--provider github] [--workflow F] [--job J] [--trigger pr|push|release | --event workflow_dispatch|workflow_call] [--input K=V]... [--matrix K:V]... [--env K=V]... [--ci-output JOB/PATH:OUTPUT]... [--mode minimal|test|full] [--sha S] [--json]
    or: bosn ci plan --adapter RELATIVE_JSON --workspace P --event pull_request|push|release --mode minimal|test|full --sha 40_HEX --repo-owner O --repo-name N [--base-sha S] [--pr-number N --head-owner O --head-name N --head-ref R --base-ref R --author-login L] [--json]  (fleet adapter V1 plan, JSON on stdout)
-   or: bosn ci run <plan options> [--engine act] [--pr-number N] [--timeout-secs N] [--github-token | --github-proxy [--github-writes=off|dry-run|on]] [--deadline-ms N | --detach] [--json]
+   or: bosn ci run <plan options> [--engine act] [--pr-number N] [--timeout-secs N] [--github-token | --github-proxy [--github-writes=off|dry-run|on]] [--deadline-ms N | --detach] [--verbose] [--json]
        (waits for the run, which lives only as long as this command: Ctrl-C, a termination or its death cancels it; --detach queues it and returns)
    or: bosn ci list [--workspace P] [--state queued|running|done] [--limit N] [--json]
-   or: bosn ci show RUN [--json]
+   or: bosn ci show RUN [--notes | --verbose] [--json]
    or: bosn ci logs RUN [--job K] [--step S] [--since-seq N] [--follow] [--json]
    or: bosn ci wait RUN [--deadline-ms N] [--json]
    or: bosn ci cancel RUN [--json]
    or: bosn ci report RUN [--tail N] [--json]
-   or: bosn ci retry RUN [--job K] [--deadline-ms N | --detach] [--json]  (waits like `run`)
+   or: bosn ci retry RUN [--job K] [--deadline-ms N | --detach] [--verbose] [--json]  (waits like `run`)
    or: bosn ci runners [list|drain|resume|set-limit N|prune-cache [--older-than-secs N] [--max-bytes N]|cache|clear-cache] [--json]
    or: bosn ci doctor [--json]  (act2's `act doctor` in the shared engine; exits 1 when a required check fails)
    or: bosn ui [--path /ci/runs/RUN] [--print|--browser]  (the widget when installed, else the browser; needs `[ui] enabled = true` in <state>/config.toml)
@@ -47,6 +47,8 @@ pub mod adapter;
 mod capacity;
 #[path = "ci/doctor.rs"]
 mod doctor;
+#[path = "ci/notes.rs"]
+mod notes;
 #[path = "ci/stages.rs"]
 mod stages;
 pub use capacity::{format_ci_capacity, format_task_capacity};
@@ -387,6 +389,7 @@ fn plan(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
 /// accepted for older callers.
 const SUBMIT_SWITCHES: &[&str] = &[
     "--json",
+    "--verbose",
     "--wait",
     "--detach",
     "--github-token",
@@ -502,7 +505,7 @@ fn finish(
             .exit_code
             .filter(|_| shown.record.state == RunState::Done)
         {
-            print(&shown, flags.json(), print_tree);
+            notes::print_view(&shown, flags)?;
             return Ok(code);
         }
         if expired {
@@ -512,7 +515,7 @@ fn finish(
             } else {
                 shown
             };
-            print(&shown, flags.json(), print_tree);
+            notes::print_view(&shown, flags)?;
             return Ok(EXIT_NOT_FINISHED);
         }
         match owned.as_deref_mut() {
@@ -573,10 +576,14 @@ fn list(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
 }
 
 fn show(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
-    let flags = Flags::parse(arguments, &["--state-dir"], &["--json"])?;
+    let flags = Flags::parse(
+        arguments,
+        &["--state-dir"],
+        &["--json", "--verbose", "--notes"],
+    )?;
     let (runtime, client) = connect(&flags)?;
     let shown = call(&runtime, client.ci_show(flags.run()?, true))?;
-    print(&shown, flags.json(), print_tree);
+    notes::print_view(&shown, &flags)?;
     Ok(0)
 }
 
@@ -919,41 +926,6 @@ fn print_runners(runners: &RunnerStatus) {
             },
             runners.dispatcher_recoveries
         );
-    }
-}
-
-fn print_tree(view: &RunView) {
-    let run = &view.record;
-    println!(
-        "run {} {} {}  sha {}{}  {}",
-        run.id,
-        run.display_state(),
-        run.conclusion.map_or("-", Conclusion::as_str),
-        run.sha,
-        if run.dirty.is_some() { " +dirty" } else { "" },
-        run.workflow,
-    );
-    println!("  trigger: {} ({})", run.trigger.as_str(), run.event);
-    if let Some(params) = run.params.describe() {
-        println!("  params: {params}");
-    }
-    if let Some(reason) = &run.reason {
-        println!("  reason: {reason}");
-    }
-    print_setup_stages(&run.stages);
-    for group in &run.tree.groups {
-        println!("  stage {}", group.name);
-        for job in &group.jobs {
-            println!("    {} {}", mark(job.conclusion, job.status), job.key);
-            for section in &job.sections {
-                println!(
-                    "      {} {} {}",
-                    mark(section.conclusion, section.status),
-                    section.stage,
-                    section.name
-                );
-            }
-        }
     }
 }
 

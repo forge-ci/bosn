@@ -103,6 +103,21 @@ impl Store {
     pub fn run_dir(&self, id: &str) -> PathBuf {
         self.root.join("runs").join(id)
     }
+
+    /// Human localization details are separate from the protocol-pinned run record.
+    pub fn save_notes(&self, id: &str, notes: &super::notes::Notes) -> io::Result<()> {
+        let bytes = serde_json::to_vec(notes).map_err(io::Error::other)?;
+        write_atomic(&self.run_dir(id).join("notes.json"), &bytes)
+    }
+
+    /// Older runs have no note file. Other read/parse errors remain visible.
+    pub fn load_notes(&self, id: &str) -> io::Result<super::notes::Notes> {
+        match std::fs::read(self.run_dir(id).join("notes.json")) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Default::default()),
+            Err(error) => Err(error),
+        }
+    }
     pub fn source(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("source")
     }
