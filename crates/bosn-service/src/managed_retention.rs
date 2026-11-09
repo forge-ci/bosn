@@ -148,8 +148,6 @@ pub fn managed_retention_pass(
     let authority = authority::Authority::load(state_dir, true);
     let our_registry = authority.our().map(str::to_owned);
     let (artifacts, stopped_containers, refusal, df) = observe_owned(engine, &authority);
-    // #518: this report is unconditional. A default install has no `retention.toml`, so nothing
-    // would ever delete these — but the operator still has to be told the pile is growing.
     let setup_containers = SetupContainerReport {
         stopped: stopped_containers,
     };
@@ -169,6 +167,7 @@ pub fn managed_retention_pass(
                 refused: Some(detail),
                 held: std::collections::BTreeMap::new(),
                 eager: std::collections::BTreeMap::new(),
+                compaction_advisory: false,
             },
             plan: bosn_core::retention::RetentionPlan::default(),
             setup_containers,
@@ -192,6 +191,7 @@ pub fn managed_retention_pass(
     merged_branches::observe(&mut facts);
     image_facts::observe(engine, &artifacts, &mut facts, &authority);
     let plan = plan_managed_with(&artifacts, our_registry.as_deref(), policy, &facts);
+    let compaction_advisory = pressure::compaction_advisory(engine, &plan);
     let mut removed = 0_u64;
     let mut removed_bytes = 0_i128;
     let mut failed = 0_u64;
@@ -249,6 +249,7 @@ pub fn managed_retention_pass(
             refused: None,
             held: plan.held_counts(),
             eager: plan.eager_counts(),
+            compaction_advisory,
         },
         plan,
         setup_containers,

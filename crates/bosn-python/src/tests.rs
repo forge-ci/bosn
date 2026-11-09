@@ -23,6 +23,23 @@ use std::{
 #[cfg(feature = "embedded-python-tests")]
 const SUBMIT_RETURNS_BEFORE_TASK: Duration = Duration::from_millis(1_500);
 
+// Timing fixtures measure admission, not overlay-filesystem fsync latency.
+#[cfg(feature = "embedded-python-tests")]
+fn submission_fixture_directory() -> kernal_api::platform::fs::TemporaryDirectory {
+    // This timing fixture measures asynchronous admission, which also awaits
+    // the SQLite audit commit. Linux overlay fsync latency is machine-load
+    // dependent; use memory-backed storage for the protocol timing check.
+    #[cfg(target_os = "linux")]
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::in_directory(
+        std::path::Path::new("/dev/shm"),
+        "bosn-python-submit-",
+    )
+    .unwrap();
+    #[cfg(not(target_os = "linux"))]
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    temporary
+}
+
 // A promptness fixture must own its interpreter: other parallel libtest
 // cases can hold the process-wide GIL while its Python thread starts.
 #[cfg(feature = "embedded-python-tests")]
@@ -241,7 +258,7 @@ fn python_client_submits_and_observes_fake_setup_job_without_docker() {
         return;
     }
     Python::initialize();
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let temporary = submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -258,15 +275,16 @@ fn python_client_submits_and_observes_fake_setup_job_without_docker() {
                     .serve(),
             );
             let wire_client = wait_for_client(&state).await;
-            let submitted = Instant::now();
             let python_state = state.clone();
             let python_workspace = workspace.clone();
-            let (first, second) = std::thread::spawn(move || {
+            let (first, second, elapsed) = std::thread::spawn(move || {
                 Python::initialize();
                 Python::attach(|py| {
                     let python_client = Client {
                         state_dir: python_state,
                     };
+                    // Measure admission after interpreter/thread startup, as ensure does.
+                    let submitted = Instant::now();
                     let first = python_client.submit_setup_prepare(
                         python_workspace.clone(),
                         "https://example.invalid/setup.toml".into(),
@@ -283,13 +301,13 @@ fn python_client_submits_and_observes_fake_setup_job_without_docker() {
                         4 * 1024,
                         py,
                     )?;
-                    Ok::<_, PyErr>((first, second))
+                    Ok::<_, PyErr>((first, second, submitted.elapsed()))
                 })
             })
             .join()
             .expect("Python submit thread panicked")
             .unwrap();
-            assert!(submitted.elapsed() < SUBMIT_RETURNS_BEFORE_TASK);
+            assert!(elapsed < SUBMIT_RETURNS_BEFORE_TASK, "{elapsed:?}");
             assert_eq!(first, second);
 
             wait_for(|| executor.started.load(Ordering::SeqCst) == 1).await;
@@ -348,7 +366,7 @@ fn python_client_submits_and_cancels_coalesced_fake_setup_task_without_docker() 
         return;
     }
     Python::initialize();
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let temporary = submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -365,15 +383,16 @@ fn python_client_submits_and_cancels_coalesced_fake_setup_task_without_docker() 
                     .serve(),
             );
             let wire_client = wait_for_client(&state).await;
-            let submitted = Instant::now();
             let python_state = state.clone();
             let python_workspace = workspace.clone();
-            let (first, second) = std::thread::spawn(move || {
+            let (first, second, elapsed) = std::thread::spawn(move || {
                 Python::initialize();
                 Python::attach(|py| {
                     let python_client = Client {
                         state_dir: python_state,
                     };
+                    // Measure admission after interpreter/thread startup, as ensure does.
+                    let submitted = Instant::now();
                     let first = python_client.submit_setup_task(
                         python_workspace.clone(),
                         "https://example.invalid/setup.toml".into(),
@@ -392,13 +411,13 @@ fn python_client_submits_and_cancels_coalesced_fake_setup_task_without_docker() 
                         4 * 1024,
                         py,
                     )?;
-                    Ok::<_, PyErr>((first, second))
+                    Ok::<_, PyErr>((first, second, submitted.elapsed()))
                 })
             })
             .join()
             .expect("Python submit thread panicked")
             .unwrap();
-            assert!(submitted.elapsed() < SUBMIT_RETURNS_BEFORE_TASK);
+            assert!(elapsed < SUBMIT_RETURNS_BEFORE_TASK, "{elapsed:?}");
             assert_eq!(first, second);
 
             wait_for(|| executor.started.load(Ordering::SeqCst) == 1).await;
@@ -450,17 +469,7 @@ fn python_client_submits_and_cancels_coalesced_fake_setup_ensure_without_docker(
         return;
     }
     Python::initialize();
-    // This timing fixture measures asynchronous admission, which also awaits
-    // the SQLite audit commit. Linux overlay fsync latency is machine-load
-    // dependent; use memory-backed storage for the protocol timing check.
-    #[cfg(target_os = "linux")]
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::in_directory(
-        std::path::Path::new("/dev/shm"),
-        "bosn-python-ensure-",
-    )
-    .unwrap();
-    #[cfg(not(target_os = "linux"))]
-    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let temporary = submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();

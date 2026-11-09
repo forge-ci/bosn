@@ -2,19 +2,24 @@
 
 use super::*;
 
-#[test]
-fn setup_ensure_job_is_prompt_coalesced_bounded_and_cancellable_without_docker() {
+pub(super) fn submission_fixture_directory() -> kernal_api::platform::fs::TemporaryDirectory {
     // Admission awaits the durable audit commit. Keep this protocol timing
     // fixture independent of Linux overlay fsync latency; this does not assert
     // a disk-backed production acknowledgement latency guarantee.
     #[cfg(target_os = "linux")]
     let temporary = kernal_api::platform::fs::TemporaryDirectory::in_directory(
         std::path::Path::new("/dev/shm"),
-        "bosn-service-ensure-",
+        "bosn-service-submit-",
     )
     .unwrap();
     #[cfg(not(target_os = "linux"))]
     let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    temporary
+}
+
+#[test]
+fn setup_ensure_job_is_prompt_coalesced_bounded_and_cancellable_without_docker() {
+    let temporary = submission_fixture_directory();
     let state = temporary.path().join("state");
     let workspace = temporary.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();

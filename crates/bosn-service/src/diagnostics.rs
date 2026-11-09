@@ -100,6 +100,8 @@ pub struct ManagedRetentionSummary {
     /// Candidates reclaimed before their age gate, counted by why (#659). Empty from an older
     /// daemon.
     pub eager: std::collections::BTreeMap<bosn_core::retention::EagerReason, u64>,
+    /// Diagnostic only; false from an older daemon. Never changes eviction.
+    pub compaction_advisory: bool,
 }
 
 /// Outcome of one `gc --unmanaged --apply`.
