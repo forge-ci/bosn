@@ -21,7 +21,14 @@ pub(crate) fn daemon_client(state_dir: impl AsRef<Path>) -> Result<Client, bosn_
     let state_dir = state_dir.as_ref();
     let client = Client::for_state(state_dir)?;
     if let Ok(runtime) = RuntimeBuilder::current_thread().enable_all().build()
-        && let Ok(identity) = runtime.run(client.daemon_identity())
+        && let Ok(identity) = runtime
+            .run(kernal_api::async_engine::timeout(
+                Duration::from_secs(2),
+                client.clone().without_recovery().daemon_identity(),
+            ))
+            .ok()
+            .and_then(Result::ok)
+            .ok_or(())
     {
         warn_release_skew(state_dir, &identity);
     }

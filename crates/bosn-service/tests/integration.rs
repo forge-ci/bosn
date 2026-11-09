@@ -5,6 +5,7 @@
 //! `cargo test -p bosn-service --test integration -- <module>::`.
 
 mod act_cli;
+mod capacity_cli;
 mod ci_agent_live;
 mod ci_checkout_live;
 mod ci_cli;

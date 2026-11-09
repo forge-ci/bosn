@@ -106,6 +106,10 @@ bosn jobs                                  # what is running now
 bosn daemon serve --state-dir "$HOME/.local/state/bosn" --runner-slots 8 --runner-cpus 4
 ```
 
+`bosn capacity [--json]` observes host pressure and containers outside Bosn as
+well as its queues. It is read-only and advisory: an empty registry does not
+mean an idle host. See [capacity observations](docs/capacity.md).
+
 ## MCP / Hermes
 
 Run `bosn mcp` over stdio. A typical Hermes registration is:

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "sampled_at_ms": null,
+  "age_ms": null,
+  "coverage": {"bosn":"none","host":"none","docker":"none"},
+  "bosn": {
+    "daemon":"absent",
+    "jobs":{"queued":null,"running":null},
+    "ci_runs":{"queued":null,"running":null},
+    "slots":{"task_used":null,"task_limit":null,"ci_used":null,"ci_admission_limit":null},
+    "engine":{"cpus":null,"cpu_source":null,"memory_bytes":null}
+  },
+  "host": {
+    "logical_cpus":null,"cpu_quota":null,"cpu_percent":null,"io_delay_percent":null,
+    "load":[null,null,null],
+    "psi":{"cpu_some_avg10":null,"memory_some_avg10":null,"memory_full_avg10":null,"io_full_avg10":null},
+    "memory":{"total_bytes":null,"available_bytes":null},
+    "swap":{"total_bytes":null,"used_bytes":null},"disk":[]
+  },
+  "external":{"containers_running_outside_bosn":null,"by_label":null},
+  "unavailable":[],
+  "advisory":"Point-in-time; may be stale before work starts. An empty Bosn registry does not mean an idle host."
+}

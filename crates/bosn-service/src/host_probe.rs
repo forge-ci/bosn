@@ -3,6 +3,9 @@
 use bosn_core::LABEL_STACK;
 use bosn_engine::{DockerEngine, RunOptions};
 use serde::{Deserialize, Serialize};
+pub(crate) mod external;
+pub(crate) mod pressure;
+
 use std::{path::Path, time::Duration};
 
 pub(crate) const DOCKER_DEADLINE: Duration = Duration::from_secs(5);
