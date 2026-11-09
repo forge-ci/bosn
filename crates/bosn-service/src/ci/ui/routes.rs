@@ -14,7 +14,9 @@ pub enum Route {
     /// Redeem a single-use grant for a session cookie (`GET /auth?token=`).
     Redeem { token: String, next: String },
     /// The host's status and sampled history (`GET /v1/system`).
-    System,
+    System {
+        range: super::system::history::Range,
+    },
     /// One listed container's labels and stats (`GET /v1/system/containers/{id}`).
     ContainerDetail { id: String },
     /// The live feed (`GET /v1/events`, server-sent events).
@@ -105,7 +107,7 @@ impl Route {
                 })
             }
             (["auth"], true, _) => redeem(query)?,
-            (["v1", "system"], true, _) => Route::System,
+            (["v1", "system"], true, _) => system(query)?,
             (["v1", "system", "containers", id], true, _)
                 if !id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit()) =>
             {
@@ -198,6 +200,11 @@ impl Route {
     }
 }
 
+fn system(query: &[(String, String)]) -> Result<Route, RouteError> {
+    let query: SystemQuery = typed_query(query)?;
+    Ok(Route::System { range: query.range })
+}
+
 /// A grant redemption; `next` is only ever a same-origin relative path, never
 /// an open redirect.
 fn redeem(query: &[(String, String)]) -> Result<Route, RouteError> {
@@ -245,6 +252,13 @@ fn typed_body<T: DeserializeOwned>(body: &[u8]) -> Result<T, RouteError> {
         body
     };
     serde_json::from_slice(body).map_err(|e| RouteError::BadRequest(e.to_string()))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SystemQuery {
+    #[serde(default)]
+    range: super::system::history::Range,
 }
 
 #[derive(Deserialize)]
@@ -318,6 +332,9 @@ mod tests {
     use super::*;
 
     const RUN: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const HOUR: Route = Route::System {
+        range: super::super::system::history::Range::Hour,
+    };
 
     fn parse(
         method: &str,
@@ -343,7 +360,7 @@ mod tests {
             ("GET", "/".into(), vec![], "", Route::Page),
             ("GET", format!("/ci/runs/{RUN}"), vec![], "", Route::Page),
             ("GET", "/v1/events".into(), vec![], "", Route::Events),
-            ("GET", "/v1/system".into(), vec![], "", Route::System),
+            ("GET", "/v1/system".into(), vec![], "", HOUR),
             ("GET", "/system".into(), vec![], "", Route::Page),
             (
                 "GET",

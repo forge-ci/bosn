@@ -656,3 +656,67 @@ fn the_panel_quits_the_widget_only_with_a_same_origin_write() {
         assert_eq!(poll.commands, [crate::ci::widget::WidgetCommand::Quit]);
     });
 }
+
+#[test]
+fn system_history_ranges_are_typed_and_have_the_expected_shape() {
+    with_registry(|registry, dir| async move {
+        let (ci, _server, port) = listener(&dir, registry).await;
+        let cookie = sign_in(&ci, port).await;
+        let host = format!("127.0.0.1:{port}");
+        for (range, interval, capacity) in [
+            ("hour", 10, 360),
+            ("day", 60, 1440),
+            ("week", 600, 1008),
+            ("month", 3600, 744),
+        ] {
+            let path = format!("/v1/system?range={range}");
+            let reply = raw(port, get(port, &path, &host, Some(&cookie))).await;
+            assert_eq!(reply.status, 200);
+            #[derive(serde::Deserialize)]
+            struct Point {
+                at_ms: u64,
+                avg: Metrics,
+                max: Metrics,
+            }
+            #[derive(serde::Deserialize)]
+            struct Metrics {
+                cpu_percent: Option<f64>,
+            }
+            #[derive(serde::Deserialize)]
+            struct HistoryReply {
+                interval_secs: u64,
+                range: String,
+                samples: Vec<Point>,
+            }
+            let reply: HistoryReply = serde_json::from_str(&reply.body).unwrap();
+            assert_eq!(reply.range, range);
+            assert_eq!(reply.interval_secs, interval);
+            assert_eq!(reply.samples.len(), capacity);
+            assert!(
+                reply
+                    .samples
+                    .windows(2)
+                    .all(|p| p[1].at_ms - p[0].at_ms == interval * 1000)
+            );
+            assert!(reply.samples.iter().all(|p| {
+                p.avg
+                    .cpu_percent
+                    .is_none_or(|avg| p.max.cpu_percent.is_some_and(|max| max >= avg))
+            }));
+        }
+        for query in [
+            "range=year",
+            "range=Hour",
+            "range=",
+            "range=day&range=hour",
+            "unexpected=day",
+        ] {
+            let reply = raw(
+                port,
+                get(port, &format!("/v1/system?{query}"), &host, Some(&cookie)),
+            )
+            .await;
+            assert_eq!(reply.status, 400, "{query}");
+        }
+    });
+}

@@ -151,14 +151,26 @@ port = 0         # 0 = an ephemeral port
 ```
 
 `bosn ui --path /system` opens the system monitor: CPU, IO delay, load, memory
-and disk charts for the last hour (sampled every 10 s in memory, so history
-restarts with the daemon), host facts, Bosn-labelled containers, and recent CI
+and disk charts with Hour/Day/Week/Month ranges and Average/Maximum views,
+host facts, Bosn-labelled containers, and recent CI
 runs by workspace. Selecting a container shows its Bosn labels and, while it
 runs, Docker's CPU, memory and process figures, read only while it stays
 selected. Disk is
 the filesystem holding Docker's data root (the state directory's until Docker
 answers); a metric the platform cannot report
 reads "unavailable" (host metrics currently come from Linux `/proc`).
+
+History survives daemon restarts in the separate `<state>/system-history.sqlite3`
+WAL database, never the registry. Fixed-capacity tiers retain 360 ten-second,
+1,440 minute, 1,008 ten-minute and 744 hourly buckets (31 days), storing both
+averages and maxima. Each metric's average counts only reported values.
+History flushes every minute and on clean shutdown, including idle exit; an
+abrupt kill can lose the last minute. Missing buckets stay gaps. Empty or early
+charts show “Collecting samples…”. Range and aggregation choices persist in the
+browser; Hour refreshes every 10 s, other ranges every 60 s. During daemon
+handoff only the history-lock holder writes; the successor retries each flush.
+An unknown history schema is moved to `system-history.sqlite3.old` and starts
+fresh without affecting the registry.
 
 `bosn ui [--path /ci/runs/RUN]` asks the daemon (over its owner-only socket)
 for a single-use link, then picks where to show the page:

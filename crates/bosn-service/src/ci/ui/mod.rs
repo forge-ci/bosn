@@ -39,6 +39,8 @@ pub struct UiServer {
     pub local_addr: SocketAddr,
     _task: async_engine::Task<io::Result<()>>,
     _sampler: async_engine::Task<()>,
+    monitor: SystemMonitor,
+    sampler_stop: async_engine::CancellationSource,
 }
 
 const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
@@ -75,10 +77,12 @@ pub async fn start(config: UiConfig, ci: CiRuntime) -> io::Result<Option<UiServe
         origin: auth.origin(),
         auth: auth.clone(),
     });
-    let monitor = SystemMonitor::new();
-    let sampler = monitor.spawn_sampler(ci.state_dir().to_path_buf());
+    let monitor = SystemMonitor::open(ci.state_dir().to_path_buf()).await;
+    let sampler_stop = async_engine::CancellationSource::new();
+    let sampler = monitor.spawn_sampler(ci.state_dir().to_path_buf(), sampler_stop.token());
+    let handler_monitor = monitor.clone();
     let task = async_engine::launch(server.serve(move |request| {
-        let (auth, ci, monitor) = (auth.clone(), ci.clone(), monitor.clone());
+        let (auth, ci, monitor) = (auth.clone(), ci.clone(), handler_monitor.clone());
         async move { respond(&auth, &ci, &monitor, request).await }
     }));
     Ok(Some(UiServer {
@@ -86,6 +90,8 @@ pub async fn start(config: UiConfig, ci: CiRuntime) -> io::Result<Option<UiServe
         local_addr,
         _task: task,
         _sampler: sampler,
+        monitor,
+        sampler_stop,
     }))
 }
 
@@ -159,7 +165,7 @@ async fn respond(
                 .and_then(|r| r.with_header("set-cookie", &Auth::set_cookie(&session)))
                 .unwrap_or_else(|_| text(500, "redirect failed")),
         },
-        Route::System => match serde_json::to_string(&monitor.reply()) {
+        Route::System { range } => match serde_json::to_string(&monitor.reply_range(range)) {
             Ok(body) => json(200, body),
             Err(_) => text(500, "response encoding failed"),
         },
@@ -201,3 +207,12 @@ fn events(ci: &CiRuntime) -> http_server::Response {
 
 #[cfg(test)]
 mod tests;
+
+impl UiServer {
+    /// Finish history writes before the daemon runtime exits, including idle exit.
+    pub async fn flush_history(self) {
+        self.sampler_stop.cancel();
+        let _ = self._sampler.await;
+        self.monitor.flush().await;
+    }
+}

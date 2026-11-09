@@ -672,7 +672,7 @@ impl Service {
                 .await
             });
         }
-        drop(listener);
+        finish_ui_listener(listener, _ui).await;
         while clients.join_next().await.is_some() {}
         // Keep the sole registry writer alive while the job actor cancels and
         // drains typed work: a shutdown-cancelled setup ensure still needs its
@@ -840,4 +840,11 @@ pub(crate) async fn open_writer_past_dying_holder(db: &Path) -> Result<Registry,
             other => return Ok(other?),
         }
     }
+}
+
+async fn finish_ui_listener(listener: AsyncListener, ui: Option<ci::ui::UiServer>) {
+    if let Some(ui) = ui {
+        ui.flush_history().await;
+    }
+    drop(listener);
 }
