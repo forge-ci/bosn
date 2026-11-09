@@ -211,7 +211,7 @@ impl Service {
                     .map_err(|_| Error::ActorClosed)?;
                 // Objects of a registry the catalog knows prove nothing about this directory:
                 // a live peer's (the shared CI engine, say, #545), or an abandoned one's, which
-                // the machine daemon reclaims (#775). This directory's own lost registry was
+                // any daemon's pass reclaims (#775). This directory's own lost registry was
                 // restored above, so only registries the catalog never saw remain.
                 let peers = crate::managed_retention::catalog::known_registries();
                 prior

@@ -851,3 +851,5 @@ fn held_counts_survive_the_wire() {
     });
     assert_eq!(crate::wire::HeldCountWire::decode_counts(wire), held);
 }
+
+mod catalog_reclaim;

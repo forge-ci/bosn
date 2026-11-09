@@ -2,7 +2,7 @@
 //! predates the machine catalog (#545; AGENTS.md "Automatic retention").
 
 /// `bosn gc release-registry` lists every registry id Docker objects name; with `UUID --yes` it
-/// records that registry as abandoned so the machine daemon reclaims its objects under every
+/// records that registry as abandoned so any daemon's pass reclaims its objects under every
 /// ordinary gate. Nothing is removed by this command.
 pub(crate) fn run_gc_release(mut arguments: impl Iterator<Item = std::ffi::OsString>) {
     let mut registry = None;
@@ -25,7 +25,7 @@ pub(crate) fn run_gc_release(mut arguments: impl Iterator<Item = std::ffi::OsStr
     }
     match bosn_service::managed_retention::release_registry(&registry) {
         Ok(bosn_service::managed_retention::Release::Released) => println!(
-            "released registry {registry}: the machine daemon's next maintenance pass reclaims \
+            "released registry {registry}: the next daemon maintenance pass reclaims \
              its idle, unpinned objects past their age gates"
         ),
         Ok(bosn_service::managed_retention::Release::AlreadyAbandoned) => {
@@ -53,7 +53,7 @@ fn release_usage() -> ! {
         "bosn gc release-registry [UUID --yes]\n\
          \n\
          Without arguments, list the registry ids Docker objects carry. With a UUID, record that\n\
-         registry as abandoned: the machine daemon then reclaims its objects under every\n\
+         registry as abandoned: any daemon's pass reclaims its objects under every\n\
          ownership, age, liveness and pin gate. Refused for this machine's registry and for any\n\
          registry whose database still exists."
     );

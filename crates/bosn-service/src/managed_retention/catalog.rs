@@ -7,8 +7,8 @@
 //! again; the current registry correctly treats them as foreign, so before this they leaked
 //! forever.
 //!
-//! Only the machine daemon (the one whose state directory *is* the native one) acts on the
-//! catalog, and only for a registry whose cataloged state directory no longer holds a
+//! Any daemon's pass acts on the catalog, one at a time after a 1 h stability gate,
+//! and only for a registry whose cataloged state directory no longer holds a
 //! `registry.sqlite3`. Such objects are then judged as if this registry owned them, under every
 //! ordinary gate: running or mounted objects, pins and age gates still hold them. A registry whose
 //! database still exists is a live peer, and its objects stay foreign. An object naming a registry
@@ -36,11 +36,32 @@ struct Entry {
 
 /// The machine catalog, or `None` in unit tests, which must never enroll in the developer's.
 fn machine_root() -> Option<PathBuf> {
-    if cfg!(test) {
-        None
-    } else {
+    #[cfg(test)]
+    {
+        TEST_ROOT.with(|root| root.borrow().clone())
+    }
+    #[cfg(not(test))]
+    {
         Some(crate::mcp::native_state_dir().join(DIRECTORY))
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_ROOT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Scope catalog I/O to a temporary root without touching the developer's catalog.
+#[cfg(test)]
+pub(crate) fn with_test_root<T>(root: &Path, action: impl FnOnce() -> T) -> T {
+    struct Reset(Option<PathBuf>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_ROOT.with(|root| *root.borrow_mut() = self.0.take());
+        }
+    }
+    let _reset = Reset(TEST_ROOT.with(|slot| slot.replace(Some(root.to_owned()))));
+    action()
 }
 
 /// Record this daemon's registry in the machine catalog.
@@ -159,14 +180,14 @@ const RELEASED: &str = ".released";
 /// What [`release_registry`] did.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Release {
-    /// The registry is now cataloged as abandoned; the machine daemon reclaims for it.
+    /// The registry is now cataloged as abandoned; any daemon's pass reclaims for it.
     Released,
     /// It was already cataloged with a missing database.
     AlreadyAbandoned,
 }
 
 /// Operator decision for an object's registry that predates the catalog (#545, see AGENTS.md
-/// "Automatic retention"): record that registry as abandoned, so the machine daemon reclaims its
+/// "Automatic retention"): record that registry as abandoned, so any daemon's pass reclaims its
 /// objects under every ordinary ownership, age, liveness and pin gate.
 ///
 /// Refused for this machine's own registry and for any cataloged registry whose database still
@@ -224,24 +245,47 @@ fn release_at(root: &Path, ours: Option<&str>, registry_id: &str) -> Result<Rele
     Ok(Release::Released)
 }
 
-/// Registries this pass may reclaim for: empty unless `state_dir` is the machine state directory.
-pub(super) fn abandoned(state_dir: &Path, our_registry: Option<&str>) -> BTreeSet<String> {
-    let (Some(root), Some(ours)) = (machine_root(), our_registry) else {
-        return BTreeSet::new();
-    };
-    let machine = crate::mcp::native_state_dir();
-    let is_machine = matches!(
-        (std::fs::canonicalize(state_dir), std::fs::canonicalize(&machine)),
-        (Ok(left), Ok(right)) if left == right
-    );
-    if is_machine {
-        abandoned_at(&root, ours)
-    } else {
-        BTreeSet::new()
+/// Serialize abandoned-registry passes independently of engine cache maintenance.
+pub(super) fn reclaim_lock() -> Option<std::sync::Arc<std::fs::File>> {
+    reclaim_lock_at(&machine_root()?)
+}
+
+fn reclaim_lock_at(root: &Path) -> Option<std::sync::Arc<std::fs::File>> {
+    std::fs::create_dir_all(root).ok()?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(root.join(".reclaim.lock"))
+        .ok()?;
+    match file.try_lock() {
+        Ok(()) => Some(std::sync::Arc::new(file)),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            static WARNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                crate::daemon_log!(
+                    "bosn retention: abandoned-registry reclaim held by another daemon"
+                );
+            }
+            None
+        }
+        Err(_) => None,
     }
 }
 
-fn abandoned_at(root: &Path, ours: &str) -> BTreeSet<String> {
+/// Registries any daemon's pass may reclaim for. Rechecks never advance markers.
+pub(super) fn abandoned(
+    _state_dir: &Path,
+    our_registry: Option<&str>,
+    advance: bool,
+) -> BTreeSet<String> {
+    let (Some(root), Some(ours)) = (machine_root(), our_registry) else {
+        return BTreeSet::new();
+    };
+    abandoned_at(&root, ours, advance)
+}
+
+fn abandoned_at(root: &Path, ours: &str, advance: bool) -> BTreeSet<String> {
     let Ok(listing) = std::fs::read_dir(root) else {
         return BTreeSet::new();
     };
@@ -259,18 +303,48 @@ fn abandoned_at(root: &Path, ours: &str) -> BTreeSet<String> {
             continue;
         };
         // The file name, the entry and the label must all name the same registry.
-        if entry.registry_id != stem || entry.registry_id == ours || entry.schema != SCHEMA {
+        if entry.registry_id != stem
+            || !valid_registry_id(stem)
+            || entry.registry_id == ours
+            || entry.schema != SCHEMA
+        {
             continue;
         }
-        // Only a definite "not there" abandons it; an unreadable path is not evidence.
-        if matches!(
-            entry.state_dir.join("registry.sqlite3").try_exists(),
+        // Only definite absence proves abandonment; an unreadable path proves nothing.
+        let marker = root.join(format!("{stem}.abandoned-since"));
+        match entry.state_dir.join("registry.sqlite3").try_exists() {
             Ok(false)
-        ) {
-            found.insert(entry.registry_id);
+                if entry.state_dir == root.join(RELEASED).join(stem)
+                    || stable_missing(&marker, advance) =>
+            {
+                found.insert(entry.registry_id);
+            }
+            Ok(true) => {
+                let _ = std::fs::remove_file(marker);
+            }
+            _ => {}
         }
     }
     found
+}
+
+/// Fail closed on malformed timestamps or failed I/O.
+fn stable_missing(marker: &Path, advance: bool) -> bool {
+    let now = super::now_seconds() as u64;
+    match std::fs::read_to_string(marker) {
+        Ok(text) => text.trim().parse::<u64>().ok().is_some_and(|since| {
+            now.checked_sub(since)
+                .is_some_and(|age| age >= bosn_core::retention::DEFAULT_IDLE_VOLUME_FLOOR.as_secs())
+        }),
+        Err(error) if advance && error.kind() == std::io::ErrorKind::NotFound => {
+            let staging = marker.with_extension(format!("{}.tmp", std::process::id()));
+            if std::fs::write(&staging, now.to_string()).is_ok() {
+                let _ = std::fs::rename(staging, marker);
+            }
+            false
+        }
+        Err(_) => false,
+    }
 }
 
 /// Drop each abandoned registry that no container, volume or image names any more.
@@ -281,7 +355,8 @@ pub(super) fn forget_emptied(engine: &bosn_engine::DockerEngine, abandoned: &BTr
         return;
     };
     let options = bosn_engine::RunOptions::bounded(super::RETENTION_READ_DEADLINE, 64 * 1024);
-    for registry_id in abandoned {
+    let still_abandoned = abandoned_at(&root, "", false);
+    for registry_id in abandoned.intersection(&still_abandoned) {
         let filter = format!("{}={registry_id}", bosn_core::LABEL_REGISTRY);
         let empty = |read: Result<bosn_engine::CensusRead, bosn_engine::CommandError>| matches!(read, Ok(bosn_engine::CensusRead::Document(text)) if text.trim().is_empty());
         if empty(engine.container_ids_with_label(&filter, options))
@@ -296,6 +371,7 @@ pub(super) fn forget_emptied(engine: &bosn_engine::DockerEngine, abandoned: &BTr
 fn forget_at(root: &Path, registry_id: &str) {
     if valid_registry_id(registry_id) {
         let _ = std::fs::remove_file(root.join(format!("{registry_id}.json")));
+        let _ = std::fs::remove_file(root.join(format!("{registry_id}.abandoned-since")));
     }
 }
 
@@ -332,6 +408,15 @@ mod tests {
     }
 
     #[test]
+    fn reclaim_lock_excludes_a_second_holder() {
+        let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+        let first = reclaim_lock_at(temporary.path()).unwrap();
+        assert!(reclaim_lock_at(temporary.path()).is_none());
+        drop(first);
+        assert!(reclaim_lock_at(temporary.path()).is_some());
+    }
+
+    #[test]
     fn only_a_registry_whose_database_is_gone_is_abandoned() {
         let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
         let root = temporary.path().join("catalog");
@@ -342,16 +427,35 @@ mod tests {
             enroll_at(&root, dir, id).unwrap();
         }
         assert!(
-            abandoned_at(&root, OURS).is_empty(),
+            abandoned_at(&root, OURS, true).is_empty(),
             "every registry is alive"
         );
         std::fs::remove_dir_all(&gone).unwrap();
-        assert_eq!(abandoned_at(&root, OURS), BTreeSet::from([GONE.to_owned()]));
+        assert!(abandoned_at(&root, OURS, false).is_empty());
+        assert!(!root.join(format!("{GONE}.abandoned-since")).exists());
+        assert!(abandoned_at(&root, OURS, true).is_empty());
+        let marker = root.join(format!("{GONE}.abandoned-since"));
+        assert!(marker.exists());
+        std::fs::write(&marker, "0").unwrap();
+        assert_eq!(
+            abandoned_at(&root, OURS, false),
+            BTreeSet::from([GONE.to_owned()])
+        );
+        registry_dir(temporary.path(), "gone", GONE);
+        assert!(abandoned_at(&root, OURS, false).is_empty());
+        assert!(!marker.exists());
+        std::fs::remove_dir_all(&gone).unwrap();
+        assert!(abandoned_at(&root, OURS, true).is_empty());
+        std::fs::write(&marker, "0").unwrap();
         // Our own entry is never abandoned, even if its path were wrong.
         std::fs::remove_dir_all(&ours).unwrap();
-        assert_eq!(abandoned_at(&root, OURS), BTreeSet::from([GONE.to_owned()]));
+        assert_eq!(
+            abandoned_at(&root, OURS, true),
+            BTreeSet::from([GONE.to_owned()])
+        );
         forget_at(&root, GONE);
-        assert!(abandoned_at(&root, OURS).is_empty());
+        assert!(!marker.exists());
+        assert!(abandoned_at(&root, OURS, true).is_empty());
     }
 
     #[test]
@@ -389,7 +493,10 @@ mod tests {
         );
         assert!(release_at(&root, Some(OURS), "not-a-uuid").is_err());
         assert_eq!(release_at(&root, Some(OURS), GONE), Ok(Release::Released));
-        assert_eq!(abandoned_at(&root, OURS), BTreeSet::from([GONE.to_owned()]));
+        assert_eq!(
+            abandoned_at(&root, OURS, true),
+            BTreeSet::from([GONE.to_owned()])
+        );
         assert_eq!(
             release_at(&root, Some(OURS), GONE),
             Ok(Release::AlreadyAbandoned)
@@ -415,7 +522,7 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        assert!(abandoned_at(&root, OURS).is_empty());
+        assert!(abandoned_at(&root, OURS, true).is_empty());
         assert!(enroll_at(&root, temporary.path(), "../escape").is_err());
     }
 

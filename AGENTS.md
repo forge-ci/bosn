@@ -544,11 +544,20 @@ the registry is gone, so those objects stay `foreign-registry`: never reclaimed
 automatically, never adopted by guessing. The operator decides once per
 registry. `bosn gc release-registry` lists the registry ids Docker objects
 carry; `bosn gc release-registry <UUID> --yes` records that registry as
-abandoned in the machine catalog, and the machine daemon then reclaims its
+abandoned in the machine catalog, and any daemon's pass reclaims its
 objects through the ordinary pass under every gate. It refuses this machine's
 own registry and any cataloged registry whose database still exists. No bulk
 "adopt everything foreign" command, and no re-labelling of foreign objects into
 the current registry.
+
+**Abandoned-registry reclamation (#775, decided 2026-11-08).** Any daemon's pass
+reclaims, one at a time, after a 1 h abandonment stability gate. The catalog's
+`<UUID>.abandoned-since` timestamp starts on the first definite missing database
+observation and is cleared when the database exists again. Operator releases skip
+this wait. A nonblocking catalog `.reclaim.lock` serializes passes through empty-entry
+removal, separately from the engine cache lock. Pre-removal revalidation checks the
+database without taking the lock or advancing markers. Uncertainty keeps objects;
+every ordinary ownership, age, liveness and pin gate remains.
 
 **Host decision, 2026-10-10 (v0.1.20).** The only pre-catalog registry left on
 the development host is `b3718269-079a-4b01-a761-b3c94b987a8e`, and the only

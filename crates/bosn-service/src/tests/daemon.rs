@@ -996,3 +996,4 @@ fn a_compatible_daemon_from_another_release_is_a_named_mismatch_warning() {
     assert!(warning.contains("runs release 0.1.7, this client is 0.1.6"));
     assert!(warning.contains("`bosn daemon stop --state-dir /state`"));
 }
+mod catalog_reclaim;
