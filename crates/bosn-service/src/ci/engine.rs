@@ -22,7 +22,9 @@ use crate::{RegistryActor, act_engine};
 
 mod cache_usage;
 mod control;
+mod observation;
 pub use cache_usage::HelperCleanupRetry;
+pub use observation::{EngineObservation, EngineState};
 #[cfg(all(test, unix))]
 mod cache_usage_transport_tests;
 #[cfg(all(test, unix))]
@@ -185,8 +187,8 @@ pub trait ActEngineBackend: Send + Sync {
     fn ensure_cache<'a>(&'a self, cache: &'a CacheVolume) -> BoxFuture<'a, Result<(), String>>;
     /// Whether the engine container `engine_id` is running now. A prepared spare can stop
     /// behind the daemon's back (a host Docker restart, its inner dockerd exiting), and a stopped
-    /// one must never be handed to a run (#556). A failed read is "not running".
-    fn engine_running<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, bool>;
+    /// one must never be handed to a run (#556). An uncertain read never authorizes removal.
+    fn engine_observation<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, EngineObservation>;
     /// Commit `intent`, then create, verify, register and start its engine.
     /// A failure after the intent commits leaves the record for cleanup.
     fn create<'a>(
@@ -483,20 +485,22 @@ impl ActEngineBackend for DockerActBackend {
     fn machine(&self) -> Option<&dyn super::machine::MachineEngine> {
         Some(self)
     }
-    fn engine_running<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, bool> {
+    fn engine_observation<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, EngineObservation> {
         Box::pin(async move {
             let inspect = owned(&[
                 "container",
                 "inspect",
                 "--format",
-                "{{.State.Running}}",
+                "{{json .State}}",
                 engine_id,
             ]);
-            self.run(inspect, CONTROL_DEADLINE)
+            match self
+                .checked("engine inspect", inspect, CONTROL_DEADLINE)
                 .await
-                .is_ok_and(|result| {
-                    result.ok() && String::from_utf8_lossy(&result.stdout).trim() == "true"
-                })
+            {
+                Ok(json) => observation::parse(&json),
+                Err(error) => EngineObservation::Unknown(error),
+            }
         })
     }
 

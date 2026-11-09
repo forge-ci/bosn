@@ -25,7 +25,7 @@
 //! daemon's reaper once idle, as are idle legacy engines.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
@@ -33,7 +33,7 @@ use std::{
 use kernal_api::async_engine::{self, CancellationToken};
 
 use super::{
-    engine::ActEngineBackend,
+    engine::{ActEngineBackend, EngineObservation},
     lifecycle::Claim,
     machine::{Daemon, EngineIdentity, Holder, Leased, MachineEngine},
     spare::{Spare, SparePlan},
@@ -97,7 +97,7 @@ struct Held {
     pids: u64,
     cpu_source: Option<super::reply::CiCpuSource>,
     /// This daemon's runs in it.
-    slots: BTreeSet<u16>,
+    slots: BTreeMap<u16, String>,
 }
 
 impl Held {
@@ -117,6 +117,7 @@ impl Held {
 #[derive(Default)]
 struct State {
     closed: bool,
+    unknown_engines: BTreeSet<String>,
     /// This daemon runs CI: only then does it tend the machine's engines.
     wanted: bool,
     /// Since when a new engine has waited for busy legacy engines.
@@ -240,9 +241,19 @@ impl SharedEngine {
         let machine = self.machine()?;
         let mut held = self.held.lock().await;
         if let Some(current) = held.take() {
-            if self.usable(&current, want).await {
+            let observation = self.backend.engine_observation(&current.id).await;
+            if let EngineObservation::Unknown(error) = &observation {
+                self.removal_observed(&current, &observation).await;
+                let wait = format!(
+                    "the shared engine {} state is unknown: {error}; waiting for inspection",
+                    current.name
+                );
                 *held = Some(current);
-            } else if let Some(wait) = self.replace(current, &mut held).await {
+                return Ok(Step::Wait(wait));
+            }
+            if self.usable(&current, want, &observation).await {
+                *held = Some(current);
+            } else if let Some(wait) = self.replace(current, &mut held, observation).await {
                 return Ok(Step::Wait(wait));
             }
         }
@@ -260,7 +271,7 @@ impl SharedEngine {
         };
         match machine.lease_slot(&current.id, holder).await? {
             Leased::Slot(slot) => {
-                current.slots.insert(slot);
+                current.slots.insert(slot, holder.run.clone());
                 Ok(Step::Leased(current.lease(slot)))
             }
             Leased::Preparing => Ok(Step::Wait(format!(
@@ -282,8 +293,13 @@ impl SharedEngine {
     }
 
     /// Whether runs can still use the engine this daemon holds.
-    async fn usable(&self, current: &Held, want: &SparePlan) -> bool {
-        if !want.accepts(&current.identity) || !self.backend.engine_running(&current.id).await {
+    async fn usable(
+        &self,
+        current: &Held,
+        want: &SparePlan,
+        observation: &EngineObservation,
+    ) -> bool {
+        if !want.accepts(&current.identity) || !matches!(observation, EngineObservation::Running) {
             return false;
         }
         match &current.kind {
@@ -297,13 +313,20 @@ impl SharedEngine {
     /// Let go of an engine runs can no longer use: an adopted one is
     /// forgotten; an owned one is retired once empty. Until then, why the
     /// run waits (and the engine stays held).
-    async fn replace(&self, current: Held, held: &mut Option<Held>) -> Option<String> {
+    async fn replace(
+        &self,
+        current: Held,
+        held: &mut Option<Held>,
+        observation: EngineObservation,
+    ) -> Option<String> {
         if matches!(current.kind, Kind::Adopted) {
             return None;
         }
         let machine = self.machine().ok()?;
-        let running = self.backend.engine_running(&current.id).await;
-        if running && machine.begin_retire(&current.id).await != Ok(true) {
+        if !self.removal_observed(&current, &observation).await
+            || (matches!(observation, EngineObservation::Running)
+                && machine.begin_retire(&current.id).await != Ok(true))
+        {
             let _ = machine.request_retire(&current.id).await;
             let name = current.name.clone();
             *held = Some(current);
@@ -322,7 +345,14 @@ impl SharedEngine {
         match held.as_ref() {
             Some(current) if current.id == lease.engine_id => match &current.kind {
                 Kind::Owned { engine, .. } => Claim::held(&self.registry, engine).verify().await,
-                Kind::Adopted if self.backend.engine_running(&current.id).await => Ok(()),
+                Kind::Adopted
+                    if matches!(
+                        self.backend.engine_observation(&current.id).await,
+                        EngineObservation::Running
+                    ) =>
+                {
+                    Ok(())
+                }
                 Kind::Adopted => Err("the shared engine stopped".into()),
             },
             _ => Err("the shared engine was retired".into()),

@@ -8,7 +8,7 @@ use kernal_api::async_engine::CancellationToken;
 
 use super::{
     super::{
-        engine::{RunLimits, RunScope},
+        engine::{EngineObservation, RunLimits, RunScope},
         limits::{reserved_engine_memory, room_for_engine},
         machine::{
             CLAIM_PREPARE_LIMIT, Daemon, EngineClaim, EngineIdentity, Foreign, LEGACY_GRACE,
@@ -281,7 +281,11 @@ impl SharedEngine {
         let Some(current) = held.as_ref() else {
             return false;
         };
-        if !self.backend.engine_running(&current.id).await {
+        let observation = self.backend.engine_observation(&current.id).await;
+        if !matches!(observation, EngineObservation::Running) {
+            if !self.removal_observed(current, &observation).await {
+                return false;
+            }
             if let Some(current) = held.take()
                 && matches!(current.kind, Kind::Owned { .. })
             {
@@ -335,6 +339,51 @@ impl SharedEngine {
             }
         }
         freed
+    }
+
+    /// Unknown Docker state is never proof of death. Stopped engines cannot
+    /// execute their slot table, so retain local run identities for diagnostics.
+    pub(super) async fn removal_observed(
+        &self,
+        current: &Held,
+        observation: &EngineObservation,
+    ) -> bool {
+        if let EngineObservation::Unknown(error) = observation {
+            if self.state().unknown_engines.insert(current.id.clone()) {
+                daemon_log!(
+                    "bosn ci: keeping engine {}: inspect unknown: {error}",
+                    current.name
+                );
+            }
+            return false;
+        }
+        self.state().unknown_engines.remove(&current.id);
+        if let EngineObservation::Stopped(state) = observation {
+            let mut runs: std::collections::BTreeSet<_> = current.slots.values().cloned().collect();
+            if let Ok(machine) = self.machine()
+                && let Ok(survey) = machine.survey(&current.id).await
+            {
+                runs.extend(
+                    survey
+                        .held
+                        .into_iter()
+                        .filter(|(_, h)| h.daemon.alive())
+                        .map(|(_, h)| h.run),
+                );
+            }
+            if !runs.is_empty() {
+                daemon_log!(
+                    "bosn ci: forced cancellation of runs {:?}: engine {} stopped (status {}, exit {}, OOMKilled {}, finished {}) before removal",
+                    runs,
+                    current.name,
+                    state.status,
+                    state.exit_code,
+                    state.oom_killed,
+                    state.finished_at
+                );
+            }
+        }
+        true
     }
 
     pub(super) async fn retire_owned(&self, current: Held) {
