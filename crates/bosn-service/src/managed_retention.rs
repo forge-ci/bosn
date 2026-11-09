@@ -71,6 +71,7 @@ pub struct ManagedRetentionOutcome {
     pub setup_containers: SetupContainerReport,
     /// The stopped-container age the pass ended up using, which the footprint can shorten.
     pub container_ttl: std::time::Duration,
+    _reclaim_guard: Option<std::sync::Arc<std::fs::File>>,
 }
 
 /// One stopped, Bosn-owned container and the volumes it is holding alive.
@@ -142,10 +143,9 @@ pub fn managed_retention_pass(
     apply: bool,
 ) -> ManagedRetentionOutcome {
     // #545: setup containers and manifest volumes carry only the setup label set; their
-    // ownership proof is this registry's record of creating them. The machine daemon may also
-    // reclaim for registries whose state directory is gone (see `catalog`). An unreadable source
-    // proves nothing, so the objects it would cover stay held.
-    let authority = authority::Authority::load(state_dir);
+    // ownership proof is this registry's record of creating them. Any daemon may also
+    // reclaim for abandoned registries (see `catalog`). Unreadable sources prove nothing.
+    let authority = authority::Authority::load(state_dir, true);
     let our_registry = authority.our().map(str::to_owned);
     let (artifacts, stopped_containers, refusal, df) = observe_owned(engine, &authority);
     // #518: this report is unconditional. A default install has no `retention.toml`, so nothing
@@ -173,6 +173,7 @@ pub fn managed_retention_pass(
             plan: bosn_core::retention::RetentionPlan::default(),
             setup_containers,
             container_ttl: policy.container_ttl,
+            _reclaim_guard: authority.reclaim_guard.clone(),
         };
     }
 
@@ -255,6 +256,7 @@ pub fn managed_retention_pass(
         plan,
         setup_containers,
         container_ttl: policy.container_ttl,
+        _reclaim_guard: authority.reclaim_guard.clone(),
     }
 }
 
@@ -554,7 +556,7 @@ fn revalidate(
 ) -> Result<Recheck, String> {
     let options = RunOptions::bounded(RETENTION_READ_DEADLINE, RETENTION_OUTPUT_LIMIT);
     // A fresh registry read: a lease or session taken since the plan was built must protect.
-    let authority = authority::Authority::load(state_dir);
+    let authority = authority::Authority::load(state_dir, false);
     let mut tags = None;
     let (name, labels, age, in_use, bytes) = match candidate.kind {
         ResourceKind::Container => {

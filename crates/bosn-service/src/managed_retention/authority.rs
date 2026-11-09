@@ -7,11 +7,12 @@ use bosn_core::ResourceKind;
 
 use super::{catalog, now_seconds, registered::RegisteredOwnership};
 
-/// This registry, its records, and the abandoned registries the machine daemon may reclaim for.
+/// This registry, its records, and the abandoned registries any daemon may reclaim for.
 pub(super) struct Authority {
     ownership: Option<RegisteredOwnership>,
     our: Option<String>,
     abandoned: BTreeSet<String>,
+    pub(super) reclaim_guard: Option<std::sync::Arc<std::fs::File>>,
 }
 
 /// One observation after the registry and the catalog had their say.
@@ -23,13 +24,19 @@ pub(super) struct Proven {
 
 impl Authority {
     /// A fresh read. Unreadable sources prove nothing, so objects they would cover stay held.
-    pub(super) fn load(state_dir: &Path) -> Self {
+    pub(super) fn load(state_dir: &Path, advance: bool) -> Self {
         let our = bosn_registry::Registry::open_read_only(state_dir.join("registry.sqlite3"))
             .ok()
             .and_then(|registry| registry.registry_id().ok());
+        let reclaim_guard = advance.then(catalog::reclaim_lock).flatten();
         Self {
             ownership: RegisteredOwnership::load(state_dir).ok(),
-            abandoned: catalog::abandoned(state_dir, our.as_deref()),
+            abandoned: if !advance || reclaim_guard.is_some() {
+                catalog::abandoned(state_dir, our.as_deref(), advance)
+            } else {
+                BTreeSet::new()
+            },
+            reclaim_guard,
             our,
         }
     }
@@ -155,6 +162,7 @@ mod tests {
     fn only_an_abandoned_registrys_objects_are_judged_as_ours() {
         let authority = Authority {
             ownership: None,
+            reclaim_guard: None,
             our: Some(OURS.into()),
             abandoned: BTreeSet::from([GONE.to_owned()]),
         };
@@ -166,6 +174,7 @@ mod tests {
         );
         let no_owner = Authority {
             ownership: None,
+            reclaim_guard: None,
             our: None,
             abandoned: BTreeSet::from([GONE.to_owned()]),
         };
