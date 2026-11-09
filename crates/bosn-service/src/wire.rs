@@ -163,6 +163,25 @@ pub(crate) struct ReplyWire {
     pub(crate) owned_eager: Vec<HeldCountWire>,
 }
 /// One `HoldReason` and how many observed objects it kept.
+impl From<ManagedRetentionSummary> for ReplyWire {
+    fn from(summary: ManagedRetentionSummary) -> Self {
+        Self {
+            code: 230,
+            owned_applied: summary.applied,
+            owned_planned: summary.planned,
+            owned_removed: summary.removed,
+            owned_removed_bytes: i64::try_from(summary.removed_bytes).unwrap_or(i64::MAX),
+            owned_deferred: summary.deferred,
+            owned_failed: summary.failed,
+            owned_failures: summary.failures,
+            owned_held: HeldCountWire::encode_counts(&summary.held),
+            owned_eager: HeldCountWire::encode_eager(&summary.eager),
+            owned_refused: summary.refused.unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Message)]
 pub(crate) struct HeldCountWire {
     #[prost(string, tag = "1")]

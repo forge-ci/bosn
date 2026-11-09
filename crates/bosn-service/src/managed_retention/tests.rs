@@ -853,3 +853,25 @@ fn held_counts_survive_the_wire() {
 }
 
 mod catalog_reclaim;
+
+#[test]
+fn owned_summary_encoding_preserves_fields_and_legacy_byte_clamping() {
+    let mut expected = summary(true, 9, 3, 2);
+    expected.removed_bytes = i128::from(i64::MAX);
+    expected.deferred = 4;
+    expected.failures = vec!["first".into(), "second".into()];
+    expected.refused = Some("refused".into());
+    expected
+        .held
+        .insert(bosn_core::retention::HoldReason::Pinned, 7);
+    expected
+        .eager
+        .insert(bosn_core::retention::EagerReason::FamilyCap, 5);
+    let mut input = expected.clone();
+    input.removed_bytes = i128::MAX;
+    let decoded = crate::wire::decode_reply(input.into()).unwrap();
+    let crate::wire::Reply::ManagedRetention(actual) = decoded else {
+        panic!("wrong reply");
+    };
+    assert_eq!(actual, expected);
+}

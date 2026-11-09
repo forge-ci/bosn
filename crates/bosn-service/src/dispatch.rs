@@ -153,28 +153,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                     })
                     .await;
                     match outcome {
-                        Ok(outcome) => {
-                            let summary = outcome.summary;
-                            ReplyWire {
-                                code: 230,
-                                owned_applied: summary.applied,
-                                owned_planned: summary.planned,
-                                owned_removed: summary.removed,
-                                owned_removed_bytes: i64::try_from(summary.removed_bytes)
-                                    .unwrap_or(i64::MAX),
-                                owned_deferred: summary.deferred,
-                                owned_failed: summary.failed,
-                                owned_failures: summary.failures,
-                                owned_held: crate::wire::HeldCountWire::encode_counts(
-                                    &summary.held,
-                                ),
-                                owned_eager: crate::wire::HeldCountWire::encode_eager(
-                                    &summary.eager,
-                                ),
-                                owned_refused: summary.refused.unwrap_or_default(),
-                                ..Default::default()
-                            }
-                        }
+                        Ok(outcome) => outcome.summary.into(),
                         Err(_) => ReplyWire {
                             code: 3,
                             ..Default::default()
