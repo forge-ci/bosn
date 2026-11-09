@@ -79,7 +79,17 @@ impl RegisteredOwnership {
             latest.scope,
             &latest.workspace,
             &latest.created_at.to_string(),
-            Some(Retention::Warm),
+            Some(
+                if labels
+                    .get(bosn_core::LABEL_RETENTION)
+                    .and_then(|value| Retention::parse(value))
+                    == Some(Retention::Pinned)
+                {
+                    Retention::Pinned
+                } else {
+                    Retention::Warm
+                },
+            ),
         )
         .ok()?;
         let mut normalized = labels.clone();

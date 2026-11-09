@@ -28,6 +28,7 @@ fn ids(plan: &RetentionPlan) -> Vec<(&str, Option<EagerReason>)> {
 
 fn facts(gone: &[&str], families: &[(&str, &str)]) -> EagerFacts {
     EagerFacts {
+        image_containers: BTreeMap::new(),
         gone_workspaces: gone.iter().map(|w| (*w).to_owned()).collect(),
         families: families
             .iter()
@@ -170,4 +171,139 @@ fn eager_reasons_round_trip() {
         assert_eq!(EagerReason::parse(reason.as_str()), Some(reason));
     }
     assert_eq!(EagerReason::parse("nope"), None);
+}
+
+// #663: explicit image labels are the only task-family evidence.
+fn image_workspace() -> &'static str {
+    if cfg!(windows) { "C:/repo" } else { "/repo" }
+}
+
+fn family_images() -> Vec<ObservedArtifact> {
+    (0..5)
+        .map(|index| {
+            let mut image = stack_volume(
+                &format!("image-{index}"),
+                image_workspace(),
+                (index + 2).into(),
+            );
+            image.kind = ResourceKind::Image;
+            image
+                .labels
+                .insert(crate::LABEL_KIND.into(), "image".into());
+            image
+                .labels
+                .insert(crate::LABEL_TASK.into(), "build".into());
+            image
+        })
+        .collect()
+}
+
+#[test]
+fn image_family_cap_keeps_three_and_reports_two() {
+    let plan = plan_managed_with(
+        &family_images(),
+        Some(REGISTRY),
+        RetentionPolicy::default(),
+        &EagerFacts::default(),
+    );
+    assert_eq!(
+        ids(&plan),
+        vec![
+            ("image-4", Some(EagerReason::FamilyCap)),
+            ("image-3", Some(EagerReason::FamilyCap))
+        ]
+    );
+    assert_eq!(plan.eager_counts()[&EagerReason::FamilyCap], 2);
+}
+
+#[test]
+fn image_family_cap_preserves_live_pinned_young_and_unlabelled_images() {
+    for mode in 0..4 {
+        let mut images = family_images();
+        match mode {
+            0 => images[4].signals.in_use = true,
+            1 => {
+                images[4]
+                    .labels
+                    .insert(LABEL_RETENTION.into(), "pinned".into());
+            }
+            2 => images[4].age_seconds = Some(30.0),
+            _ => {
+                images[4].labels.remove(crate::LABEL_TASK);
+            }
+        }
+        let plan = plan_managed_with(
+            &images,
+            Some(REGISTRY),
+            RetentionPolicy::default(),
+            &EagerFacts::default(),
+        );
+        assert!(!plan.candidates.iter().any(|item| item.id == "image-4"));
+    }
+}
+
+#[test]
+fn image_family_cap_separates_tasks_and_shares_repository_family() {
+    let mut images = family_images();
+    images.truncate(3);
+    let mut other = images.clone();
+    for image in &mut other {
+        image.id.push_str("-other");
+        image.labels.insert(crate::LABEL_TASK.into(), "test".into());
+    }
+    images.extend(other);
+    assert!(
+        plan_managed_with(
+            &images,
+            Some(REGISTRY),
+            RetentionPolicy::default(),
+            &EagerFacts::default()
+        )
+        .candidates
+        .is_empty()
+    );
+    images = family_images();
+    let worktree = if cfg!(windows) {
+        "C:/worktree"
+    } else {
+        "/worktree"
+    };
+    images[4]
+        .labels
+        .insert(LABEL_WORKSPACE.into(), worktree.into());
+    let facts = facts(
+        &[],
+        &[(image_workspace(), "/common"), (worktree, "/common")],
+    );
+    assert_eq!(
+        plan_managed_with(&images, Some(REGISTRY), RetentionPolicy::default(), &facts)
+            .candidates
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn image_family_cap_removes_superseded_setup_container_before_image() {
+    let mut images = family_images();
+    images[4].signals.in_use = true;
+    let mut container = artifact(
+        "setup-old",
+        ResourceKind::Container,
+        Some(30.0 * 86400.0),
+        false,
+        &[("com.zackees.bosn.setup-managed", "v1")],
+    );
+    let mut facts = EagerFacts::default();
+    facts
+        .image_containers
+        .insert("image-4".into(), vec![container.id.clone()]);
+    images.push(container.clone());
+    let plan = plan_managed_with(&images, Some(REGISTRY), RetentionPolicy::default(), &facts);
+    assert_eq!(plan.candidates[0].id, "setup-old");
+    assert!(plan.candidates.iter().any(|item| item.id == "image-4"));
+    container.signals.in_use = true;
+    *images.last_mut().unwrap() = container;
+    let plan = plan_managed_with(&images, Some(REGISTRY), RetentionPolicy::default(), &facts);
+    assert!(!plan.candidates.iter().any(|item| item.id == "image-4"));
 }

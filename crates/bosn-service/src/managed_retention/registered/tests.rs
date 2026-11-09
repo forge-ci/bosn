@@ -228,6 +228,16 @@ fn a_recorded_built_image_is_proven_by_its_tag_and_record() {
     );
     // A historical `pinned` image row is bookkeeping, not a promise.
     assert_eq!(hold(ResourceKind::Image, proof.labels, 40.0 * DAY), None);
+    let explicit_pin = [(bosn_core::LABEL_RETENTION.to_owned(), "pinned".to_owned())]
+        .into_iter()
+        .collect();
+    let pinned = ownership
+        .normalize_image(&id, &built, &explicit_pin, NOW)
+        .unwrap();
+    assert_eq!(
+        hold(ResourceKind::Image, pinned.labels, 40.0 * DAY),
+        Some(HoldReason::Pinned)
+    );
     // A pulled or retagged image, or an unrecorded id, proves nothing.
     let pulled = vec!["python:3.12".to_owned()];
     assert!(

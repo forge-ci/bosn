@@ -24,6 +24,9 @@ use crate::{LABEL_SCOPE, LABEL_STACK, LABEL_WORKSPACE, ObservedArtifact, Resourc
 /// Workspaces per repository family (and stack) whose idle volumes are kept.
 pub const FAMILY_KEEP: usize = 3;
 
+/// Setup images retained per workspace family, stack and task.
+pub const IMAGE_FAMILY_KEEP: usize = 3;
+
 /// Why a volume was reclaimed before its age gate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum EagerReason {
@@ -61,6 +64,8 @@ pub struct EagerFacts {
     pub gone_workspaces: BTreeSet<String>,
     /// Workspace → its repository family (the canonical git common directory).
     pub families: BTreeMap<String, String>,
+    /// Complete Docker container references per image; absent means unknown.
+    pub image_containers: BTreeMap<String, Vec<String>>,
 }
 
 /// The workspace and stack of a volume whose identity depends on its workspace.

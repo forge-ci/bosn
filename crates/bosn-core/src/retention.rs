@@ -193,6 +193,7 @@ impl RetentionPolicy {
     pub fn recheck_gates(self) -> Self {
         Self {
             volume_ttl: self.volume_ttl.min(self.idle_volume_floor),
+            image_ttl: self.image_ttl.min(self.idle_volume_floor),
             ..self
         }
     }
@@ -436,6 +437,7 @@ pub fn plan_managed_with(
     }
 
     eager::promote(&mut plan, artifacts, policy, facts);
+    image_family::promote(&mut plan, artifacts, our_registry, policy, facts);
     promote_over_idle_volume_budget(&mut plan, policy);
     // Oldest first inside each kind, so ties on an unmeasured age keep a stable order.
     plan.candidates.sort_by(|left, right| {
@@ -575,7 +577,8 @@ pub fn age_seconds(created: SystemTime) -> Option<f64> {
 
 mod eager;
 mod footprint;
-pub use eager::{EagerFacts, EagerReason, FAMILY_KEEP};
+mod image_family;
+pub use eager::{EagerFacts, EagerReason, FAMILY_KEEP, IMAGE_FAMILY_KEEP};
 pub use footprint::{DEFAULT_OWNED_CEILING, OwnedFootprint};
 
 #[cfg(test)]
