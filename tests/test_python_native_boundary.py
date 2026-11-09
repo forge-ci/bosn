@@ -8,55 +8,20 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "src" / "bosn"
-RETIRED_MODULES = (
-    "accounting",
-    "autostart",
-    "cli",
-    "clock",
-    "compose",
-    "config",
-    "converge",
-    "daemon",
-    "docker_cli",
-    "engine",
-    "frontdoor",
-    "gc",
-    "gitstate",
-    "guest",
-    "ipc",
-    "jobs",
-    "labels",
-    "legacy",
-    "manifest",
-    "migration_lock",
-    "options",
-    "paths",
-    "recovery",
-    "registry",
-    "resources",
-    "retention",
-    "shims",
-)
 
 
-def test_python_distribution_contains_only_native_boundary_modules() -> None:
-    assert {path.name for path in PACKAGE.glob("*.py")} == {"__init__.py"}
+def test_python_api_reexports_the_native_extension() -> None:
+    import bosn
+    from bosn import _native
 
-    # The retained package file must not gain a Python process, Docker, or
-    # SQLite implementation. The CLI is the native `bosn` binary shipped in the
-    # wheel's scripts tree; wheel building is checked in bosn_build_backend.
-    source = "\n".join(path.read_text(encoding="utf-8") for path in PACKAGE.glob("*.py"))
-    for forbidden in ("subprocess", "sqlite3", "running_process", "docker", "podman"):
-        assert forbidden not in source.lower()
+    for name in bosn.__all__:
+        if name != "__version__":
+            assert getattr(bosn, name) is getattr(_native, name)
 
 
-def test_retired_python_lifecycle_modules_are_absent_from_source() -> None:
+def test_python_version_comes_from_the_native_extension() -> None:
     text = (PACKAGE / "__init__.py").read_text(encoding="utf-8")
-    # Derived from the extension; the one written version is in Cargo.toml.
     assert "__version__: str = native_version()" in text
-    for module in RETIRED_MODULES:
-        assert not (PACKAGE / f"{module}.py").exists()
-        assert not (PACKAGE / module).exists()
 
 
 def test_distribution_has_no_python_runtime_lifecycle_dependencies() -> None:

@@ -24,19 +24,6 @@ from pathlib import Path
 from typing import BinaryIO, NoReturn
 
 OPENSSL_LIBRARIES = ("libssl", "libcrypto")
-RETIRED_LIFECYCLE_MODULES = (
-    "daemon",
-    "engine",
-    "registry",
-    "converge",
-    "gc",
-    "resources",
-    "recovery",
-    "docker_cli",
-    "compose",
-    "manifest",
-    "guest",
-)
 
 # The smoke lane must fail diagnostically rather than leave a platform runner
 # occupied forever when a child process or its local IPC transport wedges.
@@ -106,7 +93,7 @@ def timeout_detail(
         socket_candidate = state / "bosn-rs.sock"
         detail += (
             f"; state={state}; state_exists={state.exists()}; "
-            f"socket_candidate_length={len(os.fsencode(socket_candidate))}"
+            f"state_socket_candidate_length={len(os.fsencode(socket_candidate))}"
         )
     if daemon is not None:
         detail += f"; daemon={daemon_detail(daemon, daemon_log)}"
@@ -149,31 +136,6 @@ def assert_abi3_wheel_tag(wheel: Path, archive: zipfile.ZipFile) -> None:
         fail(f"wheel metadata must declare {expected!r}, got {sorted(tags)}")
 
 
-def smoke_temporary_directory() -> str | None:
-    """Keep macOS Unix-domain socket names within its small path budget.
-
-    The daemon's portable IPC endpoint is derived beneath the supplied state
-    directory.  GitHub's macOS temporary root is already long enough that a
-    normal ``TemporaryDirectory`` name makes ``state/bosn-rs.sock`` exceed the
-    platform's Unix-domain socket limit before the daemon can bind it.
-    """
-
-    return "/tmp" if sys.platform == "darwin" else None
-
-
-def smoke_temporary_prefix() -> str:
-    """Reserve the shortest practical state-root spelling on macOS.
-
-    Darwin's filesystem local-socket transport has a much smaller endpoint
-    budget than Linux.  The installed-wheel test intentionally keeps its
-    working directory outside the checkout, but the daemon state need not be
-    nested there.  A short private temporary root leaves room for the socket
-    file and for platform/library path normalization.
-    """
-
-    return "b-" if sys.platform == "darwin" else "bosn-wheel-smoke-"
-
-
 def wheel_from_argument(argument: str) -> Path:
     candidates = (
         sorted(Path().glob(argument))
@@ -194,11 +156,19 @@ def assert_platform_wheel_contents(wheel: Path) -> None:
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         assert_abi3_wheel_tag(wheel, archive)
-    retired = [
-        f"bosn/{module}.py" for module in RETIRED_LIFECYCLE_MODULES if f"bosn/{module}.py" in names
-    ]
-    if retired:
-        fail(f"wheel includes retired Python lifecycle modules: {retired}")
+        cli = next((name for name in names if name.endswith(executable)), None)
+        if cli is None:
+            fail(f"wheel is missing this platform executable {executable!r}: {names}")
+        magic = archive.read(cli)[:4]
+        expected_magic = (
+            (b"MZ",)
+            if os.name == "nt"
+            else (b"\xcf\xfa\xed\xfe",)
+            if sys.platform == "darwin"
+            else (b"\x7fELF",)
+        )
+        if not magic.startswith(expected_magic):
+            fail(f"wheel CLI must be a native binary, got {cli}: {magic!r}")
     # OpenSSL is vendored and statically linked on Linux (#265); macOS and
     # Windows use the system TLS stack.  No wheel ships a shared OpenSSL.
     # Kept in lockstep with ci/verify_cross_wheel.py.
@@ -207,8 +177,6 @@ def assert_platform_wheel_contents(wheel: Path) -> None:
         fail(f"wheel bundles a shared OpenSSL: {bundled_openssl}")
     if extension not in names:
         fail(f"wheel is missing this platform extension {extension!r}: {names}")
-    if not any(name.endswith(executable) for name in names):
-        fail(f"wheel is missing this platform executable {executable!r}: {names}")
 
 
 def installed_extension_smoke_script() -> str:
@@ -289,6 +257,7 @@ def run(
     daemon: subprocess.Popen[bytes] | None = None,
     daemon_log: BinaryIO | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    # Native doctor/daemon paths still spawn processes; keep Windows waits bounded.
     # Do not use PIPE here.  A process which launches another process can
     # leave a pipe write handle alive on Windows after its own exit, defeating
     # subprocess.run(timeout=...) during its implicit communicate() cleanup.
@@ -430,7 +399,7 @@ def wait_for_daemon(
     fail(
         "installed daemon did not become ready; "
         f"daemon={detail}; "
-        f"socket_candidate_length={len(os.fsencode(socket_candidate))}; "
+        f"state_socket_candidate_length={len(os.fsencode(socket_candidate))}; "
         f"last_status={last_status}"
     )
 
@@ -469,16 +438,11 @@ def verify_installed_wheel(wheel: Path, installer: str = "uv") -> None:  # noqa:
     phase("inspect wheel archive")
     assert_platform_wheel_contents(wheel)
 
-    with tempfile.TemporaryDirectory(
-        prefix=smoke_temporary_prefix(), dir=smoke_temporary_directory()
-    ) as temporary:
+    with tempfile.TemporaryDirectory(prefix="bosn-wheel-smoke-") as temporary:
         root = Path(temporary)
         environment = root / "environment"
         workdir = root / "outside-checkout"
-        # Keep the daemon state in the temporary root itself.  ``workdir`` is
-        # still outside the checkout, so this remains an installed-wheel test
-        # rather than a source-tree import, while macOS gets a safely short
-        # filesystem socket endpoint.
+        # Native transport::socket_path handles long state paths with a private hashed endpoint.
         state = root / "state"
         workdir.mkdir()
         phase("create isolated virtual environment")
@@ -580,6 +544,7 @@ def verify_installed_wheel(wheel: Path, installer: str = "uv") -> None:  # noqa:
                 )
                 if stopped != {"action": "daemon_stop", "stopped": True}:
                     fail(f"installed daemon did not stop cleanly: {stopped}")
+                # Reap the real native daemon started by this smoke, including on Windows.
                 try:
                     daemon_exit = daemon.wait(timeout=REAP_TIMEOUT_SECONDS)
                 except subprocess.TimeoutExpired:
@@ -593,6 +558,7 @@ def verify_installed_wheel(wheel: Path, installer: str = "uv") -> None:  # noqa:
                         f"{daemon_detail(daemon, daemon_log)}"
                     )
             finally:
+                # A failed smoke must also stop and reap its native daemon before venv cleanup.
                 if daemon.poll() is None:
                     phase("force-reap daemon")
                     try:

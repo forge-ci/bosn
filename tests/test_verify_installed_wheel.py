@@ -15,7 +15,7 @@ import verify_installed_wheel as verifier
 def write_windows_wheel(path: Path, *, tag: str) -> None:
     with zipfile.ZipFile(path, "w") as wheel:
         wheel.writestr("bosn/_native.pyd", b"native-dll")
-        wheel.writestr("bosn-0.1.3.data/scripts/bosn.exe", b"native-cli")
+        wheel.writestr("bosn-0.1.3.data/scripts/bosn.exe", b"MZnative-cli")
         wheel.writestr("bosn-0.1.3.dist-info/WHEEL", f"Wheel-Version: 1.0\nTag: {tag}\n")
 
 
@@ -100,3 +100,28 @@ def test_doctor_smoke_allows_the_bounded_census_deadline(
         }
     ]
     assert verifier.DOCTOR_TIMEOUT_SECONDS > 30
+
+
+@pytest.mark.parametrize(
+    ("member", "content", "message"),
+    [
+        ("bosn-0.1.3.data/scripts/bosn.exe", b"#!python\n", "native binary"),
+        ("bosn.libs/libssl.so.3", b"ssl", "shared OpenSSL"),
+        ("bosn-0.1.3.data/scripts/libcrypto.so.3", b"crypto", "shared OpenSSL"),
+    ],
+)
+def test_windows_archive_rejects_launchers_and_openssl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, member: str, content: bytes, message: str
+) -> None:
+    wheel = tmp_path / "bosn-0.1.3-cp310-abi3-win_amd64.whl"
+    write_windows_wheel(wheel, tag="cp310-abi3-win_amd64")
+    # Replace rather than duplicate ZIP members so the fixture is unambiguous.
+    with zipfile.ZipFile(wheel) as archive:
+        entries = {name: archive.read(name) for name in archive.namelist()}
+    entries[member] = content
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    monkeypatch.setattr(verifier.os, "name", "nt")
+    with pytest.raises(AssertionError, match=message):
+        verifier.assert_platform_wheel_contents(wheel)

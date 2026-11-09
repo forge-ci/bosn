@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -70,3 +71,35 @@ def test_rejects_wrong_filetype() -> None:
             expected_filetype=verifier.MH_EXECUTE,
             name="cli",
         )
+
+
+@pytest.mark.parametrize("triple", sorted(verifier.TARGETS))
+@pytest.mark.parametrize("fault", [None, "launcher", "libssl", "libcrypto", "extension", "tag"])
+def test_darwin_archive_requires_native_binary_and_abi3(
+    tmp_path: Path, triple: str, fault: str | None
+) -> None:
+    target = verifier.TARGETS[triple]
+    (tmp_path / "Cargo.toml").write_text('[workspace.package]\nversion = "0.1.3"\n')
+    tag = f"cp310-abi3-{target.tag}"
+    wheel = tmp_path / f"bosn-0.1.3-{tag}.whl"
+    cli = macho(target, verifier.MH_EXECUTE) + b"bosn 0.1.3"
+    entries = {
+        "bosn/_native.abi3.so": macho(target, verifier.MH_DYLIB),
+        "bosn-0.1.3.data/scripts/bosn": b"#!python\n" if fault == "launcher" else cli,
+        "bosn-0.1.3.dist-info/WHEEL": f"Tag: {tag}\n".encode(),
+        "bosn-0.1.3.dist-info/METADATA": b"Version: 0.1.3\n",
+    }
+    if fault in ("libssl", "libcrypto"):
+        entries[f"bosn.libs/{fault}.dylib"] = b"shared library"
+    elif fault == "extension":
+        entries["bosn/_native.cpython-313-darwin.so"] = entries.pop("bosn/_native.abi3.so")
+    elif fault == "tag":
+        entries["bosn-0.1.3.dist-info/WHEEL"] = f"Tag: cp313-cp313-{target.tag}\n".encode()
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, content in entries.items():
+            archive.writestr(name, content)
+    if fault is None:
+        verifier.verify(wheel, target, tmp_path)
+    else:
+        with pytest.raises(AssertionError):
+            verifier.verify(wheel, target, tmp_path)
