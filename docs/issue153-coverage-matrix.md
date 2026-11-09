@@ -1,6 +1,6 @@
 # Issue #153 migration coverage matrix
 
-This is the Phase 0 inventory for [issue #153](https://github.com/zackees/bosn/issues/153). It records what is implemented in this repository, the evidence that exercises it, and the work that must not be mistaken for release completion. It is not a claim that every Phase 0 or migration exit criterion has passed.
+This is the Phase 0 inventory for [issue #153](https://github.com/forge-ci/bosn/issues/153). It records what is implemented in this repository, the evidence that exercises it, and the work that must not be mistaken for release completion. It is not a claim that every Phase 0 or migration exit criterion has passed.
 
 ## Boundary and ownership
 
@@ -46,9 +46,9 @@ Bosn also deliberately refuses, rather than approximates:
 | --- | --- | --- |
 | Bosn CLI, Python package, and MCP | Implemented as three front ends over the Rust daemon; wheel verifier checks an installed artifact outside the checkout | Re-run installed artifacts on every supported release target. |
 | Bosn legacy Python lifecycle | Removed; no compatibility shim | Real v4 state cutover/reconciliation against a protected Docker fixture remains required before release. |
-| `zackees/Soldr` Bosn workflow | External repository; not modified or verified here | AI-assisted migration plus its focused tests in Soldr. |
+| `forge-ci/soldr` Bosn workflow | External repository; not modified or verified here | AI-assisted migration plus its focused tests in Soldr. |
 | `zackees/clud` scripts/skills | External repository; not modified or verified here | Inventory callers, migrate them, and run focused tests there. |
-| `zackees/kernal-api` Bosn manifest/CI and publishing | External repository; no release change made here | Publish the required crate, change Bosn to the exact published dependency, and verify the downstream manifest/CI. |
+| `forge-ci/kernal-api` Bosn manifest/CI and publishing | External repository; no release change made here | Publish the required crate, change Bosn to the exact published dependency, and verify the downstream manifest/CI. |
 
 ## Bounded gaps and proof gates
 

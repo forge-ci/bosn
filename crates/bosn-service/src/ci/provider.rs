@@ -434,12 +434,12 @@ mod tests {
         assert!(validate(Trigger::Release, Mode::Full, false).is_ok());
         assert!(validate(Trigger::Pr, Mode::Minimal, true).is_ok());
         assert_eq!(
-            repository(Some("https://github.com/zackees/bosn.git")),
-            "zackees/bosn"
+            repository(Some("https://github.com/forge-ci/bosn.git")),
+            "forge-ci/bosn"
         );
         assert_eq!(
-            repository(Some("git@github.com:zackees/bosn.git")),
-            "zackees/bosn"
+            repository(Some("git@github.com:forge-ci/bosn.git")),
+            "forge-ci/bosn"
         );
         assert_eq!(repository(None), "local/repository");
     }

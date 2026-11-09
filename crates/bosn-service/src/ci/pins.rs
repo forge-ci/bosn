@@ -48,7 +48,7 @@ pub fn runner_tag() -> String {
 }
 
 /// The runner image as act2's serve mode loads and proves it (`act serve
-/// prepare`, zackees/act2#67): the pull reference, the engine-local tag, the
+/// prepare`, forge-ci/act2#67): the pull reference, the engine-local tag, the
 /// image tar kept in the cache volume, and the publisher manifest and config
 /// bytes whose digests are the pins. Serve refuses an image that is not them.
 #[derive(Debug, serde::Serialize)]
@@ -95,7 +95,7 @@ pub struct ActArtifact {
 pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
     match architecture {
         "x86_64" | "amd64" => Some(ActArtifact {
-            // act2, zackees' fork of nektos/act (zackees/ci.yml ACT-002):
+            // act2, zackees' fork of nektos/act (forge-ci/ci.yml ACT-002):
             // GitHub-parity RUNNER_ENVIRONMENT, an init in hosted-runner job
             // containers, --workflow-overlay (#424), and ordinary hosted
             // Linux shell/Node identity with preserved Docker socket access,
@@ -138,7 +138,7 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // act2.34 waits for initial recovery catalog contention and names
             // the short enrollment selection catalog probe (act2#95, #96).
             // act2.36 retries contested native tool probes without holding leases (act2#99).
-            url: "https://github.com/zackees/act2/releases/download/v0.2.89-act2.36/act_Linux_x86_64.tar.gz",
+            url: "https://github.com/forge-ci/act2/releases/download/v0.2.89-act2.36/act_Linux_x86_64.tar.gz",
             sha256: "5faef9235421a5a15d20b0c366df3754f83f07b247d31d455cef2bb805b2fa49",
             binary_sha256: "2ce98c3fb7a8c29fb63b1f963b4026196b6a8827929a61f22851c3ec1d07325b",
         }),

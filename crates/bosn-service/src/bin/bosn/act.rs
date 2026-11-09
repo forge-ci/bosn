@@ -254,7 +254,7 @@ fn payload(mut arguments: impl Iterator<Item = OsString>) {
             (
                 "pull_request",
                 json!({"action":"synchronize","number":number,
-                "repository":{"full_name":"zackees/bosn"},
+                "repository":{"full_name":"forge-ci/bosn"},
                 "pull_request":{"number":number,"head":{"sha":sha},
                     "labels":labels.iter().map(|name| json!({"name":name})).collect::<Vec<_>>()}}),
             )
@@ -263,19 +263,19 @@ fn payload(mut arguments: impl Iterator<Item = OsString>) {
             "push",
             json!({
             "ref":"refs/heads/main", "after":sha,
-            "repository":{"full_name":"zackees/bosn"}}),
+            "repository":{"full_name":"forge-ci/bosn"}}),
         ),
         ("release", "full") if pr_number.is_none() => (
             "workflow_dispatch",
             json!({
             "ref":"refs/heads/main", "inputs":{"tier":"full","commit_sha":sha},
-            "repository":{"full_name":"zackees/bosn"}}),
+            "repository":{"full_name":"forge-ci/bosn"}}),
         ),
         _ => fail("unsupported event/mode combination or unexpected --pr-number"),
     };
     println!(
         "{}",
-        json!({"schema_version":1,"repository":"zackees/bosn",
+        json!({"schema_version":1,"repository":"forge-ci/bosn",
         "workflow":".github/workflows/ci.yml","github_event":github_event,
         "mode":mode,"sha":sha,"payload":payload,"executable":false,
         "reason":"event adapter only; isolated Docker engine and job coverage report are required"})

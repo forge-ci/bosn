@@ -96,7 +96,7 @@ def test_required_status_names_remain() -> None:
     # It always runs on PR, queue and dispatch events, except that an attested,
     # trusted PR head may skip it (GATE-008/010, ci-attestations.yml); a
     # skipped required check passes. A main push skips it too -- the merge
-    # queue proved the tree (zackees/ci.yml#432) -- and its remote cache save
+    # queue proved the tree (forge-ci/ci.yml#432) -- and its remote cache save
     # moved to the push-only cache-writer job.
     assert jobs["rust"]["if"] == "needs.verify.outputs.skip_rust != 'true'"
 

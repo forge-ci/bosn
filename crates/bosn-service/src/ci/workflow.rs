@@ -148,7 +148,7 @@ mod tests {
             "jobs:\n  cache-budget:\n    steps:\n      - run: echo local\n",
         )
         .unwrap();
-        let result = declared(root.path(), ".github/workflows/entry.yml", "zackees/bosn");
+        let result = declared(root.path(), ".github/workflows/entry.yml", "forge-ci/bosn");
         assert_eq!(result.remote_only.len(), 1);
         assert!(result.remote_only.contains_key("maintenance/cache-budget"));
         assert!(!result.remote_only.contains_key("validation/cache-budget"));
@@ -174,7 +174,7 @@ mod tests {
                 format!("jobs:\n  caller:\n    uses: '{uses}'\n"),
             )
             .unwrap();
-            let result = declared(root.path(), ".github/workflows/entry.yml", "zackees/bosn");
+            let result = declared(root.path(), ".github/workflows/entry.yml", "forge-ci/bosn");
             assert!(!result.errors.is_empty(), "{uses}");
             assert!(result.needs_qualified_identity, "{uses}");
         }
@@ -189,12 +189,12 @@ mod tests {
         )
         .unwrap();
         assert!(
-            !declared(root.path(), "oversized.yml", "zackees/bosn")
+            !declared(root.path(), "oversized.yml", "forge-ci/bosn")
                 .errors
                 .is_empty()
         );
         assert!(
-            !declared(root.path(), "absent.yml", "zackees/bosn")
+            !declared(root.path(), "absent.yml", "forge-ci/bosn")
                 .errors
                 .is_empty()
         );
@@ -207,7 +207,7 @@ mod tests {
         std::fs::write(root.path().join("original.yml"), "jobs: {}\n").unwrap();
         std::os::unix::fs::symlink("original.yml", root.path().join("alias.yml")).unwrap();
         assert!(
-            !declared(root.path(), "alias.yml", "zackees/bosn")
+            !declared(root.path(), "alias.yml", "forge-ci/bosn")
                 .errors
                 .is_empty()
         );

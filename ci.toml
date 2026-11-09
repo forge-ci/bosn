@@ -1,8 +1,8 @@
 # ci.toml — this repository's CI contract. Checked and planned by ci-lint
-# (zackees/ci.yml). Nothing here generates YAML: it bounds what the YAML may
+# (forge-ci/ci.yml). Nothing here generates YAML: it bounds what the YAML may
 # do and decides what each run selects.
 #
-# First declaration for this repository (zackees/ci.yml#335). Every platform,
+# First declaration for this repository (forge-ci/ci.yml#335). Every platform,
 # runner and cache family below was read off the existing workflows and the
 # live cache listing. Where the YAML and this file disagree, the YAML is right
 # and this file is the bug.
@@ -11,7 +11,7 @@
 # `local-gate.toml`, and declaring both is a GATE-001 violation.
 schema  = 3
 profile = "rust-pypi-app"
-linter  = "zackees/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e"
+linter  = "forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e"
 
 # ── Platforms ────────────────────────────────────────────────────────────────
 # Linux is the only native CI host here: every ci.yml job runs `ubuntu-latest`.
@@ -63,7 +63,7 @@ budget    = { critical-path = "8m" }
 # `pre-prune` is deliberately ABSENT from both writer flows (`main`, `nightly`).
 # It was declared but never honoured: no workflow here ever runs
 # `ci-lint cache preprune`, and CACHE-004's arithmetic waives the lockfile-change
-# peak purely on that declaration (zackees/ci.yml#352, rule CACHE-034). Removing
+# peak purely on that declaration (forge-ci/ci.yml#352, rule CACHE-034). Removing
 # it makes the number honest: worst case 4.24GB -> 7.80GB, still inside the 9GB
 # budget, so CACHE-004 keeps passing. Restoring `pre-prune = true` requires adding
 # a real pre-prune step ahead of the first `forge-ci/setup-soldr` save in `ci.yml`
@@ -102,7 +102,7 @@ max-age-hours = 24
 
 # ── Cache ────────────────────────────────────────────────────────────────────
 # Families and sizes measured from the live listing
-# (`gh api repos/zackees/bosn/actions/caches`, 2026-10-05).
+# (`gh api repos/forge-ci/bosn/actions/caches`, 2026-10-05).
 [cache]
 budget   = "9GB"
 write-on = ["main"]
@@ -130,7 +130,7 @@ ancestor   = { via = "setup-soldr:ancestor-build", max = "260MB", per = "platfor
 # janitor keeps them; closed PRs' entries are still reclaimed.
 attest     = { prefix = "att1-",                   max = "1MB" }
 
-# Ancestor promotion (CACHE-024, zackees/ci.yml#335). Standardizing on
+# Ancestor promotion (CACHE-024, forge-ci/ci.yml#335). Standardizing on
 # setup-soldr's ancestor encoding -- shortest parent-edge distance from a live
 # git DAG walk -- rather than a first-parent ordinal, which INVERTS on wide
 # merges: a 50-commit branch tip reports ordinal 53 while the merge commit

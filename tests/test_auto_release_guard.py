@@ -81,7 +81,7 @@ def green_run(sha: str = SHA, overrides: dict[str, object] | None = None) -> dic
         "display_title": f"CI full {sha}",
         "status": "completed",
         "conclusion": "success",
-        "html_url": "https://github.com/zackees/bosn/actions/runs/7",
+        "html_url": "https://github.com/forge-ci/bosn/actions/runs/7",
     }
     run.update(overrides or {})
     return run

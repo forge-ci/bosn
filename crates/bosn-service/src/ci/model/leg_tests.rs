@@ -258,7 +258,7 @@ fn doubly_nested_remote_only_jobs_are_reported_with_their_reasons() {
         "jobs:\n  budget:\n    runs-on: ubuntu-latest\n    env:\n      CI_REMOTE_ONLY: reads the cache budget from the GitHub API\n    steps:\n      - run: echo remote\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo local\n",
     )
     .unwrap();
-    let declared = workflow::declared(root.path(), ".github/workflows/entry.yml", "zackees/bosn");
+    let declared = workflow::declared(root.path(), ".github/workflows/entry.yml", "forge-ci/bosn");
     assert!(declared.errors.is_empty(), "{:?}", declared.errors);
     assert_eq!(
         declared
@@ -334,7 +334,7 @@ fn a_fully_green_direct_and_reusable_run_receives_a_zero_exit_receipt() {
         "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n",
     )
     .unwrap();
-    let declared = workflow::declared(root.path(), ".github/workflows/entry.yml", "zackees/bosn");
+    let declared = workflow::declared(root.path(), ".github/workflows/entry.yml", "forge-ci/bosn");
     assert!(declared.errors.is_empty(), "{:?}", declared.errors);
     assert!(declared.needs_qualified_identity);
     let lines = [

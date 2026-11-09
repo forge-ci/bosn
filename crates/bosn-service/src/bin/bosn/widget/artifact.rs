@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 const TARGET: &str = "x86_64-unknown-linux-gnu";
 const MAX_BINARY: u64 = 256 << 20;
-const API: &str = "https://api.github.com/repos/zackees/bosn";
+const API: &str = "https://api.github.com/repos/forge-ci/bosn";
 
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
@@ -216,7 +216,7 @@ async fn install_release(destination: PathBuf) -> io::Result<PathBuf> {
         return Err(invalid("invalid desktop release commit identity"));
     }
     let bytes = download(
-        &format!("https://github.com/zackees/bosn/releases/download/{tag}/{name}"),
+        &format!("https://github.com/forge-ci/bosn/releases/download/{tag}/{name}"),
         MAX_BINARY,
     )
     .await?;

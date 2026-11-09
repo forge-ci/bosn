@@ -103,12 +103,12 @@ def test_ci_verifies_with_the_ci_lint_the_gate_runs() -> None:
     pin = next(
         step["with"]["ref"]
         for step in WORKFLOW["jobs"]["verify"]["steps"]
-        if step.get("with", {}).get("repository") == "zackees/ci.yml"
+        if step.get("with", {}).get("repository") == "forge-ci/ci.yml"
     )
     checkout = next(
         step
         for step in WORKFLOW["jobs"]["verify"]["steps"]
-        if step.get("with", {}).get("repository") == "zackees/ci.yml"
+        if step.get("with", {}).get("repository") == "forge-ci/ci.yml"
     )
     assert checkout["with"]["ref"] == pin
     assert pin in (ROOT / "local-gate.toml").read_text(encoding="utf-8")

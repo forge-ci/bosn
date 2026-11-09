@@ -1,6 +1,6 @@
 #!/bin/sh
 # Cargo runs every test binary through this guard (.cargo/config.toml;
-# zackees/ci.yml GATE-005, bosn#361). bosn's tests start bosn daemons and touch
+# forge-ci/ci.yml GATE-005, bosn#361). bosn's tests start bosn daemons and touch
 # bosn state roots, so a test binary (one under target/*/deps/) runs only in
 # CI (CI=true: GitHub runners and act) or in the isolated bosn container,
 # which sets BOSN_TEST_ISOLATED. Anything else (`cargo run`) runs as usual.

@@ -1,4 +1,4 @@
-//! Jobs that can only run on GitHub never fail a local run (zackees/ci.yml
+//! Jobs that can only run on GitHub never fail a local run (forge-ci/ci.yml
 //! GATE-012, #400).
 //!
 //! act runs a job in a Linux container with no GitHub backend, so some jobs
@@ -39,7 +39,7 @@ use super::workflow::{Job, Permissions};
 pub const MARKER: &str = "CI_REMOTE_ONLY";
 
 /// GATE-012's act-impossible actions: a `uses:` prefix and why act cannot
-/// run it. Extend together with zackees/ci.yml's registry.
+/// run it. Extend together with forge-ci/ci.yml's registry.
 pub const ACTIONS: &[(&str, &str)] = &[
     (
         "github/codeql-action/",
@@ -356,7 +356,7 @@ mod tests {
         super::super::checkout::localize(
             &source,
             &output,
-            "zackees/act2",
+            "forge-ci/act2",
             &Default::default(),
             &mut changes,
         )
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(changes.inactive_remote_steps, 1);
         assert_eq!(test.steps[1].condition, Some(Value::Bool(false)));
         // Runtime conclusions read the frozen original, not the overlay.
-        let declared = super::super::workflow::declared(root.path(), "checks.yml", "zackees/act2");
+        let declared = super::super::workflow::declared(root.path(), "checks.yml", "forge-ci/act2");
         assert!(declared.remote_only.is_empty());
     }
 
@@ -427,16 +427,19 @@ mod tests {
             "false",
             "${{ false }}",
             "github.repository == 'nektos/act'",
-            "${{ github.repository != 'ZACKEES/ACT2' }}",
+            "${{ github.repository != 'forge-ci/act2' }}",
         ] {
             assert!(
-                inactive(Some(&Value::String(condition.into())), Some("zackees/act2")),
+                inactive(
+                    Some(&Value::String(condition.into())),
+                    Some("forge-ci/act2")
+                ),
                 "{condition}"
             );
         }
         for condition in [
             "true",
-            "github.repository == 'ZACKEES/ACT2'",
+            "github.repository == 'forge-ci/act2'",
             "github.repository != 'nektos/act'",
             "github.repository == 'nektos/act' || true",
             "github.repository == inputs.repository",
@@ -448,7 +451,10 @@ mod tests {
             "contains(github.repository, 'act')",
         ] {
             assert!(
-                !inactive(Some(&Value::String(condition.into())), Some("zackees/act2")),
+                !inactive(
+                    Some(&Value::String(condition.into())),
+                    Some("forge-ci/act2")
+                ),
                 "{condition}"
             );
         }

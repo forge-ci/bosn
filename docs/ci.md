@@ -325,7 +325,7 @@ opened once, at its final size, and then reused:
   doubling up to 60 s, instead of stopping the script; it recovers by itself
   once placement applies. No fixed top-left or
   compositor-default center position is requested. A portable work-area
-  capability remains tracked in zackees/kernal-api#393.
+  capability remains tracked in forge-ci/kernal-api#393.
 - The activity panel always opens when asked; it never waits on placement.
   It asks to stay above other windows. Where the placement script runs, the
   script puts it in the corner. Elsewhere, or with a stalled script, it opens
@@ -350,13 +350,13 @@ remove that bubble-only position rule to use automatic placement. The script
 can be disabled in KDE's Window Management → KWin Scripts settings.
 
 On Wayland, size every window when it opens. A later resize is not applied on
-some hosts (zackees/kernal-api#390). Compositor-anchored placement without a
-rule is zackees/kernal-api#389.
+some hosts (forge-ci/kernal-api#390). Compositor-anchored placement without a
+rule is forge-ci/kernal-api#389.
 
 ## Fleet adapter plan (`bosn ci plan --adapter`)
 
 `bosn ci plan --adapter RELATIVE_JSON` prints the fleet adapter V1 plan
-(zackees/soldr#3345) as one JSON object on stdout (`"action":
+(forge-ci/soldr#3345) as one JSON object on stdout (`"action":
 "act_adapter_plan"`). It is read-only: it observes the checkout's HEAD and
 cleanliness, reads the committed adapter declaration and the workflows it names,
 and resolves the requested event into its declared cells and event payload. It
@@ -456,7 +456,7 @@ labels.
 
 ## Jobs only GitHub can run (`remote_only`)
 
-Some jobs cannot run under act at all (zackees/ci.yml GATE-012, #400). A job
+Some jobs cannot run under act at all (forge-ci/ci.yml GATE-012, #400). A job
 that asks the GitHub API about its own run gets a 404, because act's
 `github.run_id` is a local ID. A job that needs an OIDC token, or a
 GitHub-side service, cannot run either. `bosn ci` treats a job as remote-only
@@ -509,8 +509,8 @@ stubbed job.
   every daemon and state directory, runs in one long-lived engine; there is
   no per-run engine. The engine is an ordinary owned engine, made once by one
   daemon (which installs act in it) and held under that daemon's claim. act2's
-  serve mode ([act2#62](https://github.com/zackees/act2/issues/62),
-  [act2#67](https://github.com/zackees/act2/issues/67)) owns everything
+  serve mode ([act2#62](https://github.com/forge-ci/act2/issues/62),
+  [act2#67](https://github.com/forge-ci/act2/issues/67)) owns everything
   CI-specific inside it. Bosn starts `act serve` once per engine (under a
   lock, so a second serve never reaps the first's runs) and forwards:
   - `act serve prepare`: the pinned runner image (loaded from its tar in the
@@ -994,7 +994,7 @@ These are tracked in #323:
 
 - Cross-repository sharing of compiler caches (zccache/soldr) outside
   `actions/cache`.
-- Compositor-anchored widget placement without a KWin rule (zackees/kernal-api#389), and a bottom-right default placement elsewhere (zackees/kernal-api#393).
+- Compositor-anchored widget placement without a KWin rule (forge-ci/kernal-api#389), and a bottom-right default placement elsewhere (forge-ci/kernal-api#393).
 - GitLab.
 
 ## Execution capability qualification (ci.yml#362)
@@ -1022,12 +1022,12 @@ alone does not qualify a skip; ci-lint must verify source-bound execution eviden
 ### Historical Bosn 0.1.16 provider
 
 Bosn 0.1.16 pins published `v0.2.89-act2.13` from
-[act2 PR #54](https://github.com/zackees/act2/pull/54), adding selected output
+[act2 PR #54](https://github.com/forge-ci/act2/pull/54), adding selected output
 evidence to the qualified identity and step-result contracts. Full CI passed
 on exact merged commit `0354c17e437066c43727be259450b5bbd1a9bb31`
-([run 37593921290](https://github.com/zackees/act2/actions/runs/37593921290));
+([run 37593921290](https://github.com/forge-ci/act2/actions/runs/37593921290));
 the existing release workflow
-([run 37595328315](https://github.com/zackees/act2/actions/runs/37595328315))
+([run 37595328315](https://github.com/forge-ci/act2/actions/runs/37595328315))
 completed successfully. The downloaded Linux x86_64 archive matches the
 publisher's `checksums.txt`:
 `a219d5539358d0df0088ca59f7e2aafde2f7d9701f92fda402c63b19116496c7`.
@@ -1038,7 +1038,7 @@ capabilities even with a nonexistent workflow path and Docker socket.
 That provider was released with Bosn 0.1.16. Clud's recorded local run,
 unchanged-tree reuse, exact-head publication, five hosted job skips, and required
 `CI OK` success are documented in
-[ci.yml#362](https://github.com/zackees/ci.yml/issues/362).
+[ci.yml#362](https://github.com/forge-ci/ci.yml/issues/362).
 
 Released Bosn 0.1.17 pins published `v0.2.89-act2.14`, which adds exact local
 cache deletion and protects action checkout readers. The 0.1.18 candidate pins
@@ -1051,7 +1051,7 @@ the earlier Clud proof does not qualify a new provider automatically.
 
 ### Selected planner outputs
 
-The implementation for [act2 PR #54](https://github.com/zackees/act2/pull/54)
+The implementation for [act2 PR #54](https://github.com/forge-ci/act2/pull/54)
 adds explicit `--ci-output <job/path>:<output>` requests to Bosn CI plans and
 MCP run arguments. Requests are typed, bounded, included in run identity, and
 forwarded to act2. Before executing a plan with requests, Bosn requires the

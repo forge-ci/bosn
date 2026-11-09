@@ -14,7 +14,7 @@ full platform matrix. CI never schedules a hosted macOS runner (decided
 runs the required `Desktop widget (Linux, WebKitGTK)` job, selected by
 `ci/select_ci_tier.py`; `ci-widget` forces it otherwise. Before **any** tag or release, full CI must pass
 on the exact candidate commit SHA. See [CI tiers and queue cost](docs/ci-queue-slo.md) and the
-[fleet rollout issue](https://github.com/zackees/soldr/issues/3345).
+[fleet rollout issue](https://github.com/forge-ci/soldr/issues/3345).
 
 **One required check: `CI summary` (decided 2026-11-01, #803).** Classic branch
 protection on `main` requires only `CI summary` (`ci/ci_summary.py`), and the `main merge
@@ -157,7 +157,7 @@ living implementation spec.
 
 - **Only `bosn` is published.** `crates/bosn` is a facade that, in the workspace,
   re-exports the internal crates (`bosn::core`, `engine`, `generation`, `registry`,
-  `setup`, `service`). `ci/publish_amalgamate.py` (zackees/zccache's approach) rewrites it
+  `setup`, `service`). `ci/publish_amalgamate.py` (forge-ci/zccache's approach) rewrites it
   into one self-contained crate: each internal crate's `src/` becomes a module, paths are
   rewritten, the `bosn` CLI binary is carried across, test fixtures reached by
   `include_str!` are relocated, and internal dependencies are stripped. Every internal crate
@@ -648,9 +648,9 @@ reported by `bosn ci doctor`. An enrolled cohort policy replaces this budget.
 Don't raise the budget to avoid a cold cache; see `docs/ci.md` "Shared cache
 budget". There is no Bosn-side pass.
 
-## Design principles (fleet directives, zackees/ci.yml#163)
+## Design principles (fleet directives, forge-ci/ci.yml#163)
 
-Agent and review guidance from zackees/ci.yml `docs/policy-rust.md` ("Design principles, narrowed"). Not enforced by ci-lint; no rule ID.
+Agent and review guidance from forge-ci/ci.yml `docs/policy-rust.md` ("Design principles, narrowed"). Not enforced by ci-lint; no rule ID.
 
 1. **Search before you add.** Before adding a resolver, detector, predicate, guard or path helper, `rg` for an existing one. Reuse it, or say in the PR why it does not fit.
 2. **Conflicting implementations get a research issue, not an inline winner.** If the same concept is implemented more than once with observably different behaviour and fixing it needs a design decision, file `research: N conflicting implementations of X -- which is canonical?` listing every copy (`file:line`) and what the difference does to real input; cross-reference it and carry on with your task. Copies that behave identically are a refactor, not an issue.

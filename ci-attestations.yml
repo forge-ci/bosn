@@ -1,4 +1,4 @@
-# ci-attestations (zackees/ci.yml#198, GATE-010; bosn#361 phase 2).
+# ci-attestations (forge-ci/ci.yml#198, GATE-010; bosn#361 phase 2).
 #
 # Each gate is one thing CI would otherwise verify remotely, named by the
 # platform schema path <ecosystem>/<platform>/<check>. `lane` is the

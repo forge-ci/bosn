@@ -4,7 +4,7 @@
  "provider": "github",
  "engine": "act",
  "workspace": "/work/repo",
- "repository": "zackees/bosn",
+ "repository": "forge-ci/bosn",
  "sha": "159362d178c503cc738d52dd6071b8e7002bb435",
  "branch": "feat/323-ci-p1-gaps",
  "dirty": "368038d26eaee133c8b3f83fbe935f8948787070bfffea7b1517883b7fcfb4d4",

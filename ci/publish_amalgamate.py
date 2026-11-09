@@ -8,7 +8,7 @@ paths between them, carries the `bosn` CLI binary across, and strips the
 internal dependencies from the manifest. The internal crates stay
 `publish = false`.
 
-The same approach as zackees/zccache's `ci/publish_amalgamate.py`. It rewrites
+The same approach as forge-ci/zccache's `ci/publish_amalgamate.py`. It rewrites
 the tree in place, so run it in a disposable checkout, never the working copy:
 
     git worktree add ../bosn-publish HEAD

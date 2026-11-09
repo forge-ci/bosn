@@ -1,4 +1,4 @@
-//! act's tool cache, owned by act2's serve mode (zackees/act2#67).
+//! act's tool cache, owned by act2's serve mode (forge-ci/act2#67).
 //!
 //! act mounts its `act-toolcache` volume at `/opt/hostedtoolcache` in every
 //! job container. Serve seeds it once per engine from the machine-wide copy

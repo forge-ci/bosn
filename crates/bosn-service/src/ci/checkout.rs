@@ -354,14 +354,14 @@ mod tests {
     #[test]
     fn a_pinned_checkout_of_another_repository_is_fetched_without_a_token() {
         let (localized, document) = rewrite(&format!(
-            "on: [push]\njobs:\n  a:\n    steps:\n      - name: lint rules\n        if: always()\n        uses: actions/checkout@v4\n        with:\n          repository: zackees/ci.yml\n          ref: {PIN}\n          path: .ci-lint\n          persist-credentials: false\n          sparse-checkout: ci_lint\n      - uses: actions/checkout@v4\n        with:\n          repository: zackees/ci.yml\n          ref: {PIN}\n"
+            "on: [push]\njobs:\n  a:\n    steps:\n      - name: lint rules\n        if: always()\n        uses: actions/checkout@v4\n        with:\n          repository: forge-ci/ci.yml\n          ref: {PIN}\n          path: .ci-lint\n          persist-credentials: false\n          sparse-checkout: ci_lint\n      - uses: actions/checkout@v4\n        with:\n          repository: forge-ci/ci.yml\n          ref: {PIN}\n"
         ));
         assert_eq!(localized.own, 0);
         assert_eq!(
             localized.pinned,
             vec![
-                format!("zackees/ci.yml@{PIN}"),
-                format!("zackees/ci.yml@{PIN}")
+                format!("forge-ci/ci.yml@{PIN}"),
+                format!("forge-ci/ci.yml@{PIN}")
             ]
         );
         let steps = document["jobs"]["a"]["steps"].as_sequence().unwrap();
@@ -376,7 +376,7 @@ mod tests {
         let script = step["run"].as_str().unwrap();
         assert!(
             script.contains(&format!(
-                "fetch --quiet --depth 1 https://github.com/zackees/ci.yml.git {PIN}"
+                "fetch --quiet --depth 1 https://github.com/forge-ci/ci.yml.git {PIN}"
             )),
             "{script}"
         );
@@ -390,7 +390,7 @@ mod tests {
         );
         assert_eq!(
             steps[1]["name"],
-            format!("actions/checkout zackees/ci.yml@{PIN}"),
+            format!("actions/checkout forge-ci/ci.yml@{PIN}"),
             "an unnamed step is named after what it fetches"
         );
         assert!(

@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Bump Bosn's release version, the way zackees/zccache and zackees/soldr do.
+"""Bump Bosn's release version, the way forge-ci/zccache and forge-ci/soldr do.
 
 The version is written in one place: `[workspace.package].version` in the root
 Cargo.toml. Everything else derives from it:

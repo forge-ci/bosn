@@ -337,7 +337,7 @@ mod tests {
     #[test]
     fn external_links_touch_no_window() {
         let mut layout = Layout::default();
-        let url = "https://github.com/zackees/bosn".to_string();
+        let url = "https://github.com/forge-ci/bosn".to_string();
         assert_eq!(
             apply(
                 &mut layout,

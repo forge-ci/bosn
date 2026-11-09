@@ -151,7 +151,7 @@ reports and stable exit codes for agents) is in [docs/ci.md](docs/ci.md).
 Before pushing this repository, run its gate from a clean, committed checkout:
 
 ```bash
-uvx --from git+https://github.com/zackees/ci.yml@86b63937960d00655f7ef3752ef6f15b6b06f35b ci-lint local-gate run
+uvx --from git+https://github.com/forge-ci/ci.yml@86b63937960d00655f7ef3752ef6f15b6b06f35b ci-lint local-gate run
 ```
 
 The heavy lanes require Bosn 0.1.12 or later and replay the Rust checks and

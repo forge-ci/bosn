@@ -466,7 +466,7 @@ impl DockerActBackend {
             _ => None,
         };
         args.extend(legacy_lease::command(legacy));
-        // In a scope, act runs under `act serve` (zackees/act2#62), inside
+        // In a scope, act runs under `act serve` (forge-ci/act2#62), inside
         // the run's cgroup; this client holds the lease while it streams.
         if let Some(scope) = &invocation.scope {
             args.extend(scope.exec_args(secrets.0.iter().map(|(name, _)| name.as_str())));

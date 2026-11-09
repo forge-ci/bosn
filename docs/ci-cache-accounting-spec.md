@@ -26,13 +26,13 @@ current rollout status. No new Bosn release is claimed.
 
 Merged implementation evidence:
 
-- Foundation [PR #473](https://github.com/zackees/bosn/pull/473):
+- Foundation [PR #473](https://github.com/forge-ci/bosn/pull/473):
   `b23398ae`, owned footprint and private-storage reconciliation.
-- Retention/startup [PR #483](https://github.com/zackees/bosn/pull/483):
+- Retention/startup [PR #483](https://github.com/forge-ci/bosn/pull/483):
   `0f9c2302bd172e5492015c18b196bac6775f6cde`, including the act2.7 pin, tool
   publication corrections, policy discovery, current inventory and startup
   maintenance. These changes are on main, rather than only a candidate.
-- Routing admission [PR #485](https://github.com/zackees/bosn/pull/485):
+- Routing admission [PR #485](https://github.com/forge-ci/bosn/pull/485):
   `d24c25d676b94910ece3141788fa340ea33a8b10`; required remote checks passed.
 
 Act2 v0.2.89-act2.7 was released from
@@ -45,7 +45,7 @@ checksums and the reported version match the main pin. This release includes
 empty-cutover correction and historical publication receipts; historical receipt
 parsing alone cannot authorize enrollment.
 
-The cache lifecycle follow-up [PR #486](https://github.com/zackees/bosn/pull/486)
+The cache lifecycle follow-up [PR #486](https://github.com/forge-ci/bosn/pull/486)
 is merged at `d0b313fdf80c121d3fe213720779702fcde1ca92`. Its exact-source gate
 passed (Rust397s, Linux305s, total702s; tree
 `3580afa77edd7db51100ed9623265fa14a11d562`) and required remote checks passed.
@@ -103,7 +103,7 @@ incomplete uploads expire after five minutes, and superseded entries have a
 five-minute grace period. GC runs when the server starts and at most hourly
 while it handles requests. It has no byte ceiling. Therefore an idle namespace
 receives no maintenance and heavy weekly use can still grow very large.
-Evidence: [the pinned act2 handler](https://github.com/zackees/act2/blob/v0.2.89-act2.3/pkg/artifactcache/handler.go).
+Evidence: [the pinned act2 handler](https://github.com/forge-ci/act2/blob/v0.2.89-act2.3/pkg/artifactcache/handler.go).
 Bosn must coordinate with this metadata rather than delete archive files by
 creation time and call that LRU. A live archive transfer also needs explicit
 protection when multiple servers share a namespace.
@@ -708,7 +708,7 @@ does not prove actual SIGKILL handling or Bosn supervision.
 ### Candidate handoff and graceful cancellation
 
 The act2 implementation is published for review as draft
-[act2 PR #22](https://github.com/zackees/act2/pull/22), head `8a2e84f`.
+[act2 PR #22](https://github.com/forge-ci/act2/pull/22), head `8a2e84f`.
 The complete candidate diff and the graceful-interrupt follow-up passed the
 single-reviewer local gate. A fresh full artifactcache race run passed in
 16.778 seconds; focused CLI policy/offline/watcher race tests and pinned lint
@@ -2196,7 +2196,7 @@ Linux 286s), stamped `6d1b8a77fd0cb2036c811548830cc8de41dee65c` for tree
 remote PR checks passed. No Bosn release was made.
 
 The act2 candidate `01a69fa`, published in
-[act2 PR #31](https://github.com/zackees/act2/pull/31), creates a per-generation
+[act2 PR #31](https://github.com/forge-ci/act2/pull/31), creates a per-generation
 `.readers-v1.bolt` coordination file in the private stage before directory sync
 and atomic publication. Reuse refuses missing reader coordination. The typed
 `AcquireToolGenerationLease` API validates a canonical established store,
@@ -2286,12 +2286,12 @@ and physical ceilings. The original broad shared-cache/expiry goal remains open.
 
 ### Engine-owned reader descriptor: actual init-chain experiment (2026-10-04)
 
-The reader-contract follow-up is merged in [Bosn PR #488](https://github.com/zackees/bosn/pull/488)
+The reader-contract follow-up is merged in [Bosn PR #488](https://github.com/forge-ci/bosn/pull/488)
 at `5fb7adbd74ccf964ba966156636f72773df4956a`. Its exact-source local gate
 passed in 605 seconds (Rust 304 seconds; Linux Docker tests 301 seconds),
-and required remote checks passed. [Act2 PR #31](https://github.com/zackees/act2/pull/31)
+and required remote checks passed. [Act2 PR #31](https://github.com/forge-ci/act2/pull/31)
 is merged at `adefc9f75bfbb789ac54aa18bd1546bcf6cc04d1`; the exact-merge
-[full CI run](https://github.com/zackees/act2/actions/runs/37215686314) passed. No release or Bosn pin update is claimed for that merge.
+[full CI run](https://github.com/forge-ci/act2/actions/runs/37215686314) passed. No release or Bosn pin update is claimed for that merge.
 
 A new private-Docker experiment tests the engine-owned descriptor approach
 through the actual current `ENGINE_INIT` body, then `docker-init`, then
@@ -2339,7 +2339,7 @@ large-cache admission remain implementation work.
 
 ### Native admission and exec handoff (implemented candidate, 2026-10-04)
 
-[Act2 PR #32](https://github.com/zackees/act2/pull/32), candidate
+[Act2 PR #32](https://github.com/forge-ci/act2/pull/32), candidate
 `7fd5beef176674b7f71f5bcfc062c5ad1b118897`, adds:
 
 ```sh
@@ -2398,14 +2398,14 @@ physical accounting and image/container/scoped build-cache expiry remain require
 
 ### Durable warm selection and concurrent completed-install updates (candidate, 2026-10-04)
 
-The native handoff spec is merged in [Bosn PR #490](https://github.com/zackees/bosn/pull/490),
+The native handoff spec is merged in [Bosn PR #490](https://github.com/forge-ci/bosn/pull/490),
 merge `eafc7975840567fe0407533c64955a7b80e97185`, after the exact-source
 local gate passed in 525 seconds and required remote checks passed. Native
-handoff code is merged in [act2 PR #32](https://github.com/zackees/act2/pull/32),
+handoff code is merged in [act2 PR #32](https://github.com/forge-ci/act2/pull/32),
 merge `09d1ad66486e04514d651362f4c0a155bc9ac7f5`; no release or Bosn pin
 update for that merge is claimed.
 
-[Act2 PR #33](https://github.com/zackees/act2/pull/33), candidate
+[Act2 PR #33](https://github.com/forge-ci/act2/pull/33), candidate
 `3dd0deddbb4b99f589638a7c575453f169af0759`, implements selection separately
 from immutable generation publication:
 
@@ -2481,7 +2481,7 @@ publication, old image/container expiry and scoped builder pressure remain open.
 
 ### Bounded tool-store inode accounting (act2 PR #34)
 
-Implementation: https://github.com/zackees/act2/pull/34, candidate
+Implementation: https://github.com/forge-ci/act2/pull/34, candidate
 `84511a0b61f6461af0487f65f30fc562846ee5ec` (unreleased). Linux API
 `AuditToolStoreUsage(ctx, root, maxEntries)` and command
 `act cache tool-usage --cache-server-path STORE --max-entries N` inventory a
@@ -2544,7 +2544,7 @@ pressure remain required. No shared object was deleted for this accounting slice
 
 ### Coordinated generation retirement (act2 PR #35)
 
-Implementation: https://github.com/zackees/act2/pull/35, candidate
+Implementation: https://github.com/forge-ci/act2/pull/35, candidate
 `f8709458548f5510264babb96f58baee6a0b9c15` (unreleased). Linux API
 `RetireToolGeneration(ctx, root, id, maxBytes)` removes one explicitly eligible
 unselected generation. The caller must establish age/pressure eligibility; this
@@ -3799,7 +3799,7 @@ Full remote CI must establish the release candidate gate in its normal test
 fixture before any release. No tests or assertions were weakened.
 
 The clean reviewed recovery candidate was pushed as act2 PR #50:
-https://github.com/zackees/act2/pull/50
+https://github.com/forge-ci/act2/pull/50
 at exact head `802f5ab09ba44c26e6088b14c7598750a8acec23`.
 The PR body discloses the private-environment full CLI failure and incomplete
 Bosn enrollment. Existing remote full checks are the next verification gate;
@@ -3897,7 +3897,7 @@ required before activation. No source-stop or removal authority is added here.
 All act2 PR #50 checks passed on reviewed head `802f5ab` and the PR merged as
 `6c7ae11a0917c24e88035764c4de3f097dcd6c8f`. Existing full checks were dispatched
 on that exact default-branch commit as run `37241691702`:
-https://github.com/zackees/act2/actions/runs/37241691702
+https://github.com/forge-ci/act2/actions/runs/37241691702
 The run is in progress. The candidate is not released or pinned by Bosn yet;
 exact default-branch CI and release artifact verification remain mandatory.
 
@@ -3974,7 +3974,7 @@ tag `v0.2.89-act2.10` was pushed. Tag object
 `fa12b182110e83ce8f01d9ae2b63d8948e6fd7a6` peels to tested default-branch commit
 `6c7ae11a0917c24e88035764c4de3f097dcd6c8f`. The existing Go tag release workflow
 is in progress as run `37242493394`:
-https://github.com/zackees/act2/actions/runs/37242493394
+https://github.com/forge-ci/act2/actions/runs/37242493394
 Release completion, independent archive/executable digests, architecture and
 embedded-version verification remain pending. Bosn's shipped pin is unchanged.
 
@@ -4091,8 +4091,8 @@ environment and a host run is not the gate.
 
 Act2 `v0.2.89-act2.14` is published from exact default-branch candidate
 `6ec60ce6f3de3fa1fe827d2ccf5b00b1b20294db`. All five full qualification jobs
-passed in [run 37627801434](https://github.com/zackees/act2/actions/runs/37627801434);
-existing tag-triggered [publication 37629524141](https://github.com/zackees/act2/actions/runs/37629524141)
+passed in [run 37627801434](https://github.com/forge-ci/act2/actions/runs/37627801434);
+existing tag-triggered [publication 37629524141](https://github.com/forge-ci/act2/actions/runs/37629524141)
 also passed. The consumed Linux x86_64 archive matches published checksums:
 `8549dea52bccef8784754ab8f1ca3ef917ecae710b0adbe0b71d4aa5e58a27aa`.
 Its extracted executable SHA-256 is
@@ -4103,14 +4103,14 @@ qualified jobs, step results, selected outputs and `cache-exact-delete-v1`.
 The server implements exact local deletion through its existing durable
 journal, preserving other keys and incomplete entries and refusing busy
 transfers. Shared ci-lint owns backend selection and receipt validation;
-[ci.yml PR #370](https://github.com/zackees/ci.yml/pull/370) uses that service
+[ci.yml PR #370](https://github.com/forge-ci/ci.yml/pull/370) uses that service
 under ACT without a GitHub credential fallback. Actual source conformance
 reserved/uploaded/committed two entries, deleted exactly one, preserved the
 other and repeated with zero deleted count/bytes. This is cleanup transport
 proof, not compiler warmth or test-execution proof.
 
 The first exact-main qualification caught a legacy action-cache read/write
-race, repaired in [act2 PR #56](https://github.com/zackees/act2/pull/56). Its
+race, repaired in [act2 PR #56](https://github.com/forge-ci/act2/pull/56). Its
 process-local Git gate protects manifest reads, copies and deferred Docker
 build contexts and rejects a changed manifest revision. It does not establish
 cross-process action locking or aggregate host CPU admission.
@@ -4118,13 +4118,13 @@ cross-process action locking or aggregate host CPU admission.
 Released Bosn 0.1.17 pins the verified public artifact and requires the cleanup
 capability before workflow execution. The focused isolated capability regression
 demonstrated RED to GREEN. Its exact-main full qualification, pretag dry run and
-publication completed; [shared pilot evidence](https://github.com/zackees/ci.yml/issues/362)
+publication completed; [shared pilot evidence](https://github.com/forge-ci/ci.yml/issues/362)
 records all four verified public wheels. Template's complete local replay and
 unchanged-tree reuse passed through this provider; its source-only hosted skip
 proof remains queued.
 
 The shared delta transport also now uses content identities
-([ci.yml PR #372](https://github.com/zackees/ci.yml/pull/372)), preserving
+([ci.yml PR #372](https://github.com/forge-ci/ci.yml/pull/372)), preserving
 same-size generation-pointer changes and invalidating different content bases.
 It is restored privately before compilation; this does not establish safe
 concurrent import into a shared writable compiler store. Actual fresh-engine
@@ -4133,19 +4133,19 @@ compiler durability, residual misses and hashing cost remain pilot measurements.
 
 ### Published artifact-signature provider (act2.15; Bosn rollout pending)
 
-[Act2 PR #57](https://github.com/zackees/act2/pull/57) URL-encodes artifact
+[Act2 PR #57](https://github.com/forge-ci/act2/pull/57) URL-encodes artifact
 signatures so the stock upload client's query handling preserves base64 padding.
 Strict signature verification is unchanged. Exact-main
-[qualification 37648485379](https://github.com/zackees/act2/actions/runs/37648485379)
+[qualification 37648485379](https://github.com/forge-ci/act2/actions/runs/37648485379)
 passed all five jobs on `73c1eea4d868bb38a84c3050db395f6f21f4c6e7`;
-[publication 37650187671](https://github.com/zackees/act2/actions/runs/37650187671)
+[publication 37650187671](https://github.com/forge-ci/act2/actions/runs/37650187671)
 then published `v0.2.89-act2.15`. The downloaded Linux x86_64 archive matches
 its published checksum `e21535decdac2c6ed8429b8662825b4c1fca606301e0da54e37b180ad2517e6d`;
 the executable hashes to `b4be8d7ef98729ad16a9a6ddba331f1d2b0feb8abd52eb9e5f3a93155fb4f1df`.
 The public binary reports act2.15 and all four required capability contracts.
 
 The Bosn 0.1.18 candidate pins those verified bytes. It also contains merged
-[PR #542](https://github.com/zackees/bosn/pull/542), retaining available parent
+[PR #542](https://github.com/forge-ci/bosn/pull/542), retaining available parent
 history so ordinary local push lockfile comparisons can read `HEAD^`. That
 change's full source gate passed in 608s; unchanged reuse took 0.999s and kept
 all seven trailers. Exact publication and hosted run 37650279564 passed with
@@ -4158,22 +4158,22 @@ durability and residual misses remain separate unproven requirements.
 
 ### Serve-mode provider (act2.17; #547 plan step 3)
 
-[Act2 PR #63](https://github.com/zackees/act2/pull/63) adds `act serve`
-([act2#62](https://github.com/zackees/act2/issues/62)): run admission into
+[Act2 PR #63](https://github.com/forge-ci/act2/pull/63) adds `act serve`
+([act2#62](https://github.com/forge-ci/act2/issues/62)): run admission into
 slots and port pairs, each run's cgroup v2 scope, labelled network and work
 tree, act executed in the run's cgroup with a streamed exit, cancel, and a
 close that removes and proves gone every object of the run.
-[PR #65](https://github.com/zackees/act2/pull/65) adds the read-only
-`act doctor` ([act2#61](https://github.com/zackees/act2/issues/61)), and
-[PR #66](https://github.com/zackees/act2/pull/66) keeps a gosec waiver that
+[PR #65](https://github.com/forge-ci/act2/pull/65) adds the read-only
+`act doctor` ([act2#61](https://github.com/forge-ci/act2/issues/61)), and
+[PR #66](https://github.com/forge-ci/act2/pull/66) keeps a gosec waiver that
 CI's golangci-lint v2.11 needs. Full CI on the first candidate
-(`c9a9f73a`, [run 38067466017](https://github.com/zackees/act2/actions/runs/38067466017))
+(`c9a9f73a`, [run 38067466017](https://github.com/forge-ci/act2/actions/runs/38067466017))
 failed lint, so no tag was made from it. Full CI then passed all five jobs on
 exact master `8998d436146f4ec6a9f76773c91b0c53e70187a0`
-([run 38069050519](https://github.com/zackees/act2/actions/runs/38069050519)).
+([run 38069050519](https://github.com/forge-ci/act2/actions/runs/38069050519)).
 From a clean checkout of master at that SHA, with neither the tag nor the
 release present, `v0.2.89-act2.17` was pushed, and the existing tag-triggered
-[release run 38069860794](https://github.com/zackees/act2/actions/runs/38069860794)
+[release run 38069860794](https://github.com/forge-ci/act2/actions/runs/38069860794)
 published it. The downloaded Linux x86_64 archive matches its published
 checksum `9adc44420ec4eac8800925c7194c52d2f4c3923f510ef60ef2885197f572aadd`;
 the executable hashes to
@@ -4199,16 +4199,16 @@ save moved to act2 in act2.18 (below), and step 4 removed them from Bosn.
 
 ### Serve owns the proxy, runner image and tool cache (act2.18; #547 step 4)
 
-[Act2 PR #68](https://github.com/zackees/act2/pull/68)
-([act2#67](https://github.com/zackees/act2/issues/67)) moves each run's Docker
+[Act2 PR #68](https://github.com/forge-ci/act2/pull/68)
+([act2#67](https://github.com/forge-ci/act2/issues/67)) moves each run's Docker
 proxy, `act serve prepare` (the runner-image load and proof, plus the tool-cache
 seed or overlay), the tool-cache save after a run, and the shared cache budget
 into `act serve`. Full CI passed on exact master
 `a28192deeb129713ef0a57724aa83369d3cdc6ba`
-([run 38076424358](https://github.com/zackees/act2/actions/runs/38076424358)).
+([run 38076424358](https://github.com/forge-ci/act2/actions/runs/38076424358)).
 From a clean detached checkout of master at that SHA, with neither the tag nor
 the release present, the annotated tag `v0.2.89-act2.18` was pushed, and the
-tag-triggered [release run 38083462686](https://github.com/zackees/act2/actions/runs/38083462686)
+tag-triggered [release run 38083462686](https://github.com/forge-ci/act2/actions/runs/38083462686)
 published it. The downloaded Linux x86_64 archive matches its published
 checksum `5ebd6231663bc3b2c54d9777cd26d9333575325ebc28a3bd8f9f0ef7ada13ed7`;
 the executable hashes to
@@ -4280,7 +4280,7 @@ paths are implemented and verified.
 
 ### Act2 recovery publication contract (candidate, #508, 2026-10-21)
 
-[Act2 #71](https://github.com/zackees/act2/pull/71) merged at
+[Act2 #71](https://github.com/forge-ci/act2/pull/71) merged at
 `9dc019f79de0d8fd4186fcfe33a2be2aecbd747c` after all PR checks passed.
 Preparation now persists and verifies the complete generation/store/recipe
 binding across serve restarts, and health uses that same bounded metadata.
@@ -4291,7 +4291,7 @@ another job. The correction skips already-owned entries and tolerates only a
 path proven absent after failure; existing files and dangling links still
 refuse. No CI check was removed or weakened.
 
-[Act2 #72](https://github.com/zackees/act2/pull/72), rebased onto that master,
+[Act2 #72](https://github.com/forge-ci/act2/pull/72), rebased onto that master,
 excludes native overlays and invalid preparation metadata from the legacy
 best-effort saver. A native close returns an explicit unsaved recovery note,
 retaining source data for post-stop publication. The focused regression first
@@ -4299,7 +4299,7 @@ reproduced legacy-store writes and false saved-success in all three native,
 unverifiable and corrupt-readiness cases. The corrected full serve suite and
 pinned lint passed. This candidate is not a native save implementation.
 
-[Act2 #73](https://github.com/zackees/act2/pull/73), candidate
+[Act2 #73](https://github.com/forge-ci/act2/pull/73), candidate
 `588c6e563d50f3c12d33904d54a34c79203e079c`, adds
 `cache tool-recovery publish` and capability `tool-recovery-publication-v1`.
 The coordinator must supply an exclusively held, quiescent stopped-source merged
@@ -4350,11 +4350,11 @@ route or close #508 based on these helper tests.
 
 ### Stopped-overlay helper and durable source exclusion (#508, 2026-10-21)
 
-Act2 [#73](https://github.com/zackees/act2/pull/73) is merged. Its overlay
-consumer [#74](https://github.com/zackees/act2/pull/74) is also merged, at
+Act2 [#73](https://github.com/forge-ci/act2/pull/73) is merged. Its overlay
+consumer [#74](https://github.com/forge-ci/act2/pull/74) is also merged, at
 `11382a48807393c20dc33e4c9093311eb41057f1`. All six PR checks passed on
 `3e344e5b8868c5dedc6135c42898485bb4e2ed53`. Full default-branch CI
-[39683097915](https://github.com/zackees/act2/actions/runs/39683097915)
+[39683097915](https://github.com/forge-ci/act2/actions/runs/39683097915)
 is running on the exact merge SHA. No new act2 release or Bosn pin update is
 established by this section.
 
@@ -4427,13 +4427,13 @@ Act2's exact-merge full CI completed successfully on
 `11382a48807393c20dc33e4c9093311eb41057f1`. The clean default-branch checkout
 and absence of the next tag/release were verified before creating
 `v0.2.89-act2.20` at that SHA. Existing tag-triggered release run
-[39684898381](https://github.com/zackees/act2/actions/runs/39684898381)
+[39684898381](https://github.com/forge-ci/act2/actions/runs/39684898381)
 is building its assets. Tag publication is not artifact verification: all
 11 archives still need independent digest, size, checksum, executable-header
 and version checks before Bosn's pin can change.
 
 
-Release [act2.20](https://github.com/zackees/act2/releases/tag/v0.2.89-act2.20)
+Release [act2.20](https://github.com/forge-ci/act2/releases/tag/v0.2.89-act2.20)
 completed successfully. All 11 archives matched independent GitHub asset
 SHA256/size metadata and the release checksum file; each extracted executable
 passed architecture/header and embedded-version checks. Linux x86_64 executed
@@ -4692,11 +4692,11 @@ live proof is additional evidence, not an ordinary CI pass.
 
 ### Warm tool-cache bootstrap dependency (candidate, #508, 2026-10-21)
 
-Act2 [#75](https://github.com/zackees/act2/pull/75) merged at
+Act2 [#75](https://github.com/forge-ci/act2/pull/75) merged at
 `e80072a16cf8737c56d62574098a74e249da102e`. The external checkout returned
 to clean `master` and rebased after merge; Bosn development continues in its
 original checkout. The exact merged SHA passed the full default-branch
-workflow-dispatch run [39700626307](https://github.com/zackees/act2/actions/runs/39700626307):
+workflow-dispatch run [39700626307](https://github.com/forge-ci/act2/actions/runs/39700626307):
 Linux tests, native Windows/macOS tests, lint and snapshot builds all succeeded.
 
 The dependency adds explicit `cache tool-bootstrap`: a caller that has excluded
@@ -4743,11 +4743,11 @@ Post-merge verification found that bootstrap also needed the legacy seeder's
 installs, consume the public payload budget, or make private root symlinks a
 refusal. Independent stage and alias regressions reproduced both failures.
 The act2.21 tag remains at the audited candidate SHA; its release run
-[39701754299](https://github.com/zackees/act2/actions/runs/39701754299) was
+[39701754299](https://github.com/forge-ci/act2/actions/runs/39701754299) was
 canceled before a GitHub release existed or any Bosn pin changed. Do not move
 or reuse that tag.
 
-The correction merged in [act2 PR #76](https://github.com/zackees/act2/pull/76),
+The correction merged in [act2 PR #76](https://github.com/forge-ci/act2/pull/76),
 master `43445419b24317efd69b37c5cc6cf24071884d3e` (reviewed head
 `80281a97391eaa863f7628678fcd886dcd945d00`): a typed scan mode prunes private root entries for deliberate
 legacy enrollment while preserving native recovery behavior. Visible aliases
@@ -4765,11 +4765,11 @@ All six PR checks succeeded, including Linux tests and native Windows/macOS
 checks. The external checkout returned to clean master, rebased, and its
 merged branch and watcher files were removed (logs retained with evidence).
 Exact merged full CI
-[39704094890](https://github.com/zackees/act2/actions/runs/39704094890) passed
+[39704094890](https://github.com/forge-ci/act2/actions/runs/39704094890) passed
 all five jobs. The guarded new tag `v0.2.89-act2.22` names that exact SHA,
 after clean-default-branch and local/remote tag/release absence checks. The
 existing release workflow completed successfully in
-[39705227950](https://github.com/zackees/act2/actions/runs/39705227950). The
+[39705227950](https://github.com/forge-ci/act2/actions/runs/39705227950). The
 artifact verification and candidate pin update are recorded below; main
 remains on act2.20 until this candidate is merged.
 
@@ -4888,7 +4888,7 @@ manually reserved recovery fixture and does not prove ordinary enrollment.
 The real-cache refusal above led to three merged act2 changes, not changes to
 the source cache or removal of inconvenient entries:
 
-- [act2 #77](https://github.com/zackees/act2/pull/77) preserves bounded,
+- [act2 #77](https://github.com/forge-ci/act2/pull/77) preserves bounded,
   kernel-confined relative symlink chains ending at an absent final leaf.
   Independent publisher archive inspection confirmed both the GNU
   `libgfortran.so` aliases and LLVM `clang++/clang-cl -> clang -> clang-20`
@@ -4898,7 +4898,7 @@ the source cache or removal of inconvenient entries:
   this also enforces the aggregate directory/leaf traversal budget. Link
   bytes remain unchanged. Snapshot compatibility does not establish that
   those optional tools work.
-- [act2 #78](https://github.com/zackees/act2/pull/78) bounds explicit bulk
+- [act2 #78](https://github.com/forge-ci/act2/pull/78) bounds explicit bulk
   enrollment at fifteen minutes and copies at most four files concurrently.
   Increasing the deadline alone failed after 957.6 seconds including cleanup;
   live descriptor and I/O observations found serialized journal waits.
@@ -4906,7 +4906,7 @@ the source cache or removal of inconvenient entries:
   it closes, retaining writeback-error reporting. Workers cancel and drain
   before cleanup or publication; directories finish after their children.
   File lengths, hashes and source/destination identity checks remain.
-- [act2 #79](https://github.com/zackees/act2/pull/79) permits an explicit
+- [act2 #79](https://github.com/forge-ci/act2/pull/79) permits an explicit
   `installs: []` generation for a genuinely cold store. Omitted/null installs
   still refuse, as do missing/corrupt current selections and an empty source
   passed to warm bootstrap. This is a caller-selected cold initialization,
@@ -4936,11 +4936,11 @@ cleanup was verified. Evidence:
 
 All five exact default-branch CI jobs passed on merged act2 commit
 `309daac6f5cf37e27fb7ff78b6bfbb7302e83d23` in
-[39716801907](https://github.com/zackees/act2/actions/runs/39716801907).
+[39716801907](https://github.com/forge-ci/act2/actions/runs/39716801907).
 The release guard verified a clean default checkout, the remote default SHA,
 that CI evidence, and absent tag/release before pushing annotated
 `v0.2.89-act2.23`. The existing tag-triggered
-[release run 39717930961](https://github.com/zackees/act2/actions/runs/39717930961)
+[release run 39717930961](https://github.com/forge-ci/act2/actions/runs/39717930961)
 completed successfully on that exact SHA. All eleven release archives match
 both the checksum file and GitHub asset digest/size; executable headers,
 architecture and embedded release were independently checked. Linux x86_64
@@ -5156,7 +5156,7 @@ failing Bosn takeover path. All changes remain unpublished.
 
 ### Source store enrollment and CLI candidate
 
-[act2 PR #81](https://github.com/zackees/act2/pull/81), candidate
+[act2 PR #81](https://github.com/forge-ci/act2/pull/81), candidate
 `0e0205a85f574415a2b7c6cf6d07278d8d3df9f0`, exposes fresh-only epoch-3 store
 initialization before bootstrap and a closed schema-1 disposal report/CLI.
 Existing older stores are refused, never upgraded under possible older live
@@ -5824,7 +5824,7 @@ Evidence:
   observation. These checks are not actual Docker or full-workflow acceptance.
 
 Act2 dependency candidate `6c113bf5b806ef3a6090bce64270126ba5a5170c` is published
-for review as https://github.com/zackees/act2/pull/83. Full PR checks are still
+for review as https://github.com/forge-ci/act2/pull/83. Full PR checks are still
 running; no merge, dependency release, Bosn pin update or Bosn PR has occurred
 in this continuation. Full exact merged default-branch CI and independent asset
 verification remain mandatory before using a new released pin.
@@ -5850,7 +5850,7 @@ reviews or unresolved review threads. External checkout is clean on master,
 rebased to origin/master, and the merged feature branch was removed after tree
 equality. Bosn was fetched and rebased onto current origin/main using a successful
 autostash; all three prior user stashes remain unchanged. Exact merged default
-full CI is run https://github.com/zackees/act2/actions/runs/39762337638 on the
+full CI is run https://github.com/forge-ci/act2/actions/runs/39762337638 on the
 merge SHA. It is still running; no act2.26 tag or release has been made and Bosn
 still pins verified act2.25. Guard and independent eleven-archive/runtime
 verification scripts are prepared for act2.26, not executed.
@@ -5879,7 +5879,7 @@ SHA `83564159344ccbceaf0f348531967cba4fa21642`; all five jobs (lint, Linux,
 Windows, macOS, snapshot) passed. The act2.26 release guard passed first without
 publishing, then revalidated clean master, exact remote SHA, full CI and absent
 tag/release before pushing annotated tag `v0.2.89-act2.26`. Existing tag-triggered
-release run https://github.com/zackees/act2/actions/runs/39764326180 is in progress.
+release run https://github.com/forge-ci/act2/actions/runs/39764326180 is in progress.
 No release artifact has yet been accepted or Bosn pin changed in this step.
 
 Cancellation fault tests now enter Fence and Complete separately, cancel the
@@ -6028,7 +6028,7 @@ still reports zero issues after the deep-tree and completion-check changes.
 
 The reviewed candidate is committed at
 `769632ff535f8f2fa6d346d8bd728b5e17eb139b` in
-[act2 #84](https://github.com/zackees/act2/pull/84). Required remote checks are
+[act2 #84](https://github.com/forge-ci/act2/pull/84). Required remote checks are
 running; merge and exact-default-commit release verification remain outstanding.
 Source and validation-log hashes are recorded in
 `enrollment-snapshot-reclamation-evidence.json`. Bosn remains unpushed on its
@@ -6097,7 +6097,7 @@ The external checkout is clean on rebased `master`; its reviewed and merged tree
 match, and its feature branch was deleted locally/remotely. The original Bosn
 checkout fetched/rebased `origin/main` with its WIP autostash applied successfully;
 the three pre-existing stashes remain unchanged. Exact default-branch full CI
-[39771550138](https://github.com/zackees/act2/actions/runs/39771550138) is running
+[39771550138](https://github.com/forge-ci/act2/actions/runs/39771550138) is running
 on that merge SHA. Act2.27 guard/verifier/runtime-smoke scripts are prepared, but
 no tag or release has been created and Bosn still pins verified act2.26.
 

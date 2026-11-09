@@ -1,5 +1,5 @@
 # CI Pre: called by ci.yml; nothing waits on it (local-gate.toml
-# verify-exempt). zackees/ci.yml#198 (GATE-010), bosn#361 phase 2.
+# verify-exempt). forge-ci/ci.yml#198 (GATE-010), bosn#361 phase 2.
 #
 # Publishes each stamp-valid `Ci-Attestation:` of this commit as its own tiny
 # cache entry,
@@ -11,7 +11,7 @@
 # it runs is ci_lint from the pinned ci.yml ref, never a PR-authored script.
 # Cache saves use the runner's token, which GitHub scopes to this ref.
 #
-# cache-maint is zackees/ci.yml's cache janitor (docs/policy-general.md,
+# cache-maint is forge-ci/ci.yml's cache janitor (docs/policy-general.md,
 # GEN-014..018), on main pushes only: it deletes caches that ci.toml's
 # [cache.family] entries do not keep (undeclared keys, closed PRs' entries,
 # superseded and poisoned entries, an evict = "lru" family's overflow, and
@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          repository: zackees/ci.yml
+          repository: forge-ci/ci.yml
           ref: 96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e
           path: .ci-lint
           persist-credentials: false
@@ -126,7 +126,7 @@ jobs:
       # Newer than the verify pin: it knows setup-soldr's ancestor-build family.
       - uses: actions/checkout@v4
         with:
-          repository: zackees/ci.yml
+          repository: forge-ci/ci.yml
           ref: 41fcbca60a7901c8707411c4abf4d0b41dd71426
           path: .ci-lint
           persist-credentials: false
