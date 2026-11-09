@@ -175,6 +175,86 @@ mod tests {
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 
+    // A real running image is required: an ordinary open file does not exercise
+    // Windows' executable-image sharing restrictions.
+    #[cfg(windows)]
+    #[test]
+    fn running_windows_executable_keeps_its_stamp_until_exit() {
+        use std::io::{BufRead, Write};
+        use std::process::{Command, Stdio};
+
+        struct RunningImage(std::process::Child);
+        impl Drop for RunningImage {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("client.exe");
+        let command =
+            PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/cmd.exe");
+        std::fs::copy(command, &source).unwrap();
+        let release = "0.1.6";
+        let target = daemon_executable(dir.path());
+        install_from(&source, &target, release).unwrap();
+        let original = std::fs::read(&target).unwrap();
+        let stamp = target.with_file_name(STAMP);
+        let original_stamp = std::fs::read_to_string(&stamp).unwrap();
+        assert_eq!(original_stamp, stamp_for(release, &target));
+
+        let mut running = RunningImage(
+            Command::new(&target)
+                .args(["/d", "/q", "/c", "echo ready&set /p bosn_wait="])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let mut ready = String::new();
+        std::io::BufReader::new(running.0.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        assert_eq!(ready.trim(), "ready");
+        assert!(running.0.try_wait().unwrap().is_none());
+
+        // Do not mutate the original source: installation may have hard-linked it.
+        let rebuilt = dir.path().join("rebuilt.exe");
+        let mut different_build = original.clone();
+        different_build.extend_from_slice(b"different build overlay");
+        std::fs::write(&rebuilt, &different_build).unwrap();
+        let wanted = stamp_for(release, &rebuilt);
+        assert_ne!(wanted, original_stamp);
+        assert_eq!(install_from(&rebuilt, &target, release).unwrap(), target);
+        assert!(running.0.try_wait().unwrap().is_none());
+        assert_eq!(std::fs::read(&target).unwrap(), original);
+        assert_eq!(std::fs::read_to_string(&stamp).unwrap(), original_stamp);
+        assert_eq!(stamp_for(release, &target), original_stamp);
+        // Only the executable, release stamp and persistent install lock remain.
+        assert_eq!(
+            std::fs::read_dir(target.parent().unwrap()).unwrap().count(),
+            3
+        );
+
+        running
+            .0
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"exit\r\n")
+            .unwrap();
+        assert!(running.0.wait().unwrap().success());
+        assert_eq!(install_from(&rebuilt, &target, release).unwrap(), target);
+        assert_eq!(std::fs::read(&target).unwrap(), different_build);
+        assert_eq!(std::fs::read_to_string(&stamp).unwrap(), wanted);
+        assert_eq!(stamp_for(release, &target), wanted);
+        assert_eq!(
+            std::fs::read_dir(target.parent().unwrap()).unwrap().count(),
+            3
+        );
+    }
+
     #[test]
     fn concurrent_installers_leave_the_newest_binary_and_its_stamp() {
         for _ in 0..50 {
