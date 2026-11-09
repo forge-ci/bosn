@@ -159,6 +159,10 @@ jobs:
           toolchain: "1.95.0"
           prebuild-deps: none
 
+      - name: Test replacement of a running Windows daemon executable
+        if: runner.os == 'Windows'
+        run: soldr cargo test -p bosn-service --bin bosn daemon_exe::tests::running_windows_executable_keeps_its_stamp_until_exit -- --exact --nocapture
+
       - name: Build platform wheel
         # The backend requires a provisioned Soldr front door on both hosts.
         run: uv build --wheel --out-dir dist

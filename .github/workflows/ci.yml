@@ -511,6 +511,10 @@ jobs:
       # in the Windows graph (soldr#3231). ci/lint_no_vcpkg_bootstrap.py guards it.
       # This matrix intentionally has no Docker setup or Docker invocation.
       # The Linux job above remains the dedicated Docker integration lane.
+      - name: Test replacement of a running Windows daemon executable
+        if: needs.select-tier.outputs.full == 'true' && runner.os == 'Windows'
+        run: soldr cargo test -p bosn-service --bin bosn daemon_exe::tests::running_windows_executable_keeps_its_stamp_until_exit -- --exact --nocapture
+
       - name: Build platform wheel
         if: needs.select-tier.outputs.full == 'true'
         run: uv build --wheel --out-dir dist
