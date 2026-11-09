@@ -14,3 +14,13 @@ version = "0.1.32"
 [workspace.lints.clippy]
 cognitive_complexity = "warn"
 too_many_lines = "warn"
+
+# RUST-033: shared by the local and remote lint phase.
+[workspace.metadata.soldr]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]

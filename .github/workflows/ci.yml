@@ -256,6 +256,35 @@ jobs:
         # spent on any wheel lane.
         run: uv run --no-project --with pyyaml==6.0.2 python ci/lint_no_macos_runners.py
 
+  # RUST-033: preserve the combined Clippy/test build below (#503), and
+  # prove the complete lint phase on every declared platform separately.
+  lint:
+    name: Rust lint (Clippy + Dylint, all targets)
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Python for PyO3 lint
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Set up Soldr
+        uses: forge-ci/setup-soldr@v0
+        with:
+          cache: true
+          job-status: ${{ job.status }}
+          save-cache: auto
+          save-cache-remote: ${{ github.ref == 'refs/heads/main' && 'auto' || 'false' }}
+          prebuild-deps: none
+      - name: Lint every declared target
+        # Soldr supplies --workspace --all-targets and -D warnings to Clippy.
+        # Cargo.toml declares the same target set locally and remotely.
+        run: soldr lint rust --cross-dylint --check --locked --features bosn-python/embedded-python-tests
+
   rust:
     name: Rust workspace (locked tests)
     needs: [verify]
@@ -687,7 +716,7 @@ jobs:
   full-coverage:
     name: Full CI coverage (exact candidate SHA)
     if: ${{ !cancelled() && needs.select-tier.outputs.full == 'true' }}
-    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget]
+    needs: [select-tier, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -717,7 +746,7 @@ jobs:
   ci-queue-timing:
     name: CI queue timing
     if: ${{ !cancelled() }}
-    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage]
+    needs: [select-tier, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -745,7 +774,7 @@ jobs:
   ci-summary:
     name: CI summary
     if: ${{ always() }}
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -773,7 +802,7 @@ jobs:
   # non-cancelling `cache-janitor` group, so one sweep runs at a time.
   queue-cache-janitor:
     name: End-of-queue cache janitor
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
     if: always() && github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

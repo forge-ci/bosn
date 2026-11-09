@@ -17,7 +17,7 @@ WORKFLOW = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(
 
 def test_every_declared_lane_runs_a_source_bound_isolated_replay() -> None:
     lanes = GATE["lanes"]
-    assert set(lanes) == {"rust", "tests"}
+    assert set(lanes) == {"lint", "rust", "tests"}
     assert GATE["run"][:3] == ["bosn", "ci", "run"]
     replay = GATE["replay"]
     assert replay["qualified"] and replay["report-source"] == "stdout"
@@ -116,3 +116,28 @@ def test_ci_verifies_with_the_ci_lint_the_gate_runs() -> None:
         pin in step.get("run", "") and "ci-lint local-gate lint" in step.get("run", "")
         for step in WORKFLOW["jobs"]["linux"]["steps"]
     )
+
+
+def test_full_lint_phase_cannot_be_narrowed_by_replay() -> None:
+    command = next(
+        step["run"]
+        for step in WORKFLOW["jobs"]["lint"]["steps"]
+        if step.get("name") == "Lint every declared target"
+    )
+    assert command == (
+        "soldr lint rust --cross-dylint --check --locked "
+        "--features bosn-python/embedded-python-tests"
+    )
+    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    contract = tomllib.loads((ROOT / "ci.toml").read_text(encoding="utf-8"))
+    targets = set(manifest["workspace"]["metadata"]["soldr"]["targets"])
+    assert {platform["target"] for platform in contract["platforms"].values()} <= targets
+    assert "x86_64-pc-windows-msvc" in targets
+    replay = GATE["replay"]
+    assert not replay.get("minimal-skip-steps")
+    lint = next(job for job in replay["jobs"] if job["source-job"] == "ci.yml:lint")
+    assert lint == {"source-job": "ci.yml:lint", "lanes": ["lint"]}
+    definition = yaml.safe_load((ROOT / "ci-attestations.yml").read_text(encoding="utf-8"))
+    for check in ("clippy", "dylint"):
+        assert definition["gates"][f"rust/all/{check}"] == {"lane": "lint"}
+    assert "lint" in WORKFLOW["jobs"]["ci-summary"]["needs"]
