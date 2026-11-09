@@ -81,6 +81,11 @@ those logs. A missing volume is not proof that its data can be recovered; there
 is currently no supported force-clear procedure for this state. Docker access
 and ownership errors are distinct from a confirmed missing volume.
 
+`bosn ci list` includes an `owner` column: comma-separated client PIDs for live
+owned runs, `detached` for live runs without owners, and `-` for finished runs.
+JSON list/status replies expose `owner_pids`. Owners are in-memory only; a daemon
+restart forgets them.
+
 ## A run lives as long as its client
 
 `bosn ci run` and `bosn ci retry` wait for the run, and the run belongs to that

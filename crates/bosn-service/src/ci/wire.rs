@@ -430,6 +430,9 @@ pub struct RunRecord {
     pub trigger: Trigger,
     pub mode: Mode,
     pub actor: String,
+    /// Live runtime owners, forgotten when the daemon restarts.
+    #[serde(default)]
+    pub owner_pids: Vec<u32>,
     pub event: String,
     pub payload_sha256: String,
     pub state: RunState,
@@ -492,6 +495,7 @@ impl RunRecord {
             trigger: request.trigger,
             mode: request.mode,
             actor: request.actor.clone(),
+            owner_pids: Vec::new(),
             event: event.into(),
             payload_sha256: sha256_hex(payload),
             state: RunState::Queued,
@@ -536,6 +540,7 @@ impl RunRecord {
             engine_id: None,
             submitters: 1,
             retry_of: Some(self.id.clone()),
+            owner_pids: Vec::new(),
             log_records: 0,
             tree: RunTree::default(),
             stages: Vec::new(),

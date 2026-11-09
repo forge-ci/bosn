@@ -957,12 +957,12 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // #784 preserves typed secure-random failure messages without changing wire fields.
 // #767 adds the optional `engine_capacity_error` to two replies; older clients
 // ignore it, so the daemon protocol is unchanged.
-// #833: optional ping build identity is additive, no bump.
+// #833 ping build identity and #671 defaulted owner_pids are additive, no bump.
 // #724: protocol 3 adds request tag 32 (task args). Protocol 2 requests omit it;
 // non-empty args require protocol 3 to prevent silent argument loss.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "39361993c802a842262fde6002c566e1b44963cb573136d6ebd6ed7e9df09916",
+    "338c0625ed56fe7badff19da013fd761b4082ee445ef34541bc6340c2e011a36",
 );
 
 #[test]

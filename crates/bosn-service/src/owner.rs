@@ -196,6 +196,16 @@ impl<K: Ord + Clone> Owners<K> {
         true
     }
 
+    /// Current owner PIDs; detached or finished work has none.
+    pub(crate) fn pids(&self, key: &K) -> Vec<u32> {
+        self.owned
+            .get(key)
+            .into_iter()
+            .flatten()
+            .map(ClientOwner::pid)
+            .collect()
+    }
+
     /// The work ended; forget its owners.
     pub(crate) fn forget(&mut self, key: &K) {
         self.owned.remove(key);

@@ -139,3 +139,18 @@ fn releasing_cancels_only_when_the_last_owner_lets_go() {
         "detached work is never released"
     );
 }
+
+#[test]
+fn pids_reports_current_owners_without_changing_them() {
+    let mut owners = Owners::default();
+    owners.submitted(&1, Some(owner(20, 1)), true);
+    owners.submitted(&1, Some(owner(10, 1)), false);
+    assert_eq!(owners.pids(&1), vec![10, 20]);
+    assert_eq!(owners.pids(&1), vec![10, 20]);
+    assert!(owners.pids(&2).is_empty());
+    owners.submitted(&1, None, false);
+    assert!(owners.pids(&1).is_empty());
+    owners.submitted(&2, Some(owner(30, 1)), true);
+    owners.forget(&2);
+    assert!(owners.pids(&2).is_empty());
+}
