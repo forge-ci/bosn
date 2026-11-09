@@ -88,3 +88,37 @@ fn the_daemon_cancels_a_run_whose_owners_died_but_not_a_pinned_one() {
         doomed.wait().unwrap();
     });
 }
+
+#[test]
+fn list_and_record_report_owned_and_detached_runs() {
+    with_registry(|registry, dir| async move {
+        let runtime = CiRuntime::start(&dir, registry, Arc::new(FakeBackend::default()), 1);
+        drained(&runtime).await;
+        let me = ClientOwner::current().unwrap();
+        let owned = submit_owned(&runtime, 'a', Some(me)).await.run;
+        let detached = submit_owned(&runtime, 'b', None).await.run;
+        for (id, expected) in [(&owned, vec![me.pid()]), (&detached, vec![])] {
+            assert_eq!(runtime.record(id).unwrap().owner_pids, expected);
+            let listed = runtime.listing();
+            let view = listed.runs.iter().find(|v| &v.record.id == id).unwrap();
+            assert_eq!(view.record.owner_pids, expected);
+        }
+    });
+}
+
+#[test]
+fn a_reused_owner_pid_cancels_the_ci_run() {
+    with_registry(|registry, dir| async move {
+        let runtime = CiRuntime::start(&dir, registry, Arc::new(FakeBackend::default()), 1);
+        drained(&runtime).await;
+        let me = ClientOwner::current().unwrap();
+        let (pid, mut created) = ClientOwner::to_wire(Some(me));
+        created[0] ^= 1;
+        let previous = ClientOwner::from_wire(pid, &created).unwrap().unwrap();
+        let run = submit_owned(&runtime, 'a', Some(previous)).await.run;
+        let record = wait_done_with_budget(&runtime, &run, Duration::from_secs(3)).await;
+        assert_eq!(record.conclusion, Some(Conclusion::Cancelled));
+        assert!(record.reason.unwrap().contains("exited"));
+        assert!(record.owner_pids.is_empty());
+    });
+}

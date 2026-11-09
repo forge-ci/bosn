@@ -1834,6 +1834,16 @@
         "mode": {
           "$ref": "#/$defs/Mode"
         },
+        "owner_pids": {
+          "default": [],
+          "description": "Live runtime owners, forgotten when the daemon restarts.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
         "params": {
           "$ref": "#/$defs/RunParams",
           "description": "Workflow inputs, matrix filter and extra env (#430); omitted when none."

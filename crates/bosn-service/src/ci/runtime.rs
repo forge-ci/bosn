@@ -395,7 +395,10 @@ impl CiRuntime {
     }
 
     pub(crate) fn record(&self, run: &str) -> Result<RunRecord, CiError> {
-        self.lock().slot(run).map(RunSlot::live_record)
+        let state = self.lock();
+        let mut record = state.slot(run)?.live_record();
+        record.owner_pids = state.owners.pids(&record.id);
+        Ok(record)
     }
 
     /// Apply `change` to a run's record and write the result in the
@@ -551,7 +554,11 @@ impl CiRuntime {
             .filter(|slot| workspace.is_none_or(|w| slot.record.workspace == w))
             .filter(|slot| filter.is_none_or(|f| slot.record.state == f))
             .take(limit)
-            .map(|slot| RunView::of(slot.live_record(), false))
+            .map(|slot| {
+                let mut record = slot.live_record();
+                record.owner_pids = state.owners.pids(&record.id);
+                RunView::of(record, false)
+            })
             .collect();
         ListReply {
             runs,

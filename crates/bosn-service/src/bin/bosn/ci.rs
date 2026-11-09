@@ -557,10 +557,11 @@ fn list(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
         client.ci_list(workspace, state, flags.number("--limit")?),
     )?;
     print(&listed, flags.json(), |l| {
+        println!("run  state    conclusion sha  workflow  actor  owner");
         for view in &l.runs {
             let run = &view.record;
             println!(
-                "{}  {:<8} {:<10} {}{}  {}  {}",
+                "{}  {:<8} {:<10} {}{}  {}  {}  {}",
                 run.id,
                 run.display_state(),
                 run.conclusion.map_or("-", Conclusion::as_str),
@@ -568,11 +569,25 @@ fn list(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
                 if run.dirty.is_some() { "+dirty" } else { "" },
                 run.workflow,
                 run.actor,
+                owner_column(run.state, &run.owner_pids),
             );
         }
         print_runners(&l.runners);
     });
     Ok(0)
+}
+
+fn owner_column(state: RunState, pids: &[u32]) -> String {
+    if state == RunState::Done {
+        "-".into()
+    } else if pids.is_empty() {
+        "detached".into()
+    } else {
+        pids.iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
 }
 
 fn show(arguments: impl Iterator<Item = OsString>) -> Result<i32, Failure> {
@@ -946,6 +961,13 @@ fn mark(conclusion: Option<ItemConclusion>, status: ItemStatus) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owner_column_renders_live_detached_and_finished_runs() {
+        assert_eq!(owner_column(RunState::Queued, &[12, 34]), "12,34");
+        assert_eq!(owner_column(RunState::Running, &[]), "detached");
+        assert_eq!(owner_column(RunState::Done, &[12]), "-");
+    }
 
     #[test]
     fn lost_daemon_socket_names_the_failure_and_log() {
