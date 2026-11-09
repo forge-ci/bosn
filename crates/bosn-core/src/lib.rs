@@ -48,6 +48,8 @@ pub use unmanaged::{
 pub const NAMESPACE: &str = "com.zackees.bosn";
 pub const LABEL_REGISTRY: &str = "com.zackees.bosn.registry";
 pub const LABEL_KIND: &str = "com.zackees.bosn.kind";
+/// Explicit task identity; absent on legacy setup images.
+pub const LABEL_TASK: &str = "com.zackees.bosn.task";
 pub const LABEL_STACK: &str = "com.zackees.bosn.stack";
 pub const LABEL_GENERATION: &str = "com.zackees.bosn.generation";
 pub const LABEL_SCOPE: &str = "com.zackees.bosn.scope";

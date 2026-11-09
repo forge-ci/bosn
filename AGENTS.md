@@ -603,6 +603,15 @@ Every ownership, liveness and pin gate and the re-check (now at the idle floor w
 budget) are unchanged; each early removal logs its reason, and `bosn gc owned` reports
 `eager` counts. Merged-branch purging is #732.
 
+**Image family cap (#663).** Images with explicit workspace, stack and task labels share
+#659's canonical repository family (or their exact workspace path when unavailable).
+Keep the three images referenced most recently; older images pass the 1 h idle floor
+and every ownership, pin and container-reference gate before `family-cap` reclamation.
+Only already reclaimable setup containers may precede their image; the fresh image
+re-check requires every container reference to be gone. New single-task builds record the explicit task label; multi-task builds remain
+TTL-only. Missing family labels retain
+the age TTL. No task identity is guessed from image tags or container names.
+
 **Owned footprint ceiling** (decided 2026-10-22, #508). Free disk is not owned
 allocation. Every pass sums the Bosn-labelled containers, volumes and images it
 observed (`OwnedFootprint`), logs the total by kind with the unmeasured count, and

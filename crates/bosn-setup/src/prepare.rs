@@ -26,6 +26,7 @@ pub enum SetupImageCommand {
         tag: String,
         asset_root: PathBuf,
         dockerfile_path: PathBuf,
+        task: Option<String>,
     },
     Inspect {
         image: String,
@@ -40,23 +41,36 @@ impl SetupImageCommand {
                 tag,
                 asset_root,
                 dockerfile_path,
-            } => vec![
-                "build".into(),
-                // A local setup app is single-platform. Without this,
-                // recent BuildKit releases export an OCI index whose `.Id`
-                // differs from the platform image ID Docker stores on the
-                // container. The ensure primitive must compare one stable
-                // image identity across create and later reuse.
-                "--provenance=false".into(),
-                "--tag".into(),
-                tag.clone(),
-                "--file".into(),
-                // The Dockerfile and context are relative to a validated,
-                // private current directory; neither is caller argv.
-                crate::materialize::materialized_dockerfile_relative(asset_root, dockerfile_path)
+                task,
+            } => {
+                let mut args = vec![
+                    "build".into(),
+                    // A local setup app is single-platform. Without this,
+                    // recent BuildKit releases export an OCI index whose `.Id`
+                    // differs from the platform image ID Docker stores on the
+                    // container. The ensure primitive must compare one stable
+                    // image identity across create and later reuse.
+                    "--provenance=false".into(),
+                    "--tag".into(),
+                    tag.clone(),
+                    "--file".into(),
+                    // The Dockerfile and context are relative to a validated,
+                    // private current directory; neither is caller argv.
+                    crate::materialize::materialized_dockerfile_relative(
+                        asset_root,
+                        dockerfile_path,
+                    )
                     .expect("validated plan Dockerfile lies below its asset root"),
-                ".".into(),
-            ],
+                ];
+                if let Some(task) = task {
+                    args.extend([
+                        "--label".into(),
+                        format!("{}={task}", bosn_core::LABEL_TASK),
+                    ]);
+                }
+                args.push(".".into());
+                args
+            }
             Self::Inspect { image } => vec![
                 "image".into(),
                 "inspect".into(),
@@ -196,6 +210,11 @@ pub async fn prepare_setup_image<E: SetupImageEngine>(
             tag: tag.clone(),
             asset_root: asset_root.clone(),
             dockerfile_path: dockerfile_path.clone(),
+            // Shared/multi-task builds have no single task family; leave them TTL-only.
+            task: match plan.task_names.as_slice() {
+                [task] => Some(task.clone()),
+                _ => None,
+            },
         },
     };
     let action_name = match &action {
@@ -636,7 +655,8 @@ mod tests {
 
     #[test]
     fn inline_build_uses_only_validated_private_root_and_content_addressed_tag() {
-        let (_temp, plan) = inline_plan();
+        let (_temp, mut plan) = inline_plan();
+        plan.task_names = vec!["build".into()];
         let root = plan.asset_root.clone().unwrap();
         let tag = format!("bosn-setup:{}", plan.content_sha256);
         let engine =
@@ -649,6 +669,7 @@ mod tests {
                 tag: prepared.reference.clone(),
                 asset_root: root.clone(),
                 dockerfile_path: root.join("Dockerfile"),
+                task: Some("build".into()),
             }
             .docker_args(),
             vec![
@@ -658,6 +679,8 @@ mod tests {
                 prepared.reference.clone(),
                 "--file".into(),
                 "Dockerfile".into(),
+                "--label".into(),
+                "com.zackees.bosn.task=build".into(),
                 ".".into(),
             ]
         );
@@ -668,6 +691,7 @@ mod tests {
                     tag: prepared.reference.clone(),
                     asset_root: root.clone(),
                     dockerfile_path: root.join("Dockerfile"),
+                    task: Some("build".into()),
                 },
                 SetupImageCommand::Inspect {
                     image: prepared.reference,
@@ -714,6 +738,7 @@ mod tests {
                 tag: "bosn-setup:x".into(),
                 asset_root: root.clone(),
                 dockerfile_path: root.join("bosn").join("act.Dockerfile"),
+                task: None,
             }
             .docker_args(),
             vec![
@@ -810,5 +835,25 @@ mod tests {
             .to_string();
         assert!(!error.contains("private-identity-canary"));
         assert!(error.contains("stable image identity"));
+    }
+}
+
+#[cfg(test)]
+mod family_label_tests {
+    use super::*;
+
+    #[test]
+    fn task_identity_is_an_explicit_image_build_label() {
+        let args = SetupImageCommand::Build {
+            tag: "bosn-setup:test".into(),
+            asset_root: PathBuf::from("/assets"),
+            dockerfile_path: PathBuf::from("/assets/Dockerfile"),
+            task: Some("build".into()),
+        }
+        .docker_args();
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--label", "com.zackees.bosn.task=build"])
+        );
     }
 }

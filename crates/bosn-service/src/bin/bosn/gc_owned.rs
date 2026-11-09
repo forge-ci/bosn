@@ -143,31 +143,53 @@ pub(crate) fn run_gc_owned(arguments: impl Iterator<Item = std::ffi::OsString>) 
         .run(client.managed_retention(policy, apply))
         .unwrap_or_else(|_| owned_failure(json_output));
 
-    println!(
-        "{}",
-        json!({
-            "action": "gc_owned",
-            "applied": summary.applied,
-            "preview_only": !summary.applied,
-            "planned": summary.planned,
-            "removed": summary.removed,
-            "removed_bytes": summary.removed_bytes,
-            "deferred": summary.deferred,
-            "failed": summary.failed,
-            "failures": summary.failures,
-            "refused": summary.refused,
-            "held": summary
-                .held
-                .iter()
-                .map(|(reason, count)| (reason.as_str(), *count))
-                .collect::<std::collections::BTreeMap<_, _>>(),
-            "eager": summary
-                .eager
-                .iter()
-                .map(|(reason, count)| (reason.as_str(), *count))
-                .collect::<std::collections::BTreeMap<_, _>>(),
-        })
-    );
+    println!("{}", owned_report(&summary, json_output));
+}
+
+fn owned_report(summary: &bosn_service::ManagedRetentionSummary, json_output: bool) -> String {
+    if !json_output {
+        let eager = summary
+            .eager
+            .iter()
+            .map(|(reason, count)| format!("{}: {count}", reason.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return format!(
+            "Owned GC: {} planned, {} removed, {} deferred, {} failed\neager (containers, volumes and images): {}{}",
+            summary.planned,
+            summary.removed,
+            summary.deferred,
+            summary.failed,
+            if eager.is_empty() { "none" } else { &eager },
+            summary
+                .refused
+                .as_ref()
+                .map_or(String::new(), |detail| format!("\nrefused: {detail}"))
+        );
+    }
+    json!({
+        "action": "gc_owned",
+        "applied": summary.applied,
+        "preview_only": !summary.applied,
+        "planned": summary.planned,
+        "removed": summary.removed,
+        "removed_bytes": summary.removed_bytes,
+        "deferred": summary.deferred,
+        "failed": summary.failed,
+        "failures": summary.failures,
+        "refused": summary.refused,
+        "held": summary
+            .held
+            .iter()
+            .map(|(reason, count)| (reason.as_str(), *count))
+            .collect::<std::collections::BTreeMap<_, _>>(),
+        "eager": summary
+            .eager
+            .iter()
+            .map(|(reason, count)| (reason.as_str(), *count))
+            .collect::<std::collections::BTreeMap<_, _>>(),
+    })
+    .to_string()
 }
 
 fn owned_usage() -> ! {
@@ -243,5 +265,33 @@ mod tests {
         for refused in ["0", "0g", "-5", "", "g", "ten"] {
             assert_eq!(parse_byte_count(refused.into()), Err(()), "{refused}");
         }
+    }
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+
+    #[test]
+    fn gc_owned_reports_image_family_cap_in_human_and_json_output() {
+        let summary = bosn_service::ManagedRetentionSummary {
+            applied: false,
+            planned: 2,
+            removed: 0,
+            removed_bytes: 0,
+            deferred: 0,
+            failed: 0,
+            failures: Vec::new(),
+            refused: None,
+            held: Default::default(),
+            eager: [(bosn_core::EagerReason::FamilyCap, 2)]
+                .into_iter()
+                .collect(),
+        };
+        assert!(owned_report(&summary, false).contains("family-cap: 2"));
+        assert!(owned_report(&summary, false).contains("images"));
+        let report: serde_json::Value =
+            serde_json::from_str(&owned_report(&summary, true)).unwrap();
+        assert_eq!(report["eager"]["family-cap"], 2);
     }
 }

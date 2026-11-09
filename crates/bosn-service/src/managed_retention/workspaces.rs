@@ -19,12 +19,13 @@ const POINTER_LIMIT: u64 = 4096;
 pub(super) fn observe(artifacts: &[ObservedArtifact]) -> EagerFacts {
     let workspaces: BTreeSet<&str> = artifacts
         .iter()
-        .filter(|artifact| artifact.kind == ResourceKind::Volume)
+        .filter(|artifact| matches!(artifact.kind, ResourceKind::Volume | ResourceKind::Image))
         .filter(|artifact| {
-            matches!(
-                artifact.labels.get(LABEL_SCOPE).map(String::as_str),
-                Some("stack" | "spec")
-            )
+            artifact.kind == ResourceKind::Image
+                || matches!(
+                    artifact.labels.get(LABEL_SCOPE).map(String::as_str),
+                    Some("stack" | "spec")
+                )
         })
         .filter_map(|artifact| artifact.labels.get(LABEL_WORKSPACE).map(String::as_str))
         .filter(|workspace| Path::new(workspace).is_absolute())
