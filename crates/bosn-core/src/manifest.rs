@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 
 use crate::{Retention, Scope};
 
+mod cpu;
 mod modes;
+pub use cpu::CpuRequest;
 pub use modes::{MountMode, OverlayUpper, VolumeMode};
 
 const RESERVED_PREFIX: &str = "/bosn/";
@@ -107,6 +109,7 @@ pub struct Task {
     pub name: String,
     pub stack: String,
     pub cmd: String,
+    pub cpus: Option<CpuRequest>,
     pub args: bool,
     /// Daemon-owned secrets this task opts into, by name only (#308). The
     /// manifest never carries a secret value or path.
@@ -218,7 +221,15 @@ pub fn parse_manifest_toml(source: &str, roots: ManifestRoots) -> Result<Manifes
         let body = table_value(body, "task")?;
         reject_unknown(
             body,
-            &["stack", "cmd", "args", "secrets", "github_api", "keep"],
+            &[
+                "stack",
+                "cmd",
+                "args",
+                "secrets",
+                "github_api",
+                "keep",
+                "cpus",
+            ],
             &format!("task.{name}"),
         )?;
         let secrets = parse_task_secrets(body, name)?;
@@ -259,6 +270,7 @@ pub fn parse_manifest_toml(source: &str, roots: ManifestRoots) -> Result<Manifes
                 name: name.clone(),
                 stack,
                 cmd,
+                cpus: cpu::parse(body.get("cpus"), name)?,
                 args: optional_bool(body, "args", &format!("task.{name}"))?.unwrap_or(true),
                 secrets,
                 github_api_proxy,

@@ -415,6 +415,12 @@ claim freezes the CPU source; older claims without that label report the
 source as unknown. Before an engine exists, report the limits a new engine
 would use.
 
+Task manifests may request `cpus = <positive number>` or `"auto"` (#637).
+The operator's `max_task_cpus` (file, environment, then serve flag) caps explicit
+requests and defaults to the task lane's per-slot quota. Auto subtracts other
+running task quotas from available logical CPUs, with the per-slot floor;
+there is no task memory-per-CPU clamp. This does not change CI admission.
+
 ## Docker context entry limit (#636, #641)
 
 Count only entries selected by the Dockerfile and its effective `.dockerignore`

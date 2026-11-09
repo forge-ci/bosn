@@ -386,8 +386,6 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                     )
                     .await;
                 }
-                // Runner slot (#358): limits on this container, and the
-                // job's Docker proxy when the stack drives the host engine.
                 let runner = match session.run_context() {
                     Some(context) => Some(
                         task_runner::attach(
@@ -399,6 +397,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                                 .and_then(|socket| socket.proxy_dir.as_deref()),
                             &job_caches,
                             logs,
+                            runtime.cpus,
                         )
                         .await,
                     ),

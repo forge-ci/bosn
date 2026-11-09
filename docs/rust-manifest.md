@@ -68,3 +68,12 @@ args = false
 
 Non-empty arguments require daemon protocol 3 or newer; stop an older daemon
 and retry with the updated Bosn executable.
+
+## Task CPU requests
+
+`[task.X] cpus` accepts a positive finite number or `"auto"`, parsed eagerly
+into `CpuRequest`. Invalid values name the task in the manifest error. An
+omitted request preserves the per-slot CPU quota. The daemon parses the
+manifest, so this adds no wire field and does not bump `DAEMON_PROTOCOL`.
+See [runner CPU sizing](runners.md#per-task-cpu-requests) for operator caps
+and auto sizing.

@@ -61,6 +61,31 @@ To get strict partitioning instead, choose `slots * cpus <= ncpu`, for example
 Tasks see their allocation as `BOSN_RUNNER_CPUS`, `BOSN_RUNNER_SLOT`,
 `BOSN_JOB_ID` and `BOSN_RUN` (for example, to size `cargo -j`).
 
+### Per-task CPU requests
+
+```toml
+[task.test]
+cmd = "./test"
+cpus = "auto" # or a positive number, for example 0.5 or 8
+```
+
+Without `cpus`, a task uses the operator's `cpus` per-slot quota. A fixed
+request is honored up to `max_task_cpus`; smaller requests remain smaller.
+`"auto"` uses available logical CPUs minus the quotas of other running task
+slots, floored at the normal per-slot quota, then capped by `max_task_cpus`.
+Sizing happens once at task attachment, so this is a quota ceiling rather
+than a reservation. The task lane has no memory-per-CPU model; auto sizing
+therefore does not apply a memory clamp. CI admission and engine limits are
+independent. Tasks still run at Bosn's low CPU priority.
+
+The operator maximum defaults to the current per-slot quota. Set
+`max_task_cpus = 8` in `<state-dir>/runners.toml`, `BOSN_MAX_TASK_CPUS=8`, or
+`bosn daemon serve --max-task-cpus 8` to opt in to larger requests. The value
+must be positive and at most 1024. Flags override environment, which overrides
+the file. With legacy `cpus = 0` and no explicit maximum, CPU requests remain
+uncapped. The resolved quota appears in the runner summary and
+`BOSN_RUNNER_CPUS`, and applies to the task container and Docker proxy.
+
 ### Configuration
 
 Highest precedence first:

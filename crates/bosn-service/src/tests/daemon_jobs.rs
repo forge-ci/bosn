@@ -817,6 +817,7 @@ fn test_capacity(slots: usize, stall: Option<Duration>) -> capacity::RunnerCapac
         runner_slots: slots,
         control_slots: 2,
         cpus_per_slot: 4.0,
+        max_task_cpus: None,
         memory_per_slot: None,
         stall_after: stall,
         docker_proxy: false,
