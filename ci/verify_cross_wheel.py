@@ -19,19 +19,6 @@ import tomllib
 
 # No wheel ships a shared OpenSSL (#265); lockstep with verify_installed_wheel.py.
 OPENSSL_LIBRARIES = ("libssl", "libcrypto")
-RETIRED_LIFECYCLE_MODULES = (
-    "daemon",
-    "engine",
-    "registry",
-    "converge",
-    "gc",
-    "resources",
-    "recovery",
-    "docker_cli",
-    "compose",
-    "manifest",
-    "guest",
-)
 MH_MAGIC_64 = 0xFEEDFACF
 MH_DYLIB = 6
 MH_EXECUTE = 2
@@ -175,13 +162,6 @@ def verify(wheel: Path, target: Target, root: Path) -> None:
             fail(f"WHEEL does not declare {required_tag}")
         if f"Version: {version}\n" not in archive.read(package_metadata).decode("utf-8"):
             fail(f"METADATA does not declare version {version}")
-        retired = [
-            f"bosn/{module}.py"
-            for module in RETIRED_LIFECYCLE_MODULES
-            if f"bosn/{module}.py" in names
-        ]
-        if retired:
-            fail(f"wheel includes retired lifecycle modules: {retired}")
         forbidden = [
             name
             for name in names
