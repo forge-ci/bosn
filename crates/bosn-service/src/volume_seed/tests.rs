@@ -194,3 +194,106 @@ fn idempotent_create_cannot_authorize_copying_into_a_racing_volume() {
         &target, &seed, "owner", &labels
     ));
 }
+
+#[test]
+fn volume_mode_selects_exclusive_machine_instead_of_shared_stack() {
+    use bosn_core::manifest::VolumeMode;
+    let root = tempfile::tempdir().unwrap();
+    let suffix = root.path().to_string_lossy().replace('/', "-");
+    let mut shared = target();
+    shared.name = format!("shared-{suffix}");
+    let mut exclusive = target();
+    exclusive.name = format!("exclusive-{suffix}");
+    exclusive.scope = Scope::Machine;
+    let modes = [
+        (shared.name.clone(), VolumeMode::Shared),
+        (exclusive.name.clone(), VolumeMode::Exclusive),
+    ]
+    .into();
+    let runtime = async_engine::RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.run(async {
+        let locks = locks::destinations(
+            root.path(),
+            &[shared.clone(), exclusive.clone()],
+            &modes,
+            &async_engine::Deadline::after(std::time::Duration::from_secs(2)),
+            &async_engine::CancellationSource::new().token(),
+            "unit holder",
+        )
+        .await
+        .unwrap();
+        let directory = crate::runners::cache_lock_dir();
+        assert!(locks::try_lock(&directory, &shared.name).unwrap().is_some());
+        assert!(
+            locks::try_lock(&directory, &exclusive.name)
+                .unwrap()
+                .is_none()
+        );
+        drop(locks);
+        assert!(
+            locks::try_lock(&directory, &exclusive.name)
+                .unwrap()
+                .is_some()
+        );
+    });
+}
+
+#[test]
+fn held_run_volume_names_holder_and_acquires_after_release() {
+    let root = tempfile::tempdir().unwrap();
+    let mut target = target();
+    target.name = format!("run-{}", root.path().to_string_lossy().replace('/', "-"));
+    let modes = [(
+        target.name.clone(),
+        bosn_core::manifest::VolumeMode::Exclusive,
+    )]
+    .into();
+    async_engine::RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(async {
+            let cancellation = async_engine::CancellationSource::new();
+            let deadline = async_engine::Deadline::after(std::time::Duration::from_secs(5));
+            let volumes = [target.clone(), target.clone()];
+            let held = locks::destinations(
+                root.path(),
+                &volumes,
+                &modes,
+                &deadline,
+                &cancellation.token(),
+                "task holder",
+            )
+            .await
+            .unwrap();
+            let result = locks::destinations(
+                root.path(),
+                &volumes,
+                &modes,
+                &deadline,
+                &cancellation.token(),
+                "second task",
+            )
+            .await;
+            assert!(
+                matches!(result, Err(crate::ephemeral_task::TaskContainerError::VolumeBusy {
+            volume, holder }) if volume == target.name && holder == "task holder")
+            );
+            drop(held);
+            assert!(
+                locks::destinations(
+                    root.path(),
+                    &volumes,
+                    &modes,
+                    &deadline,
+                    &cancellation.token(),
+                    "second task"
+                )
+                .await
+                .is_ok()
+            );
+        });
+}

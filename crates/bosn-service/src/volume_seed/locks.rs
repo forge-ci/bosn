@@ -15,37 +15,53 @@ pub(crate) fn try_lock(state: &Path, name: &str) -> Result<Option<fs::OwnedFileL
     }
 }
 
-pub(super) async fn destinations(
+/// A run owns these locks until its ephemeral container has been removed.
+/// Kept containers hold no lease while idle.
+#[derive(Default)]
+pub(crate) struct VolumeLease {
+    locks: std::collections::BTreeMap<String, fs::OwnedFileLock>,
+}
+
+impl VolumeLease {
+    pub(crate) fn holds(&self, name: &str) -> bool {
+        self.locks.contains_key(name)
+    }
+}
+
+pub(crate) async fn destinations(
     _state: &Path,
     volumes: &[ManifestVolumeResource],
+    modes: &std::collections::BTreeMap<String, bosn_core::manifest::VolumeMode>,
     deadline: &async_engine::Deadline,
     cancellation: &async_engine::CancellationToken,
-) -> Result<Vec<fs::OwnedFileLock>, String> {
-    let mut names: Vec<_> = volumes
+    holder: &str,
+) -> Result<VolumeLease, crate::ephemeral_task::TaskContainerError> {
+    if deadline.remaining().is_zero() || cancellation.is_cancelled() {
+        return Err("manifest volume lease cancelled or exceeded deadline".into());
+    }
+    let names: std::collections::BTreeSet<_> = volumes
         .iter()
-        .filter(|v| v.scope == bosn_core::Scope::Stack)
+        .filter(|v| modes.get(&v.name) == Some(&bosn_core::manifest::VolumeMode::Exclusive))
         .map(|v| v.name.clone())
         .collect();
-    names.sort();
-    names.dedup();
-    let mut locks = Vec::new();
-    for name in names {
-        loop {
-            if deadline.remaining().is_zero() || cancellation.is_cancelled() {
-                return Err("manifest volume lease wait cancelled or exceeded deadline".into());
-            }
-            let name = name.clone();
-            if let Some(lock) = async_engine::launch_blocking(move || {
-                try_lock(&crate::runners::cache_lock_dir(), &name)
-            })
-            .await
-            .map_err(|e| e.to_string())??
-            {
-                locks.push(lock);
-                break;
-            }
-            async_engine::sleep(std::time::Duration::from_millis(50)).await;
+    let holder = holder.to_owned();
+    async_engine::launch_blocking(move || {
+        let directory = crate::runners::cache_lock_dir();
+        let mut lease = VolumeLease::default();
+        for name in names {
+            let lock = try_lock(&directory, &name)?.ok_or_else(|| {
+                crate::ephemeral_task::TaskContainerError::VolumeBusy {
+                    volume: name.clone(),
+                    holder: std::fs::read_to_string(directory.join(format!("{name}.holder")))
+                        .unwrap_or_else(|_| format!("exclusive lock {name}")),
+                }
+            })?;
+            std::fs::write(directory.join(format!("{name}.holder")), &holder)
+                .map_err(|e| e.to_string())?;
+            lease.locks.insert(name, lock);
         }
-    }
-    Ok(locks)
+        Ok(lease)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

@@ -377,7 +377,7 @@ pub(crate) fn manifest_mount_readonly(mount: &bosn_core::manifest::Mount) -> Res
         bosn_core::manifest::MountMode::Rw => Ok(false),
         bosn_core::manifest::MountMode::Ro => Ok(true),
         bosn_core::manifest::MountMode::Overlay => {
-            Err("overlay mounts are not implemented yet (#666)".into())
+            Err("overlay mounts are not implemented yet (#888)".into())
         }
     }
 }

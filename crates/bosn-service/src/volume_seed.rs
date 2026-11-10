@@ -68,6 +68,7 @@ pub(crate) struct SeedContext<'a> {
 impl SeedContext<'_> {
     pub async fn execute(
         &self,
+        modes: &std::collections::BTreeMap<String, bosn_core::manifest::VolumeMode>,
         pipeline: &SetupEnsurePipeline<'_>,
         cancellation: &async_engine::CancellationToken,
         events: &async_engine::Sender<EngineEvent>,
@@ -76,10 +77,13 @@ impl SeedContext<'_> {
         let _locks = locks::destinations(
             self.state_dir,
             self.volumes,
+            modes,
             pipeline.deadline,
             cancellation,
+            "manifest ensure/seed",
         )
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
         self.seed(pipeline.deadline, cancellation).await?;
         self.guarded_pipeline(pipeline, cancellation, events, logs)
             .await

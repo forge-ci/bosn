@@ -233,6 +233,11 @@ pub trait ManifestAppTaskExecutor: Send + Sync {
 /// Durable, conservative ownership evidence for a manifest app task. The
 /// identity is the registry-matching deterministic managed container name.
 pub trait ManifestAppTaskSessionRecorder: Send + Sync {
+    /// Registry authority for preparation within this task's volume lease.
+    fn registry_authority(&self) -> Result<(&RegistryActor, u64), String> {
+        Err("task preparation registry authority unavailable".into())
+    }
+
     /// A blocked runner still owns its job and cancellation token, but no container.
     fn waiting_on(
         &self,

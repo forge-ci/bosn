@@ -518,11 +518,6 @@ pub(crate) struct ManifestRuntimePlan {
     /// toolcache as an exclusive machine cache unless the manifest maps it.
     pub(crate) job_caches: Vec<runners::CacheRule>,
     /// Each planned volume's sharing mode (#666), by Docker volume name.
-    /// Carried for the task-container slice; nothing enforces it yet.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "read by the #666 task-container slice")
-    )]
     pub(crate) volume_modes: BTreeMap<String, bosn_core::manifest::VolumeMode>,
     /// Select the task container lifetime without changing generation identity.
     pub(crate) keep: bool,

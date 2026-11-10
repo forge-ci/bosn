@@ -91,6 +91,7 @@ impl ManifestEnsureExecutor for DockerManifestEnsureExecutor {
                 volumes,
                 is_guest,
                 autostart,
+                volume_modes,
                 ..
             } = runtime;
             let (events, receiver) = async_engine::channel(MANIFEST_ENGINE_EVENT_QUEUE);
@@ -120,7 +121,7 @@ impl ManifestEnsureExecutor for DockerManifestEnsureExecutor {
                 registry,
                 volumes: &volumes,
             }
-            .execute(&pipeline, cancellation, &events, logs)
+            .execute(&volume_modes, &pipeline, cancellation, &events, logs)
             .await;
             drop(events);
             forwarder
@@ -291,7 +292,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 &task_command,
                 runtime.github_api_proxy,
             );
-            let mut ephemeral = None;
+            let mut ephemeral = crate::ephemeral_task::TaskLifetime::default();
             let result = async {
                 if let Some((_, source)) = &github_api {
                     logs.send(format!(
@@ -341,7 +342,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                     .await
                     .map_err(|_| "manifest app task log consumer closed".to_owned())?;
                 let observed = crate::ephemeral_task::prepare(
-                    &self.engine, &plan, &prepared, &request, (runtime.keep, &self.state_dir, &runtime.volumes),
+                    &self.engine, &plan, &prepared, &request, (runtime.keep, &self.state_dir, &runtime.volumes, &runtime.volume_modes, runtime.autostart),
                     session, cancellation, &events, remaining, &mut ephemeral,
                 ).await.map_err(|error| error.to_string())?;
                 // #314: name the verified container and the checkout its
@@ -424,7 +425,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                         cancellation,
                         events: &events,
                     },
-                    ephemeral.as_ref().map(|container| container.name.as_str()),
+                    ephemeral.container.as_ref().map(|container| container.name.as_str()),
                 )
                 .await;
                 // Whatever the outcome (success, failure, cancel, stall or

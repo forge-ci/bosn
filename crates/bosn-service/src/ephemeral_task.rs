@@ -4,6 +4,8 @@ use crate::*;
 use bosn_core::{ResourceKind, ResourceLabels, Scope};
 use serde::Deserialize;
 
+#[path = "task_volume_lifetime.rs"]
+mod volume_lifetime;
 #[path = "ephemeral_task_wait.rs"]
 mod waiting;
 #[cfg(test)]
@@ -15,6 +17,8 @@ pub(crate) enum TaskContainerError {
     TaskContainerBusy(String, Option<Duration>),
     #[error("task container {0} is foreign or lacks exact Bosn ownership labels")]
     TaskContainerForeign(String),
+    #[error("exclusive volume {volume} is busy: held by {holder}")]
+    VolumeBusy { volume: String, holder: String },
     #[error("{0}")]
     Operation(String),
 }
@@ -30,6 +34,20 @@ impl From<&str> for TaskContainerError {
         Self::Operation(error.into())
     }
 }
+
+#[derive(Default)]
+pub(crate) struct TaskLifetime {
+    pub(crate) container: Option<TaskContainer>,
+    pub(crate) volumes: crate::volume_seed::locks::VolumeLease,
+}
+
+type CleanContext<'a> = (
+    bool,
+    &'a Path,
+    &'a [ManifestVolumeResource],
+    &'a BTreeMap<String, bosn_core::manifest::VolumeMode>,
+    bool,
+);
 
 #[derive(Debug, PartialEq)]
 enum Leftover {
@@ -167,12 +185,12 @@ pub(crate) async fn prepare(
     plan: &SetupPlan,
     image: &PreparedImage,
     request: &ManifestAppTaskJobRequest,
-    clean_context: (bool, &Path, &[ManifestVolumeResource]),
+    clean_context: CleanContext<'_>,
     session: &dyn ManifestAppTaskSessionRecorder,
     cancellation: &async_engine::CancellationToken,
     events: &async_engine::Sender<EngineEvent>,
     remaining: Duration,
-    lifetime: &mut Option<TaskContainer>,
+    lifetime: &mut TaskLifetime,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
     let started = Instant::now();
     loop {
@@ -193,6 +211,7 @@ pub(crate) async fn prepare(
             Err(TaskContainerError::TaskContainerBusy(name, _))
                 if request.wait && !clean_context.0 =>
             {
+                lifetime.volumes = Default::default();
                 if started.elapsed() >= remaining {
                     return Err(waiting::busy_after(&name, started.elapsed()));
                 }
@@ -204,7 +223,23 @@ pub(crate) async fn prepare(
                 )
                 .await;
             }
-            other => return other,
+            Err(TaskContainerError::VolumeBusy { volume, holder })
+                if request.wait && request.clean == CleanVolumes::None =>
+            {
+                if started.elapsed() >= remaining || cancellation.is_cancelled() {
+                    session.waiting_on(None).await?;
+                    return Err(TaskContainerError::VolumeBusy { volume, holder });
+                }
+                session.waiting_on(Some(volume)).await?;
+                async_engine::sleep(
+                    Duration::from_millis(250).min(remaining.saturating_sub(started.elapsed())),
+                )
+                .await;
+            }
+            other => {
+                session.waiting_on(None).await?;
+                return other;
+            }
         }
     }
 }
@@ -218,19 +253,33 @@ async fn prepare_once(
     plan: &SetupPlan,
     image: &PreparedImage,
     request: &ManifestAppTaskJobRequest,
-    clean_context: (bool, &Path, &[ManifestVolumeResource]),
+    clean_context: CleanContext<'_>,
     session: &dyn ManifestAppTaskSessionRecorder,
     cancellation: &async_engine::CancellationToken,
     events: &async_engine::Sender<EngineEvent>,
     remaining: Duration,
-    lifetime: &mut Option<TaskContainer>,
+    lifetime: &mut TaskLifetime,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
-    let (keep, state, volumes) = clean_context;
+    let (keep, state, volumes, modes, autostart) = clean_context;
     let remaining = if request.wait && !keep {
         waiting::before_prepare(engine, plan, request, session, cancellation, remaining).await?
     } else {
         remaining
     };
+    let deadline = async_engine::Deadline::after(remaining);
+    lifetime.volumes = crate::volume_seed::locks::destinations(
+        state,
+        volumes,
+        modes,
+        &deadline,
+        cancellation,
+        &format!(
+            "task {} (daemon pid {})",
+            request.task_name,
+            std::process::id()
+        ),
+    )
+    .await?;
     if keep && request.clean != CleanVolumes::None {
         reset_kept_container(
             engine,
@@ -238,7 +287,7 @@ async fn prepare_once(
                 plan,
                 workspace_root: request.workspace.clone(),
                 prepared_image: image,
-                options: RunOptions::streaming(remaining, 8 * 1024 * 1024),
+                options: RunOptions::streaming(deadline.remaining(), 8 * 1024 * 1024),
                 cancellation,
                 events,
             },
@@ -246,32 +295,48 @@ async fn prepare_once(
         )
         .await?;
     }
-    crate::managed_retention::clean::execute(engine, state, volumes, request.clean, cancellation)
-        .await
-        .map_err(|e| TaskContainerError::Operation(e.to_string()))?;
-    let cleaning = request.clean != CleanVolumes::None;
-    if cleaning {
-        session.task_volumes(volumes, false).await?;
-    }
+    crate::managed_retention::clean::execute(
+        engine,
+        state,
+        volumes,
+        request.clean,
+        cancellation,
+        &lifetime.volumes,
+    )
+    .await
+    .map_err(|e| TaskContainerError::Operation(e.to_string()))?;
+    session.task_volumes(volumes, false).await?;
+    let plan = volume_lifetime::prepare_plan(
+        engine,
+        (state, volumes),
+        (plan, request.clean),
+        session,
+        deadline.remaining(),
+        cancellation,
+    )
+    .await?;
+    let plan = &plan;
     let result = prepare_container(
         engine,
         CoreSetupEnsureRequest {
             plan,
             workspace_root: request.workspace.clone(),
             prepared_image: image,
-            options: RunOptions::streaming(remaining, 8 * 1024 * 1024),
+            options: RunOptions::streaming(deadline.remaining(), 8 * 1024 * 1024),
             cancellation,
             events,
         },
         request,
         keep,
         session,
-        remaining,
+        deadline.remaining(),
         lifetime,
     )
     .await?;
-    if cleaning {
-        session.task_volumes(volumes, true).await?;
+    session.task_volumes(volumes, true).await?;
+    if keep {
+        volume_lifetime::record_kept(plan, image, request, (autostart, volumes), &result, session)
+            .await?;
     }
     Ok(result)
 }
@@ -283,16 +348,12 @@ async fn prepare_container(
     keep: bool,
     session: &dyn ManifestAppTaskSessionRecorder,
     remaining: Duration,
-    lifetime: &mut Option<TaskContainer>,
+    lifetime: &mut TaskLifetime,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
     if keep {
-        return if request.clean == CleanVolumes::None {
-            adopt_running(engine, setup).await
-        } else {
-            bosn_setup::ensure_setup_app(engine, setup)
-                .await
-                .map_err(|e| e.to_string().into())
-        };
+        return bosn_setup::ensure_setup_app(engine, setup)
+            .await
+            .map_err(|e| e.to_string().into());
     }
     let CoreSetupEnsureRequest {
         plan,
@@ -346,7 +407,7 @@ async fn prepare_container(
     if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("invalid task container creation receipt".into());
     }
-    *lifetime = Some(TaskContainer {
+    lifetime.container = Some(TaskContainer {
         name: name.clone(),
         id: id.clone(),
     });
@@ -409,21 +470,6 @@ async fn reset_kept_container(
         .map_err(|e| e.to_string().into())
 }
 
-async fn adopt_running(
-    engine: &DockerEngine,
-    request: CoreSetupEnsureRequest<'_>,
-) -> Result<SetupEnsureResult, TaskContainerError> {
-    let observed = adopt_setup_app(engine, request)
-        .await
-        .map_err(|e| e.to_string())?;
-    if !observed.running {
-        return Err(
-            "manifest app task requires the exact managed application to be running".into(),
-        );
-    }
-    Ok(observed)
-}
-
 async fn create(
     engine: &DockerEngine,
     command: bosn_setup::SetupEnsureCommand,
@@ -463,23 +509,14 @@ async fn create_failure(
 
 pub(crate) async fn finish(
     engine: &DockerEngine,
-    container: Option<TaskContainer>,
+    lifetime: TaskLifetime,
     session: &dyn ManifestAppTaskSessionRecorder,
     result: Result<String, String>,
 ) -> Result<String, String> {
-    let Some(container) = container else {
+    let Some(container) = &lifetime.container else {
         return result;
     };
-    let removed = control(
-        engine,
-        vec![
-            "container".into(),
-            "rm".into(),
-            "--force".into(),
-            container.id,
-        ],
-    )
-    .await;
+    let removed = volume_lifetime::remove(engine, container).await;
     match removed {
         Ok(output) if output.ok() || output.reports_missing() => {
             session
@@ -497,6 +534,7 @@ pub(crate) async fn finish(
                 container.name
             );
             daemon_log!("{error}");
+            volume_lifetime::retry_cleanup(engine.clone(), lifetime);
             Err(format!("{}; {error}", result.err().unwrap_or_default()))
         }
     }
@@ -583,3 +621,7 @@ mod wait_tests {
         );
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "task_volume_lifetime_tests.rs"]
+mod volume_lifetime_tests;

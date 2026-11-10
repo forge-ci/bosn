@@ -43,7 +43,7 @@ is busy. Status and jobs name the container in `waiting_on`. Waiting consumes th
 task deadline; expiry reports the busy container and the seconds waited. Cancellation
 or owner death cancels the waiter without stopping the holder. Foreign or unlabelled
 containers refuse immediately. Daemons older than protocol 5 are refused before
-submission. Kept tasks retain their existing behavior. MCP/Python have explicit
+submission. Exclusive-volume waits also apply to kept tasks. MCP/Python have explicit
 manifest methods rather than generic run flags; forwarding wait is follow-up.
 
 `--clean` resets the exact named stack/spec volumes computed for this checkout
@@ -60,18 +60,27 @@ Kept clean requires an existing ensured application and its registry ownership
 record. Run an ordinary ensure first for a new stack, or after an interrupted
 reset that has already removed its container.
 
-Clean runs skip the preliminary stack ensure, avoiding a new preparation container
-mounting the volumes before reset. A preparation container left by an earlier
-ordinary run still counts as a holder: stop it explicitly before cleaning.
-The task still verifies/prepares its image and recreates volumes. Daemons older
-than protocol 4 are refused before task submission. MCP/Python expose explicit
-manifest methods rather than generic run flags; clean support there is follow-up.
+Task preparation and execution share one volume lease. `mode = "exclusive"`
+(default for stack/spec volumes) admits one task at a time, even across different
+names; `mode = "shared"` (default for machine volumes) permits concurrent tasks.
+A conflict names the volume and its holder; `--wait` queues within the task's
+existing deadline and cancellation rules. Status names the volume in `waiting_on`.
+The lease starts before seeding and stays held through ephemeral container removal.
+A kept container holds the lease only during ensure/seed and task execution;
+an idle kept container holds no lease. CI job-cache leases are separate.
+
+Clean runs recreate volumes cold without seeding them. A preparation container
+left by an earlier explicit ensure still counts as a holder: stop it explicitly
+before cleaning. Daemons older than protocol 4 are refused before clean submission.
+MCP/Python forwarding of `--wait`/`--clean`, overlay source mounts and exclusive
+stack-volume replicas are deferred to [#888](https://github.com/forge-ci/bosn/issues/888).
 
 It pings the daemon for that state directory and, when none answers, starts
 `bosn daemon serve --state-dir STATE_DIR` detached (its own process group, so
-Ctrl-C on the client does not reach it). It then submits the stack's ensure
-(skipped with `--no-ensure`), which reuses the exact running container when
-the generation is unchanged, and the declared task. Each job's logs are
+Ctrl-C on the client does not reach it). A task is submitted as one job that
+prepares its image and volumes under the run lease, then executes. `--no-ensure`
+remains accepted; tasks no longer submit a separate preliminary ensure job.
+`bosn run --stack NAME` still performs explicit stack ensure. Each job's logs are
 streamed as they arrive: the task's stdout goes to stdout, its stderr and all
 daemon progress to stderr, and every ensure record to stderr. Before
 following the task it prints `bosn run: job N` with the exact `bosn job
