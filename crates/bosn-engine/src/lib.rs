@@ -4,6 +4,8 @@
 //! authorization boundary. Callers provide trusted Docker argv/environment;
 //! all child lifecycle and I/O is delegated to the public `kernal-api` facade.
 
+mod logging;
+pub use logging::daemon_log;
 use std::{
     ffi::OsString,
     io,

@@ -20,6 +20,18 @@ use kernal_api::{
 };
 
 use crate::{PreparedImage, PreparedImageKind, SetupPlan, SetupPlanAppSource};
+// Preserve the public refusal while identifying the exact private proof check.
+macro_rules! fail {
+    () => {{
+        bosn_engine::daemon_log(&format!(
+            "bosn setup ownership proof failed at {}:{}",
+            file!(),
+            line!()
+        ));
+        SetupEnsureError::OwnershipMismatch
+    }};
+}
+
 mod checks;
 mod derive;
 mod seed_labels;
@@ -543,10 +555,10 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
     )
     .await?;
     let SetupEnsureResponse::Inspection(Some(observed), result) = response else {
-        return Err(SetupEnsureError::OwnershipMismatch);
+        return Err(fail!());
     };
     if !result.ok() || observed.container_id != container_id {
-        return Err(SetupEnsureError::OwnershipMismatch);
+        return Err(fail!());
     }
     validate_observed(&observed, &derived)?;
     verify_configuration(engine, &observed, &derived, &deadline, request).await?;
@@ -609,8 +621,7 @@ async fn ensure_named_volumes<E: SetupEnsureEngine>(
             ));
         };
         if result.ok() {
-            let observed = crate::creation::bounded_json(&result.stdout)
-                .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
+            let observed = crate::creation::bounded_json(&result.stdout).map_err(|_| fail!())?;
             verify_volume_observation(volume, &observed, None)?;
         } else if result.reports_missing() {
             let response = invoke(
@@ -673,7 +684,7 @@ pub async fn adopt_setup_app<E: SetupEnsureEngine>(
                 "present inspection has a nonzero result",
             ));
         }
-        None if result.exit_code == 1 => return Err(SetupEnsureError::OwnershipMismatch),
+        None if result.exit_code == 1 => return Err(fail!()),
         None if result.ok() => {
             return Err(SetupEnsureError::EngineProtocol(
                 "absent inspection has a successful result",

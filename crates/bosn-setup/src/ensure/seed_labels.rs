@@ -6,8 +6,8 @@ pub(super) fn verify(
     expected: &SetupEnsureVolume,
     document: &serde_json::Value,
 ) -> Result<(), SetupEnsureError> {
-    let observed: bosn_core::unmanaged::InspectedVolume = serde_json::from_value(document.clone())
-        .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
+    let observed: bosn_core::unmanaged::InspectedVolume =
+        serde_json::from_value(document.clone()).map_err(|_| fail!())?;
     let labels = observed.labels;
     let keys = [LABEL_SEEDED_FROM, LABEL_SEED_NONCE, LABEL_SEED_REGISTRY];
     if keys.iter().any(|k| labels.contains_key(*k))
@@ -15,7 +15,7 @@ pub(super) fn verify(
             .iter()
             .any(|k| !labels.contains_key(*k) || labels.get(*k) != expected.labels.get(*k))
     {
-        return Err(SetupEnsureError::OwnershipMismatch);
+        return Err(fail!());
     }
     Ok(())
 }

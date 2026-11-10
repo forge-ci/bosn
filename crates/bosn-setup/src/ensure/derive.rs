@@ -69,12 +69,12 @@ pub fn verify_setup_observation(
     validate_observed(observed, &expected)?;
     verify_actual_configuration(observed, &expected, image_configuration)?;
     if volume_observations.len() != expected.volumes.len() {
-        return Err(SetupEnsureError::OwnershipMismatch);
+        return Err(fail!());
     }
     for volume in &expected.volumes {
         let receipt = volume_observations
             .get(&volume.name)
-            .ok_or(SetupEnsureError::OwnershipMismatch)?;
+            .ok_or_else(|| fail!())?;
         verify_volume_observation(
             volume,
             receipt,
