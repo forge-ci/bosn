@@ -45,7 +45,7 @@ impl DaemonChild {
             .env("XDG_STATE_HOME", state.join("xdg-state"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::inherit());
         if let Some(certificate) = certificate {
             command
                 .env("SSL_CERT_FILE", certificate)

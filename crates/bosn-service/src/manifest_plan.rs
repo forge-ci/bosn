@@ -46,10 +46,6 @@ pub(crate) async fn manifest_stack_task_setup_plan_at(
         let task = manifest
             .task(&validation.task_name)
             .map_err(|e| e.to_string())?;
-        validation
-            .clean
-            .validate_task(task.keep)
-            .map_err(|e| e.to_string())?;
         task.validate_args(&validation.args)
             .map_err(|e| e.to_string())
     })

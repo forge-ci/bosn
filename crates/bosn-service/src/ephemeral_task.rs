@@ -160,10 +160,21 @@ pub(crate) async fn prepare(
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
     let (keep, state, volumes) = clean_context;
-    request
-        .clean
-        .validate_task(keep)
-        .map_err(|e| e.to_string())?;
+    if keep && request.clean != CleanVolumes::None {
+        reset_kept_container(
+            engine,
+            CoreSetupEnsureRequest {
+                plan,
+                workspace_root: request.workspace.clone(),
+                prepared_image: image,
+                options: RunOptions::streaming(remaining, 8 * 1024 * 1024),
+                cancellation,
+                events,
+            },
+            state,
+        )
+        .await?;
+    }
     crate::managed_retention::clean::execute(engine, state, volumes, request.clean, cancellation)
         .await
         .map_err(|e| TaskContainerError::Operation(e.to_string()))?;
@@ -204,7 +215,13 @@ async fn prepare_container(
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
     if keep {
-        return adopt_running(engine, setup).await;
+        return if request.clean == CleanVolumes::None {
+            adopt_running(engine, setup).await
+        } else {
+            bosn_setup::ensure_setup_app(engine, setup)
+                .await
+                .map_err(|e| e.to_string().into())
+        };
     }
     let CoreSetupEnsureRequest {
         plan,
@@ -298,6 +315,27 @@ fn task_labels(
         None,
     )
     .map_err(|e| TaskContainerError::Operation(format!("invalid task ownership labels: {e:?}")))
+}
+
+/// Prove the old attachments before reset can remove any named storage.
+async fn reset_kept_container(
+    engine: &DockerEngine,
+    setup: CoreSetupEnsureRequest<'_>,
+    state: &Path,
+) -> Result<(), TaskContainerError> {
+    let name =
+        bosn_setup::setup_container_name(setup.plan, &setup.workspace_root, setup.prepared_image)
+            .map_err(|e| e.to_string())?;
+    let cancellation = setup.cancellation.clone();
+    let observed = adopt_setup_app(engine, setup)
+        .await
+        .map_err(|e| e.to_string())?;
+    if observed.running {
+        return Err(TaskContainerError::TaskContainerBusy(name));
+    }
+    crate::managed_retention::clean::remove_kept(engine, state, observed, &cancellation)
+        .await
+        .map_err(|e| e.to_string().into())
 }
 
 async fn adopt_running(

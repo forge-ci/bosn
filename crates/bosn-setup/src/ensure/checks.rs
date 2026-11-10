@@ -10,7 +10,7 @@ pub(crate) fn validate_observed(
         || observed.image_identity != expected.image_identity
         || observed.labels != expected.labels
     {
-        return Err(SetupEnsureError::OwnershipMismatch);
+        return Err(fail!());
     }
     Ok(())
 }
@@ -265,8 +265,7 @@ pub(crate) async fn verify_configuration<E: SetupEnsureEngine>(
             "private image configuration inspect failed",
         ));
     }
-    let image = crate::creation::bounded_json(&result.stdout)
-        .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
+    let image = crate::creation::bounded_json(&result.stdout).map_err(|_| fail!())?;
     verify_actual_configuration(observed, expected, &image)?;
     for volume in &expected.volumes {
         let response = invoke(
@@ -284,10 +283,9 @@ pub(crate) async fn verify_configuration<E: SetupEnsureEngine>(
             ));
         };
         if !result.ok() {
-            return Err(SetupEnsureError::OwnershipMismatch);
+            return Err(fail!());
         }
-        let receipt = crate::creation::bounded_json(&result.stdout)
-            .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
+        let receipt = crate::creation::bounded_json(&result.stdout).map_err(|_| fail!())?;
         verify_volume_observation(
             volume,
             &receipt,
@@ -314,7 +312,7 @@ pub(crate) fn container_volume_source<'a>(
             })
         })
         .and_then(|m| m.get("Source").and_then(serde_json::Value::as_str))
-        .ok_or(SetupEnsureError::OwnershipMismatch)
+        .ok_or_else(|| fail!())
 }
 
 pub(crate) fn verify_volume_observation(
@@ -323,17 +321,16 @@ pub(crate) fn verify_volume_observation(
     source: Option<&str>,
 ) -> Result<(), SetupEnsureError> {
     use serde_json::Value;
-    let mismatch = || SetupEnsureError::OwnershipMismatch;
     if observed.get("Name").and_then(Value::as_str) != Some(expected.name.as_str())
         || observed.get("Driver").and_then(Value::as_str) != Some("local")
         || observed.get("Scope").and_then(Value::as_str) != Some("local")
     {
-        return Err(mismatch());
+        return Err(fail!());
     }
     match observed.get("Options") {
         None | Some(Value::Null) => {}
         Some(Value::Object(options)) if options.is_empty() => {}
-        _ => return Err(mismatch()),
+        _ => return Err(fail!()),
     }
     for (key, value) in &expected.labels {
         if observed
@@ -342,14 +339,14 @@ pub(crate) fn verify_volume_observation(
             .and_then(Value::as_str)
             != Some(value.as_str())
         {
-            return Err(mismatch());
+            return Err(fail!());
         }
     }
     super::seed_labels::verify(expected, observed)?;
     let mountpoint = observed
         .get("Mountpoint")
         .and_then(Value::as_str)
-        .ok_or_else(mismatch)?;
+        .ok_or_else(|| fail!())?;
     // Docker's daemon-side path is not a host-client filesystem path (notably
     // on Desktop). Require bounded normalized absolute spelling and exact
     // agreement with the container attachment, never guess a daemon root.
@@ -357,9 +354,50 @@ pub(crate) fn verify_volume_observation(
         || validate_container_path(mountpoint).is_err()
         || source.is_some_and(|source| source != mountpoint)
     {
-        return Err(mismatch());
+        return Err(fail!());
     }
     Ok(())
+}
+
+fn strings(value: Option<&serde_json::Value>) -> Result<Vec<String>, SetupEnsureError> {
+    use serde_json::Value;
+    match value {
+        None | Some(Value::Null) => Ok(vec![]),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .filter(|s| s.len() <= 16 * 1024 && !s.contains('\0'))
+                    .map(str::to_owned)
+                    .ok_or_else(|| fail!())
+            })
+            .collect(),
+        _ => Err(fail!()),
+    }
+}
+
+fn scalar(value: Option<&serde_json::Value>) -> Result<String, SetupEnsureError> {
+    use serde_json::Value;
+    match value {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(s)) if s.len() <= 16 * 1024 && !s.contains('\0') => Ok(s.clone()),
+        _ => Err(fail!()),
+    }
+}
+
+fn volume_keys(value: Option<&serde_json::Value>) -> Result<BTreeSet<String>, SetupEnsureError> {
+    use serde_json::Value;
+    match value {
+        None | Some(Value::Null) => Ok(BTreeSet::new()),
+        Some(Value::Object(entries))
+            if entries
+                .values()
+                .all(|v| v.as_object().is_some_and(|v| v.is_empty())) =>
+        {
+            Ok(entries.keys().cloned().collect())
+        }
+        _ => Err(fail!()),
+    }
 }
 
 #[expect(
@@ -373,9 +411,8 @@ pub(crate) fn verify_actual_configuration(
     image: &serde_json::Value,
 ) -> Result<(), SetupEnsureError> {
     use serde_json::Value;
-    let fail = || SetupEnsureError::OwnershipMismatch;
     if image.get("Id").and_then(Value::as_str) != Some(expected.image_identity.as_str()) {
-        return Err(fail());
+        return Err(fail!());
     }
     let actual = &observed.configuration;
     if actual.get("Id").and_then(Value::as_str) != Some(observed.container_id.as_str())
@@ -384,20 +421,20 @@ pub(crate) fn verify_actual_configuration(
             != Some(format!("/{}", expected.container_name).as_str())
         || actual.pointer("/State/Running").and_then(Value::as_bool) != Some(observed.running)
     {
-        return Err(fail());
+        return Err(fail!());
     }
     let base = image
         .get("Config")
         .and_then(Value::as_object)
-        .ok_or_else(fail)?;
+        .ok_or_else(|| fail!())?;
     let config = actual
         .get("Config")
         .and_then(Value::as_object)
-        .ok_or_else(fail)?;
+        .ok_or_else(|| fail!())?;
     let host = actual
         .get("HostConfig")
         .and_then(Value::as_object)
-        .ok_or_else(fail)?;
+        .ok_or_else(|| fail!())?;
     for (key, value) in &expected.labels {
         if config
             .get("Labels")
@@ -405,59 +442,24 @@ pub(crate) fn verify_actual_configuration(
             .and_then(Value::as_str)
             != Some(value.as_str())
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     for key in ["Healthcheck", "StopSignal"] {
         if config.get(key).filter(|v| !v.is_null()) != base.get(key).filter(|v| !v.is_null()) {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     for key in ["Tty", "OpenStdin", "StdinOnce", "AttachStdin"] {
         if config.get(key).and_then(Value::as_bool) != Some(false) {
-            return Err(fail());
+            return Err(fail!());
         }
     }
-    let strings = |value: Option<&Value>| -> Result<Vec<String>, SetupEnsureError> {
-        match value {
-            None | Some(Value::Null) => Ok(vec![]),
-            Some(Value::Array(items)) => items
-                .iter()
-                .map(|v| {
-                    v.as_str()
-                        .filter(|s| s.len() <= 16 * 1024 && !s.contains('\0'))
-                        .map(str::to_owned)
-                        .ok_or_else(fail)
-                })
-                .collect(),
-            _ => Err(fail()),
-        }
-    };
-    let scalar = |value: Option<&Value>| -> Result<String, SetupEnsureError> {
-        match value {
-            None | Some(Value::Null) => Ok(String::new()),
-            Some(Value::String(s)) if s.len() <= 16 * 1024 && !s.contains('\0') => Ok(s.clone()),
-            _ => Err(fail()),
-        }
-    };
     // Every inherited VOLUME must be overridden by an explicit verified
     // attachment (notably dockurr's /storage). Never accept anonymous storage.
-    let volume_keys = |value: Option<&Value>| -> Result<BTreeSet<String>, SetupEnsureError> {
-        match value {
-            None | Some(Value::Null) => Ok(BTreeSet::new()),
-            Some(Value::Object(entries))
-                if entries
-                    .values()
-                    .all(|v| v.as_object().is_some_and(|v| v.is_empty())) =>
-            {
-                Ok(entries.keys().cloned().collect())
-            }
-            _ => Err(fail()),
-        }
-    };
     let inherited_volumes = volume_keys(base.get("Volumes"))?;
     if volume_keys(config.get("Volumes"))? != inherited_volumes {
-        return Err(fail());
+        return Err(fail!());
     }
     for target in inherited_volumes {
         if !expected.mounts.iter().any(|m| m.target == target)
@@ -467,17 +469,17 @@ pub(crate) fn verify_actual_configuration(
                 s.target != target && s.proxy_dir.as_deref() != Some(target.as_str())
             })
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     let mut environment = BTreeMap::new();
     for item in strings(base.get("Env"))? {
-        let (key, value) = item.split_once('=').ok_or_else(fail)?;
+        let (key, value) = item.split_once('=').ok_or_else(|| fail!())?;
         if environment
             .insert(key.to_owned(), value.to_owned())
             .is_some()
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     environment.extend(expected.environment.clone());
@@ -491,12 +493,12 @@ pub(crate) fn verify_actual_configuration(
     }
     let mut actual_env = BTreeMap::new();
     for item in strings(config.get("Env"))? {
-        let (key, value) = item.split_once('=').ok_or_else(fail)?;
+        let (key, value) = item.split_once('=').ok_or_else(|| fail!())?;
         if actual_env
             .insert(key.to_owned(), value.to_owned())
             .is_some()
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     let expected_cmd = match (&expected.command, &expected.macos_guest) {
@@ -523,7 +525,7 @@ pub(crate) fn verify_actual_configuration(
                     .unwrap_or(scalar(base.get("WorkingDir"))?),
             )
     {
-        return Err(fail());
+        return Err(fail!());
     }
     if host.get("Privileged").and_then(Value::as_bool) != Some(false)
         || host
@@ -531,7 +533,7 @@ pub(crate) fn verify_actual_configuration(
             .and_then(Value::as_str)
             .is_none_or(|v| !["default", "bridge"].contains(&v))
     {
-        return Err(fail());
+        return Err(fail!());
     }
     for field in [
         "Binds",
@@ -546,25 +548,25 @@ pub(crate) fn verify_actual_configuration(
                 .get(field)
                 .is_some_and(|v| v.as_array().is_some_and(Vec::is_empty))
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     if host.get("ReadonlyRootfs").and_then(Value::as_bool) != Some(false) {
-        return Err(fail());
+        return Err(fail!());
     }
     if host.get("PublishAllPorts").and_then(Value::as_bool) != Some(false) {
-        return Err(fail());
+        return Err(fail!());
     }
     if host.get("AutoRemove").and_then(Value::as_bool) != Some(false)
         || host.get("CgroupnsMode").and_then(Value::as_str) != Some("private")
         || host.get("RestartPolicy")
             != Some(&serde_json::json!({"Name":"no","MaximumRetryCount":0}))
     {
-        return Err(fail());
+        return Err(fail!());
     }
     for field in ["PidMode", "UTSMode", "UsernsMode"] {
         if host.get(field).and_then(Value::as_str) != Some("") {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     if host
@@ -572,7 +574,7 @@ pub(crate) fn verify_actual_configuration(
         .and_then(Value::as_str)
         .is_none_or(|v| !["private", ""].contains(&v))
     {
-        return Err(fail());
+        return Err(fail!());
     }
     let mut wanted = BTreeMap::new();
     for mount in &expected.mounts {
@@ -609,45 +611,51 @@ pub(crate) fn verify_actual_configuration(
     for mount in actual
         .get("Mounts")
         .and_then(Value::as_array)
-        .ok_or_else(fail)?
+        .ok_or_else(|| fail!())?
     {
-        let kind = mount.get("Type").and_then(Value::as_str).ok_or_else(fail)?;
+        let kind = mount
+            .get("Type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| fail!())?;
         let target = mount
             .get("Destination")
             .and_then(Value::as_str)
-            .ok_or_else(fail)?;
+            .ok_or_else(|| fail!())?;
         if kind == "tmpfs" {
             let wanted = expected
                 .tmpfs
                 .iter()
                 .find(|m| m.target == target)
-                .ok_or_else(fail)?;
+                .ok_or_else(|| fail!())?;
             if !seen_tmpfs.insert(target)
                 || mount.get("RW").and_then(Value::as_bool) != Some(!wanted.readonly)
             {
-                return Err(fail());
+                return Err(fail!());
             }
             continue;
         }
         let source = mount
             .get(if kind == "volume" { "Name" } else { "Source" })
             .and_then(Value::as_str)
-            .ok_or_else(fail)?;
+            .ok_or_else(|| fail!())?;
         if (kind == "bind" && mount.get("Propagation").and_then(Value::as_str) != Some("rprivate"))
             || (kind == "volume" && mount.get("Driver").and_then(Value::as_str) != Some("local"))
         {
-            return Err(fail());
+            return Err(fail!());
         }
-        let rw = mount.get("RW").and_then(Value::as_bool).ok_or_else(fail)?;
+        let rw = mount
+            .get("RW")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| fail!())?;
         if seen
             .insert(target.to_owned(), (kind.to_owned(), source.to_owned(), rw))
             .is_some()
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     if seen != wanted {
-        return Err(fail());
+        return Err(fail!());
     }
     // Verify declared mount options too: actual attachments alone do not
     // exclude a latent subpath, propagation or volume-driver substitution.
@@ -655,21 +663,26 @@ pub(crate) fn verify_actual_configuration(
     let declared_mounts = match host.get("Mounts") {
         Some(Value::Array(items)) => items.as_slice(),
         None | Some(Value::Null) if wanted.is_empty() => &[],
-        _ => return Err(fail()),
+        _ => return Err(fail!()),
     };
     for mount in declared_mounts {
-        let object = mount.as_object().ok_or_else(fail)?;
+        let object = mount.as_object().ok_or_else(|| fail!())?;
         if object
             .keys()
             .any(|k| !["Type", "Source", "Target", "ReadOnly"].contains(&k.as_str()))
         {
-            return Err(fail());
+            return Err(fail!());
         }
-        let text = |key| object.get(key).and_then(Value::as_str).ok_or_else(fail);
+        let text = |key| {
+            object
+                .get(key)
+                .and_then(Value::as_str)
+                .ok_or_else(|| fail!())
+        };
         let readonly = match object.get("ReadOnly") {
             None => false,
             Some(Value::Bool(v)) => *v,
-            _ => return Err(fail()),
+            _ => return Err(fail!()),
         };
         if declared
             .insert(
@@ -682,16 +695,16 @@ pub(crate) fn verify_actual_configuration(
             )
             .is_some()
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     if declared != wanted || host.get("VolumeDriver").and_then(Value::as_str) != Some("") {
-        return Err(fail());
+        return Err(fail!());
     }
     let tmpfs = match host.get("Tmpfs") {
         None | Some(Value::Null) => None,
         Some(Value::Object(entries)) => Some(entries),
-        _ => return Err(fail()),
+        _ => return Err(fail!()),
     };
     let wanted_tmpfs: BTreeMap<_, _> = expected
         .tmpfs
@@ -711,7 +724,7 @@ pub(crate) fn verify_actual_configuration(
         .unwrap_or_default()
         != wanted_tmpfs
     {
-        return Err(fail());
+        return Err(fail!());
     }
     // Host-only guest grants must never leak into ordinary Linux profiles.
     if expected.macos_guest.is_none() {
@@ -721,40 +734,40 @@ pub(crate) fn verify_actual_configuration(
                     .get(field)
                     .is_some_and(|v| v.as_array().is_some_and(Vec::is_empty))
             {
-                return Err(fail());
+                return Err(fail!());
             }
         }
         if !host
             .get("PortBindings")
             .is_some_and(|v| v.is_null() || v.as_object().is_some_and(|m| m.is_empty()))
         {
-            return Err(fail());
+            return Err(fail!());
         }
     } else if let Some(guest) = &expected.macos_guest {
         if strings(host.get("CapAdd"))? != ["NET_ADMIN"]
             || !strings(host.get("CapDrop"))?.is_empty()
         {
-            return Err(fail());
+            return Err(fail!());
         }
         let devices = host
             .get("Devices")
             .and_then(Value::as_array)
-            .ok_or_else(fail)?;
+            .ok_or_else(|| fail!())?;
         let mut paths = BTreeSet::new();
         for device in devices {
             let source = device
                 .get("PathOnHost")
                 .and_then(Value::as_str)
-                .ok_or_else(fail)?;
+                .ok_or_else(|| fail!())?;
             if device.get("PathInContainer").and_then(Value::as_str) != Some(source)
                 || device.get("CgroupPermissions").and_then(Value::as_str) != Some("rwm")
                 || !paths.insert(source)
             {
-                return Err(fail());
+                return Err(fail!());
             }
         }
         if paths != BTreeSet::from(["/dev/kvm", "/dev/net/tun"]) {
-            return Err(fail());
+            return Err(fail!());
         }
         let ports = serde_json::json!({
             "22/tcp": [{"HostIp":"127.0.0.1", "HostPort":guest.ssh_port.to_string()}],
@@ -763,7 +776,7 @@ pub(crate) fn verify_actual_configuration(
         if host.get("PortBindings") != Some(&ports)
             || config.get("StopTimeout").and_then(Value::as_u64) != Some(120)
         {
-            return Err(fail());
+            return Err(fail!());
         }
     }
     Ok(())

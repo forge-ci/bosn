@@ -1,18 +1,12 @@
 //! Small, authenticated Rust daemon foundation. Product protobuf remains private.
 
-/// Prefix daemon stderr records with Unix milliseconds so a restart and an in-flight
-/// request can be correlated from the rotated `daemon.log` files (#662).
+#[doc(hidden)]
+pub use bosn_engine::daemon_log as __daemon_log;
+
+/// Timestamp daemon diagnostics consistently across lifecycle crates.
 #[macro_export]
 macro_rules! daemon_log {
-    ($($argument:tt)*) => {{
-        let stamp = ::std::time::SystemTime::now()
-            .duration_since(::std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        for line in format!($($argument)*).lines() {
-            eprintln!("{stamp} {line}");
-        }
-    }};
+    ($($argument:tt)*) => {{ $crate::__daemon_log(&format!($($argument)*)); }};
 }
 
 use bosn_core::{
