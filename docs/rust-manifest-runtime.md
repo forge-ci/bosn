@@ -18,7 +18,7 @@ the working tree.
 
 ```text
 bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR]
-         [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [-- ARGS...]
+         [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [--clean[=all]] [-- ARGS...]
 bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [...]
 ```
 
@@ -37,6 +37,24 @@ parameters, never parsed as shell text. Arguments appear in `bosn jobs` (also
 `--json`) and participate in deduplication. A manifest task can set `args = false`
 to refuse extras before submission; see [Task arguments](rust-manifest.md#task-arguments).
 A daemon older than protocol 3 is refused for non-empty arguments.
+
+`--clean` resets the exact named stack/spec volumes computed for this checkout
+and the task's stack before running it. `--clean=all` also resets the plan's
+machine volumes. The volumes are recreated cold; another checkout's stack/spec
+volumes are untouched. This explicitly waives retention age, never ownership,
+liveness or pins. A mounted running container, lease, exclusive lock, pin or
+foreign ownership refuses immediately with the holder; there is no wait.
+Stopped containers from this checkout may be removed through the same ownership
+and retention gates to release their mounts. For `keep = true`, both clean modes are refused before any volume or container
+action: `--clean is not supported for kept tasks yet; follow-up`. Kept-task
+cleaning and its stopped-container adoption proof remain follow-up work.
+
+Clean runs skip the preliminary stack ensure, avoiding a new preparation container
+mounting the volumes before reset. A preparation container left by an earlier
+ordinary run still counts as a holder: stop it explicitly before cleaning.
+The task still verifies/prepares its image and recreates volumes. Daemons older
+than protocol 4 are refused before task submission. MCP/Python expose explicit
+manifest methods rather than generic run flags; clean support there is follow-up.
 
 It pings the daemon for that state directory and, when none answers, starts
 `bosn daemon serve --state-dir STATE_DIR` detached (its own process group, so

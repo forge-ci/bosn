@@ -2,6 +2,7 @@ use super::*;
 
 fn request(args: &[&str]) -> ManifestAppTaskJobRequest {
     ManifestAppTaskJobRequest {
+        clean: Default::default(),
         workspace: PathBuf::from("/workspace"),
         manifest: "bosn.toml".into(),
         stack: "app".into(),
@@ -46,9 +47,9 @@ fn argument_identity_joins_only_identical_arguments_and_jobs_show_them() {
 }
 
 #[test]
-fn protocol_two_task_request_without_args_still_decodes() {
+fn previous_protocol_task_request_without_args_still_decodes() {
     let wire = Request {
-        client_protocol: 2,
+        client_protocol: DAEMON_PROTOCOL_MIN,
         workspace: "/workspace".into(),
         stack: "app".into(),
         setup_config: "bosn.toml".into(),
@@ -117,4 +118,51 @@ fn old_daemon_refuses_arguments_before_any_job_submission() {
 #[test]
 fn guest_shell_quoting_preserves_apostrophes() {
     assert_eq!(shell_single_quote("a'b"), "'a'\"'\"'b'");
+}
+
+#[test]
+fn old_daemon_refuses_clean_before_any_job_submission() {
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let state = temporary.path().join("state");
+    RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(async {
+            let server = async_engine::launch(
+                Service::new(state.clone())
+                    .with_protocol_window(2, 3)
+                    .serve(),
+            );
+            let client = wait_for_client(&state).await;
+            let error = client
+                .submit_manifest_app_task({
+                    let mut r = request(&[]);
+                    r.clean = CleanVolumes::Checkout;
+                    r
+                })
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("--clean requires daemon protocol 4"),
+                "{error}"
+            );
+            let stop = Request {
+                client_protocol: 3,
+                ..Request::operation(3)
+            };
+            let mut stream = AsyncStream::connect(&endpoint(&state).unwrap())
+                .await
+                .unwrap();
+            write_frame(
+                &mut stream,
+                DaemonFrame::request(PAYLOAD_PROTOCOL, stop.encode_to_vec()),
+            )
+            .await
+            .unwrap();
+            read_frame(&mut stream).await.unwrap();
+            stopped(server).await;
+        });
 }

@@ -239,7 +239,6 @@ pub(crate) fn record_setup_ensure(
 /// this exact workspace/stack is retired. This is durable lifecycle accounting
 /// only: it never stops/deletes a container or image, and a failed upsert rolls
 /// the whole transition back without retiring the prior generation.
-#[expect(clippy::too_many_lines, reason = "baseline, ci.yml#229")]
 pub(crate) fn record_manifest_ensure(
     registry: &mut Registry,
     job_id: u64,
@@ -306,30 +305,7 @@ pub(crate) fn record_manifest_ensure(
     // durably intended.  Record the resource and consume that intent in the
     // same transaction as container success; normal generation rollover never
     // deletes or retires volume data.
-    for volume in &execution.volumes {
-        transaction.put_resource(&Resource {
-            id: volume.id.clone(),
-            kind: ResourceKind::Volume,
-            name: volume.name.clone(),
-            stack: volume.stack.clone(),
-            generation: volume.generation.clone(),
-            scope: volume.scope,
-            workspace: volume.workspace.clone(),
-            created_at: now,
-            last_used: now,
-            state: ResourceState::Active,
-            retention: volume.retention,
-        })?;
-        transaction.put_resource_use(&ResourceUse {
-            resource_id: volume.id.clone(),
-            workspace: volume.workspace.clone(),
-            stack: volume.stack.clone(),
-            generation: volume.generation.clone(),
-            last_used: now,
-            state: ResourceState::Active,
-        })?;
-        transaction.delete_volume_creation_intent(&volume.name)?;
-    }
+    record_manifest_volumes(&mut transaction, &execution.volumes, now)?;
     // This follows both upserts so an image/container identity conflict drops
     // the transaction with the preceding generation still active. The
     // registry primitive is manifest-namespace-only and never changes setup
@@ -526,4 +502,37 @@ pub(crate) fn setup_app_task_session_container_identity(observed: &SetupEnsureRe
 }
 pub(crate) fn manifest_app_task_session_container_identity(observed: &SetupEnsureResult) -> String {
     observed.container_name.clone()
+}
+
+/// Commit the same volume ownership contract for ensures and cold task creation.
+pub(crate) fn record_manifest_volumes(
+    transaction: &mut bosn_registry::Immediate<'_>,
+    volumes: &[ManifestVolumeResource],
+    now: f64,
+) -> Result<(), bosn_registry::Error> {
+    for volume in volumes {
+        transaction.put_resource_preserving_pin(&Resource {
+            id: volume.id.clone(),
+            kind: ResourceKind::Volume,
+            name: volume.name.clone(),
+            stack: volume.stack.clone(),
+            generation: volume.generation.clone(),
+            scope: volume.scope,
+            workspace: volume.workspace.clone(),
+            created_at: now,
+            last_used: now,
+            state: ResourceState::Active,
+            retention: volume.retention,
+        })?;
+        transaction.put_resource_use(&ResourceUse {
+            resource_id: volume.id.clone(),
+            workspace: volume.workspace.clone(),
+            stack: volume.stack.clone(),
+            generation: volume.generation.clone(),
+            last_used: now,
+            state: ResourceState::Active,
+        })?;
+        transaction.delete_volume_creation_intent(&volume.name)?;
+    }
+    Ok(())
 }

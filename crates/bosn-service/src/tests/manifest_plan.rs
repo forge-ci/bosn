@@ -805,6 +805,7 @@ fn manifest_stack_task_plan_reuses_declared_binds_and_container_workdir() {
         .unwrap();
     let ManifestRuntimePlan { plan, .. } = runtime
         .run(manifest_stack_task_setup_plan(&ManifestAppTaskJobRequest {
+            clean: Default::default(),
             workspace,
             manifest: "bosn.toml".into(),
             stack: "app".into(),
@@ -833,6 +834,7 @@ fn manifest_app_task_plan_retains_only_a_task_from_its_selected_stack() {
         .build()
         .unwrap();
     let request = ManifestAppTaskJobRequest {
+        clean: Default::default(),
         workspace: workspace.clone(),
         manifest: "bosn.toml".into(),
         stack: "app".into(),

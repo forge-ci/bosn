@@ -98,6 +98,8 @@ mod secure_random;
 mod secure_random_tests;
 pub use handoff::IdleHandoff;
 mod ephemeral_task;
+mod task_clean;
+pub use task_clean::CleanVolumes;
 mod git_common_dir;
 mod job_api;
 mod job_loop;

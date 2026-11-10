@@ -152,27 +152,67 @@ pub(crate) async fn prepare(
     plan: &SetupPlan,
     image: &PreparedImage,
     request: &ManifestAppTaskJobRequest,
-    keep: bool,
+    clean_context: (bool, &Path, &[ManifestVolumeResource]),
     session: &dyn ManifestAppTaskSessionRecorder,
     cancellation: &async_engine::CancellationToken,
     events: &async_engine::Sender<EngineEvent>,
     remaining: Duration,
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
-    if keep {
-        return adopt_running(
-            engine,
-            CoreSetupEnsureRequest {
-                plan,
-                workspace_root: request.workspace.clone(),
-                prepared_image: image,
-                options: RunOptions::streaming(remaining, 8 * 1024 * 1024),
-                cancellation,
-                events,
-            },
-        )
-        .await;
+    let (keep, state, volumes) = clean_context;
+    request
+        .clean
+        .validate_task(keep)
+        .map_err(|e| e.to_string())?;
+    crate::managed_retention::clean::execute(engine, state, volumes, request.clean, cancellation)
+        .await
+        .map_err(|e| TaskContainerError::Operation(e.to_string()))?;
+    let cleaning = request.clean != CleanVolumes::None;
+    if cleaning {
+        session.task_volumes(volumes, false).await?;
     }
+    let result = prepare_container(
+        engine,
+        CoreSetupEnsureRequest {
+            plan,
+            workspace_root: request.workspace.clone(),
+            prepared_image: image,
+            options: RunOptions::streaming(remaining, 8 * 1024 * 1024),
+            cancellation,
+            events,
+        },
+        request,
+        keep,
+        session,
+        remaining,
+        lifetime,
+    )
+    .await?;
+    if cleaning {
+        session.task_volumes(volumes, true).await?;
+    }
+    Ok(result)
+}
+
+async fn prepare_container(
+    engine: &DockerEngine,
+    setup: CoreSetupEnsureRequest<'_>,
+    request: &ManifestAppTaskJobRequest,
+    keep: bool,
+    session: &dyn ManifestAppTaskSessionRecorder,
+    remaining: Duration,
+    lifetime: &mut Option<TaskContainer>,
+) -> Result<SetupEnsureResult, TaskContainerError> {
+    if keep {
+        return adopt_running(engine, setup).await;
+    }
+    let CoreSetupEnsureRequest {
+        plan,
+        prepared_image: image,
+        cancellation,
+        events,
+        ..
+    } = setup;
     if plan.macos_guest.is_some() {
         return Err("ephemeral macOS guest tasks are unsupported; set keep = true".into());
     }

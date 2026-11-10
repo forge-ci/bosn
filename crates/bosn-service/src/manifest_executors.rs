@@ -341,7 +341,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                     .await
                     .map_err(|_| "manifest app task log consumer closed".to_owned())?;
                 let observed = crate::ephemeral_task::prepare(
-                    &self.engine, &plan, &prepared, &request, runtime.keep,
+                    &self.engine, &plan, &prepared, &request, (runtime.keep, &self.state_dir, &runtime.volumes),
                     session, cancellation, &events, remaining, &mut ephemeral,
                 ).await.map_err(|error| error.to_string())?;
                 // #314: name the verified container and the checkout its
