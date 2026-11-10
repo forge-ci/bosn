@@ -210,9 +210,15 @@ pub(crate) async fn recover_startup(registry: &RegistryActor, state_dir: &Path) 
                 {
                     Ok(Ok(Some(lock))) => lock,
                     Ok(Ok(None)) => continue, // A newly admitted ensure owns this attempt.
-                    other => {
+                    Ok(Err(error)) => {
                         crate::daemon_log!(
-                            "bosn volume seed: startup recovery lock unavailable: {other:?}"
+                            "bosn volume seed: startup recovery lock unavailable: {error}"
+                        );
+                        continue;
+                    }
+                    Err(error) => {
+                        crate::daemon_log!(
+                            "bosn volume seed: startup recovery worker failed: {error}"
                         );
                         continue;
                     }

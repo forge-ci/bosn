@@ -2,19 +2,13 @@
 //! In particular an ordinary cold plan cannot attach a racing, unfinished seeded volume.
 use super::{SetupEnsureError, SetupEnsureVolume};
 use bosn_core::{LABEL_SEED_NONCE, LABEL_SEED_REGISTRY, LABEL_SEEDED_FROM};
-use std::collections::BTreeMap;
-#[derive(serde::Deserialize)]
-struct Labels {
-    #[serde(rename = "Labels")]
-    labels: Option<BTreeMap<String, String>>,
-}
 pub(super) fn verify(
     expected: &SetupEnsureVolume,
     document: &serde_json::Value,
 ) -> Result<(), SetupEnsureError> {
-    let observed: Labels = serde_json::from_value(document.clone())
+    let observed: bosn_core::unmanaged::InspectedVolume = serde_json::from_value(document.clone())
         .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
-    let labels = observed.labels.unwrap_or_default();
+    let labels = observed.labels;
     let keys = [LABEL_SEEDED_FROM, LABEL_SEED_NONCE, LABEL_SEED_REGISTRY];
     if keys.iter().any(|k| labels.contains_key(*k))
         && keys
@@ -28,6 +22,7 @@ pub(super) fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     #[test]
     fn unfinished_or_racing_seed_is_refused_without_registry_authority() {
         let mut expected = SetupEnsureVolume {
