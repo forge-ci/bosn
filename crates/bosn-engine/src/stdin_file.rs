@@ -129,6 +129,7 @@ pub(super) async fn capture_session(
         let result = async {
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
+            let mut stderr_abandoned = false;
             loop {
                 let remaining = check()?;
                 match async_engine::timeout(remaining.min(SESSION_POLL), session.next_output())
@@ -156,20 +157,12 @@ pub(super) async fn capture_session(
                         }
                     }
                     Ok(Some(ProcessOutputEvent::Completion(completion))) => {
-                        if !matches!(
-                            completion,
-                            ProcessOutputCompletion::StdoutEof | ProcessOutputCompletion::StderrEof
-                        ) {
-                            return Err(CommandError::OutputCompletion {
-                                detail: format!("{completion:?}"),
-                                reaped_pid: Some(pid),
-                                cleanup: None,
-                            });
-                        }
+                        stderr_abandoned |= output_completion(completion, pid)?;
                     }
                     Ok(None) => {
                         if let Some(exit) = session.poll().await.map_err(CommandError::Io)? {
                             return Ok(CommandResult {
+                                stderr_abandoned,
                                 exit_code: exit.exit_code().unwrap_or(-exit.signal().unwrap_or(0)),
                                 stdout,
                                 stderr,

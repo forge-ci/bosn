@@ -695,6 +695,7 @@ async fn invoke<E: SetupEnsureEngine>(
     let result = match &response {
         SetupEnsureResponse::Inspection(_, result) | SetupEnsureResponse::Command(result) => result,
     };
+    result.require_complete()?;
     if result.stdout.len().saturating_add(result.stderr.len()) > limit {
         return Err(SetupEnsureError::Transport(CommandError::OutputLimit {
             limit,

@@ -833,6 +833,7 @@ fn pipeline_plan(workspace: &Path) -> SetupPlan {
 }
 fn command_result(exit_code: i32, stdout: impl Into<Vec<u8>>) -> bosn_engine::CommandResult {
     bosn_engine::CommandResult {
+        stderr_abandoned: false,
         exit_code,
         stdout: stdout.into(),
         stderr: Vec::new(),

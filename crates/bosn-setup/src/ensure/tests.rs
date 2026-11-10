@@ -82,6 +82,7 @@ fn runtime() -> kernal_api::async_engine::Runtime {
 
 fn result(exit_code: i32, stdout: impl Into<Vec<u8>>, stderr: impl Into<Vec<u8>>) -> CommandResult {
     CommandResult {
+        stderr_abandoned: false,
         exit_code,
         stdout: stdout.into(),
         stderr: stderr.into(),

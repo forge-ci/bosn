@@ -75,6 +75,9 @@ impl DockerActBackend {
                 RunOptions::bounded(CONTROL_DEADLINE, 4096),
             )
             .await?;
+        result
+            .require_complete()
+            .map_err(|error| error.to_string())?;
         if result.exit_code == 75 && result.stdout.is_empty() {
             return Ok(PolicyReply::Busy);
         }

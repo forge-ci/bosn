@@ -228,6 +228,8 @@ impl GuestScpEngine {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandResult {
+    /// The child exited, but an inherited stderr pipe outlived the drain window.
+    pub stderr_abandoned: bool,
     pub exit_code: i32,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
@@ -236,7 +238,22 @@ pub struct CommandResult {
 impl CommandResult {
     #[must_use]
     pub const fn ok(&self) -> bool {
-        self.exit_code == 0
+        self.exit_code == 0 && !self.stderr_abandoned
+    }
+
+    /// Reject incomplete stderr before interpreting a reply or retryable status.
+    pub fn require_complete(&self) -> Result<(), CommandError> {
+        if self.stderr_abandoned {
+            return Err(CommandError::OutputCompletion {
+                detail: format!(
+                    "StderrAbandoned [stderr abandoned] (exit status {})",
+                    self.exit_code
+                ),
+                reaped_pid: None,
+                cleanup: None,
+            });
+        }
+        Ok(())
     }
 
     /// Docker answered that the object (or, for a multi-object read, each failed object)
@@ -250,7 +267,8 @@ impl CommandResult {
             .lines()
             .filter(|line| !line.trim().is_empty())
             .peekable();
-        self.exit_code == 1
+        !self.stderr_abandoned
+            && self.exit_code == 1
             && errors.peek().is_some()
             && errors.all(|line| line.contains("no such "))
     }
@@ -402,6 +420,7 @@ impl DockerEngine {
             kernal_api::run_bounded_command(self.spec(), options.deadline, options.output_limit);
         result
             .map(|output| CommandResult {
+                stderr_abandoned: false,
                 exit_code: output.exit.raw_code(),
                 stdout: output.stdout,
                 stderr: output.stderr,
@@ -420,6 +439,7 @@ impl DockerEngine {
                 }
             })
             .map(|output| CommandResult {
+                stderr_abandoned: false,
                 exit_code: output.exit.raw_code(),
                 stdout: output.stdout,
                 stderr: output.stderr,
@@ -469,6 +489,7 @@ impl DockerEngine {
         let pid = session.id();
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
+        let mut stderr_abandoned = false;
         loop {
             if cancellation.is_some_and(CancellationToken::is_cancelled) {
                 return reap(
@@ -561,24 +582,15 @@ impl DockerEngine {
                     }
                 }
                 Ok(Some(ProcessOutputEvent::Completion(completion))) => {
-                    if !matches!(
-                        completion,
-                        ProcessOutputCompletion::StdoutEof | ProcessOutputCompletion::StderrEof
-                    ) {
-                        return reap(
-                            session,
-                            CommandError::OutputCompletion {
-                                detail: format!("{completion:?}"),
-                                reaped_pid: Some(pid),
-                                cleanup: None,
-                            },
-                        )
-                        .await;
+                    match output_completion(completion, pid) {
+                        Ok(abandoned) => stderr_abandoned |= abandoned,
+                        Err(error) => return reap(session, error).await,
                     }
                 }
                 Ok(None) => {
                     if let Some(exit) = session.poll().await.map_err(CommandError::Io)? {
                         return Ok(CommandResult {
+                            stderr_abandoned,
                             exit_code: exit.exit_code().unwrap_or(-exit.signal().unwrap_or(0)),
                             stdout,
                             stderr,
@@ -846,6 +858,19 @@ fn event_bytes(event: &EngineEvent) -> &[u8] {
         EngineEvent::Stdout(bytes) | EngineEvent::Stderr(bytes) => bytes,
     }
 }
+/// Keep a completed child's status when only stderr had to be abandoned.
+fn output_completion(completion: ProcessOutputCompletion, pid: u32) -> Result<bool, CommandError> {
+    match completion {
+        ProcessOutputCompletion::StdoutEof | ProcessOutputCompletion::StderrEof => Ok(false),
+        ProcessOutputCompletion::StderrAbandoned => Ok(true),
+        other => Err(CommandError::OutputCompletion {
+            detail: format!("{other:?}"),
+            reaped_pid: Some(pid),
+            cleanup: None,
+        }),
+    }
+}
+
 fn outcome_suffix(reaped_pid: Option<u32>, cleanup: &Option<String>) -> String {
     let reaped = if reaped_pid.is_some() {
         " and was reaped"

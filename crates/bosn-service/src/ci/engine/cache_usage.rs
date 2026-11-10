@@ -256,6 +256,9 @@ impl DockerActBackend {
                 super::RunOptions::bounded(CONTROL_DEADLINE, reader.output_limit()),
             )
             .await?;
+        output
+            .require_complete()
+            .map_err(|error| error.to_string())?;
         let accepted_exit = output.ok()
             || matches!(reader, Reader::Footprint)
                 && matches!(output.exit_code, 1 | footprint_program::ARCHIVE_UNAVAILABLE);
