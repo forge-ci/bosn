@@ -38,6 +38,7 @@ impl From<&str> for TaskContainerError {
 #[derive(Default)]
 pub(crate) struct TaskLifetime {
     pub(crate) container: Option<TaskContainer>,
+    pub(crate) overlay_volumes: Vec<String>,
     pub(crate) volumes: crate::volume_seed::locks::VolumeLease,
 }
 
@@ -47,6 +48,7 @@ type CleanContext<'a> = (
     &'a [ManifestVolumeResource],
     &'a BTreeMap<String, bosn_core::manifest::VolumeMode>,
     bool,
+    &'a [crate::overlay_source::OverlaySource],
 );
 
 #[derive(Debug, PartialEq)]
@@ -277,7 +279,7 @@ async fn prepare_once(
     remaining: Duration,
     lifetime: &mut TaskLifetime,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
-    let (keep, state, volumes, modes, autostart) = clean_context;
+    let (keep, state, volumes, modes, autostart, overlays) = clean_context;
     let remaining = if request.wait && !keep {
         waiting::before_prepare(engine, plan, request, session, cancellation, remaining).await?
     } else {
@@ -323,13 +325,23 @@ async fn prepare_once(
     .await
     .map_err(|e| TaskContainerError::Operation(e.to_string()))?;
     session.task_volumes(volumes, false).await?;
-    let plan = volume_lifetime::prepare_plan(
+    let mut plan = volume_lifetime::prepare_plan(
         engine,
         (state, volumes),
         (plan, request.clean),
         session,
         deadline.remaining(),
         cancellation,
+    )
+    .await?;
+    crate::overlay_source::prepare(
+        engine,
+        &mut plan,
+        (overlays, image),
+        (session, &request.task_name),
+        cancellation,
+        deadline,
+        &mut lifetime.overlay_volumes,
     )
     .await?;
     let plan = &plan;
@@ -530,27 +542,21 @@ pub(crate) async fn finish(
     session: &dyn ManifestAppTaskSessionRecorder,
     result: Result<String, String>,
 ) -> Result<String, String> {
-    let Some(container) = &lifetime.container else {
-        return result;
-    };
-    let removed = volume_lifetime::remove(engine, container).await;
-    match removed {
-        Ok(output) if output.ok() || output.reports_missing() => {
-            session
-                .finish(if result.is_ok() {
-                    "succeeded"
-                } else {
-                    "stopped"
-                })
-                .await?;
+    match volume_lifetime::remove_all(engine, &lifetime).await {
+        Ok(()) => {
+            if lifetime.container.is_some() {
+                session
+                    .finish(if result.is_ok() {
+                        "succeeded"
+                    } else {
+                        "stopped"
+                    })
+                    .await?;
+            }
             result
         }
-        other => {
-            let error = format!(
-                "task container {} cleanup failed: {other:?}",
-                container.name
-            );
-            daemon_log!("{error}");
+        Err(error) => {
+            daemon_log!("bosn task cleanup failed: {error}");
             volume_lifetime::retry_cleanup(engine.clone(), lifetime);
             Err(format!("{}; {error}", result.err().unwrap_or_default()))
         }

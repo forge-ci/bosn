@@ -12,6 +12,7 @@ pub(crate) const RECORD_BYTES: usize = 24_576;
 pub const MAX_HELPER_PAGE: usize = 64;
 /// Docker control deadline (30 s) plus ten minutes for a late create to settle.
 pub const LATE_CREATE_WINDOW_SECS: f64 = 630.0;
+pub const OVERLAY_SOURCE_COMMAND: &str = "set -o pipefail; tar -C /lower -cf - . | tar -C /upper -xpf - --numeric-owner; du -sk /lower | awk '{print $1*1024}'; find /lower -xdev | wc -l";
 pub const VOLUME_SEED_COMMAND: &str = "cp -a /source/. /destination/";
 /// Hide the pinned helper image's declared Docker data volume without allocating
 /// an anonymous persistent volume.
@@ -21,6 +22,9 @@ pub const VOLUME_SEED_TMPFS: &str = "rw,nosuid,nodev,noexec,size=1m";
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CacheHelperRole {
     MaintenanceV1,
+    OverlaySourceV1 {
+        source: String,
+    },
     VolumeSeedV1 {
         source: String,
         destination: String,
@@ -75,6 +79,7 @@ impl CacheHelperRole {
     pub fn recovery_binding(&self) -> Option<RecoveryHelperBinding<'_>> {
         match self {
             Self::MaintenanceV1
+            | Self::OverlaySourceV1 { .. }
             | Self::VolumeSeedV1 { .. }
             | Self::ToolSourceFinalizationV1 { .. } => None,
             Self::ToolRecoveryV1 {
@@ -132,6 +137,7 @@ impl CacheHelperIntent {
         let role = match &self.role {
             None => "measure",
             Some(CacheHelperRole::MaintenanceV1) => "maintain",
+            Some(CacheHelperRole::OverlaySourceV1 { .. }) => "overlay-source",
             Some(CacheHelperRole::VolumeSeedV1 { .. }) => "volume-seed",
             Some(CacheHelperRole::ToolSourceFinalizationV1 { .. }) => "finalize-source",
             Some(CacheHelperRole::ToolRecoveryV1 { .. }) => "recover",
@@ -150,6 +156,15 @@ impl CacheHelperIntent {
             || digest.is_none_or(|digest| !hex_id(digest))
         {
             return Err(Error::BadRow("cache helper intent"));
+        }
+        if let Some(CacheHelperRole::OverlaySourceV1 { source }) = &self.role
+            && (!std::path::Path::new(source).is_absolute()
+                || source.len() > 4096
+                || source
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, ',' | '"')))
+        {
+            return Err(Error::BadRow("overlay source path"));
         }
         if let Some(CacheHelperRole::VolumeSeedV1 {
             source,

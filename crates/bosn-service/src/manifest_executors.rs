@@ -78,6 +78,7 @@ impl ManifestEnsureExecutor for DockerManifestEnsureExecutor {
             .await
             .map_err(|_| "manifest ensure cancelled".to_owned())?
             .map_err(|_| "manifest ensure planning exceeded its deadline".to_owned())??;
+            crate::overlay_source::require_task(&runtime.overlay_sources)?;
             // Persist the exact volume contract before Docker can create a
             // volume. A crash after creation therefore leaves a narrow,
             // labelled intent that the next ensure can prove and recover.
@@ -342,7 +343,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                     .await
                     .map_err(|_| "manifest app task log consumer closed".to_owned())?;
                 let observed = crate::ephemeral_task::prepare(
-                    &self.engine, &plan, &prepared, &request, (runtime.keep, &self.state_dir, &runtime.volumes, &runtime.volume_modes, runtime.autostart),
+                    &self.engine, &plan, &prepared, &request, (runtime.keep, &self.state_dir, &runtime.volumes, &runtime.volume_modes, runtime.autostart, &runtime.overlay_sources),
                     session, cancellation, &events, remaining, &mut ephemeral,
                 ).await.map_err(|error| error.to_string())?;
                 // #314: name the verified container and the checkout its

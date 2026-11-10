@@ -317,6 +317,7 @@ pub(crate) async fn manifest_stack_plan(
     let command = macos_guest
         .is_none()
         .then(|| MANIFEST_LINUX_IDLE_COMMAND.to_owned());
+    let overlay_sources = crate::overlay_source::plan(stack, &mut mounts, &volumes, keep)?;
     let app = SetupApp {
         source,
         environment: stack.env.clone(),
@@ -324,7 +325,7 @@ pub(crate) async fn manifest_stack_plan(
         command,
         mounts,
     };
-    Ok(ManifestRuntimePlan {
+    let mut runtime = ManifestRuntimePlan {
         plan: SetupPlan {
             source_kind: bosn_setup::SetupSourceKind::LocalFile,
             content_sha256,
@@ -358,8 +359,12 @@ pub(crate) async fn manifest_stack_plan(
         job_caches,
         volume_modes,
         keep,
+        overlay_sources,
         cpus,
-    })
+    };
+    crate::overlay_source::bind_plan(&mut runtime.plan, &runtime.overlay_sources);
+    crate::overlay_source::task_workdir(&mut runtime.plan, &runtime.overlay_sources);
+    Ok(runtime)
 }
 
 /// Whether this daemon routes tasks' Docker calls through its accounting
@@ -510,6 +515,7 @@ pub(crate) struct ManifestRuntimePlan {
     pub(crate) volume_modes: BTreeMap<String, bosn_core::manifest::VolumeMode>,
     /// Select the task container lifetime without changing generation identity.
     pub(crate) keep: bool,
+    pub(crate) overlay_sources: Vec<crate::overlay_source::OverlaySource>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

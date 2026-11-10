@@ -93,21 +93,28 @@ pub(super) async fn remove(
     .await
 }
 
+pub(super) async fn remove_all(
+    engine: &DockerEngine,
+    lifetime: &TaskLifetime,
+) -> Result<(), String> {
+    if let Some(container) = &lifetime.container {
+        let output = remove(engine, container).await?;
+        if !output.ok() && !output.reports_missing() {
+            return Err(format!(
+                "task container {} cleanup failed: {output:?}",
+                container.name
+            ));
+        }
+    }
+    crate::overlay_source::remove_volumes(engine, &lifetime.overlay_volumes).await
+}
+
 pub(super) fn retry_cleanup(engine: DockerEngine, lifetime: TaskLifetime) {
     async_engine::launch(async move {
-        let _lease = lifetime.volumes;
-        let Some(container) = &lifetime.container else {
-            return;
-        };
         loop {
             async_engine::sleep(Duration::from_secs(1)).await;
-            if let Ok(output) = remove(&engine, container).await
-                && (output.ok() || output.reports_missing())
-            {
-                daemon_log!(
-                    "bosn task cleanup: removed {} and released volume leases",
-                    container.name
-                );
+            if remove_all(&engine, &lifetime).await.is_ok() {
+                daemon_log!("bosn task cleanup: removed task resources and released volume leases");
                 return;
             }
         }

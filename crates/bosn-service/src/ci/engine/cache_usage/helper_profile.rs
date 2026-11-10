@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 
 pub(super) enum Profile {
     Measurement,
+    OverlaySource {
+        source: String,
+    },
     VolumeSeed {
         source: String,
         destination: String,
@@ -45,6 +48,9 @@ impl Profile {
     pub(super) fn from_intent(intent: &CacheHelperIntent) -> Result<Self, String> {
         match &intent.role {
             None => Ok(Self::Measurement),
+            Some(CacheHelperRole::OverlaySourceV1 { source }) => Ok(Self::OverlaySource {
+                source: source.clone(),
+            }),
             Some(CacheHelperRole::VolumeSeedV1 {
                 source,
                 destination,
@@ -94,6 +100,7 @@ impl Profile {
     pub(super) fn label_key(&self) -> &str {
         match self {
             Self::Measurement => "io.bosn.cache.measurement",
+            Self::OverlaySource { .. } => "io.bosn.overlay.source",
             Self::VolumeSeed { .. } => "io.bosn.volume.seed",
             Self::SourceFinalization { .. } => "io.bosn.cache.source-finalization",
             Self::Maintenance => "io.bosn.cache.maintenance",
@@ -105,6 +112,7 @@ impl Profile {
     pub(super) fn component(&self) -> &str {
         match self {
             Self::Measurement => "ci-cache-measurement",
+            Self::OverlaySource { .. } => "overlay-source",
             Self::VolumeSeed { .. } => "volume-seed",
             Self::SourceFinalization { .. } => "ci-source-finalization",
             Self::Maintenance => "ci-cache-maintenance",
@@ -115,6 +123,7 @@ impl Profile {
     }
     pub(super) fn matches(&self, row: &Helper, volume: &str) -> bool {
         match self {
+            Self::OverlaySource { source } => overlay_source_matches(row, volume, source),
             Self::VolumeSeed {
                 source,
                 destination,
@@ -268,6 +277,35 @@ fn volume_seed_matches(row: &Helper, volume: &str, source: &str, destination: &s
                 "-ec".into(),
                 bosn_registry::cache_helper::VOLUME_SEED_COMMAND.into(),
             ])
+        && row
+            .host_config
+            .cpu_shares
+            .is_some_and(|s| format!("--cpu-shares={s}") == bosn_engine::LOW_CPU_PRIORITY_ARG)
+}
+
+fn overlay_source_matches(row: &Helper, volume: &str, source: &str) -> bool {
+    !row.host_config.privileged
+        && row.mounts.len() == 2
+        && row.mounts.iter().any(|m| {
+            m.kind == "bind"
+                && m.source.as_deref() == Some(source)
+                && m.destination == "/lower"
+                && !m.rw
+        })
+        && row
+            .mounts
+            .iter()
+            .any(|m| m.kind == "volume" && m.name == volume && m.destination == "/upper" && m.rw)
+        && row.config.entrypoint.as_deref() == Some(&["/bin/sh".into()])
+        && row.config.arguments.as_deref()
+            == Some(&[
+                "-ec".into(),
+                bosn_registry::cache_helper::OVERLAY_SOURCE_COMMAND.into(),
+            ])
+        && row.host_config.tmpfs.as_ref().is_some_and(|m| {
+            m.get("/var/lib/docker").map(String::as_str)
+                == Some(bosn_registry::cache_helper::VOLUME_SEED_TMPFS)
+        })
         && row
             .host_config
             .cpu_shares

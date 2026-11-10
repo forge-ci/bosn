@@ -121,7 +121,8 @@ fn cleanup_skips_active_helpers_and_retries_after_the_claim_is_released() {
             .unwrap();
         let (dir, backend) = fixture(true, "removed");
         seed_observation(dir.path(), &value);
-        let active = journal::ActiveHelper::claim(&backend, NONCE);
+        let copy_backend = DockerActBackend::new(backend.docker.clone());
+        let active = journal::ActiveHelper::claim(&copy_backend, NONCE);
         let skipped = backend
             .retry_measurements(&registry, OWNER, None)
             .await
