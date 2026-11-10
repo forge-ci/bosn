@@ -324,9 +324,9 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 let setup_drain = async_engine::launch(async move {
                     drain_private_setup_output(setup_receiver, &setup_logs, setup_masker).await
                 });
-                let prepared = prepare_setup_image(
+                let prepared = crate::ephemeral_task::prepare_image(
                     &self.engine,
-                    &plan,
+                    (&plan, runtime.keep),
                     RunOptions::streaming(remaining, MANIFEST_SETUP_OUTPUT_LIMIT),
                     cancellation,
                     &setup_events,

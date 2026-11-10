@@ -67,6 +67,18 @@ fn live_docker_clean_recreates_checkout_volumes_and_all_resets_machine_volumes()
     let other = OwnedStack::new();
     assert!(first.stack().run_task("probe").contains("stack-cold"));
     other.stack().run_task("probe");
+    // Explicit stack ensure still creates a mounted holder; task runs no longer do.
+    let ensured = Command::new(env!("CARGO_BIN_EXE_bosn"))
+        .current_dir(&first.stack().workspace)
+        .args(["run", "--stack", "live", "--state-dir"])
+        .arg(&first.stack().state)
+        .output()
+        .unwrap();
+    assert!(
+        ensured.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ensured.stderr)
+    );
     let refused = first
         .stack()
         .bosn_run("probe")

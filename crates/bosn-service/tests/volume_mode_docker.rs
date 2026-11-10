@@ -28,7 +28,11 @@ async fn status(client: &Client, job: u64, waiting: bool) -> bosn_service::JobSt
         {
             return status;
         }
-        assert!(Instant::now() < deadline, "job {job}: {status:?}");
+        assert!(
+            Instant::now() < deadline,
+            "job {job}: {status:?}; logs: {:?}",
+            client.job_logs(job, 0, 256).await.unwrap()
+        );
         async_engine::sleep(Duration::from_millis(100)).await;
     }
 }

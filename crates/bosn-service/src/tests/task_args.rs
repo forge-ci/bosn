@@ -248,3 +248,25 @@ fn wait_participates_in_job_identity_and_blocked_status_clears_on_cancel() {
     jobs.settle(id, false).unwrap();
     assert!(jobs.job(id).unwrap().waiting_on.is_none());
 }
+
+#[test]
+fn argument_free_different_task_names_reach_volume_admission_concurrently() {
+    let first = request(&[]);
+    let mut other = first.clone();
+    other.task_name = "other".into();
+    let mut jobs = Jobs::new(4);
+    let submit = |jobs: &mut Jobs, request: &ManifestAppTaskJobRequest| {
+        jobs.submit_class(
+            "/workspace",
+            &manifest_task_key(request),
+            &manifest_app_task_digest(request),
+            jobs::JobClass::Runner,
+        )
+        .unwrap()
+    };
+    let Submission::Started(first_id) = submit(&mut jobs, &first) else {
+        panic!("first task")
+    };
+    assert_eq!(submit(&mut jobs, &first), Submission::Joined(first_id));
+    assert!(matches!(submit(&mut jobs, &other), Submission::Started(id) if id != first_id));
+}

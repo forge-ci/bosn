@@ -176,6 +176,23 @@ async fn clear_leftover(
     }
 }
 
+/// Kept tasks share the stack image instead of rebuilding task-labelled variants.
+pub(crate) async fn prepare_image(
+    engine: &DockerEngine,
+    context: (&SetupPlan, bool),
+    options: RunOptions,
+    cancellation: &async_engine::CancellationToken,
+    events: &async_engine::Sender<EngineEvent>,
+) -> Result<PreparedImage, bosn_setup::SetupPrepareError> {
+    let (plan, keep) = context;
+    let mut preparation = plan.clone();
+    if keep {
+        preparation.task_names.clear();
+        preparation.tasks.clear();
+    }
+    prepare_setup_image(engine, &preparation, options, cancellation, events).await
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "task boundary carries existing execution budgets and authority"
