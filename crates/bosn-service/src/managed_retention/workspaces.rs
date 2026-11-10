@@ -7,17 +7,15 @@
 //! common directory, so every worktree of one clone shares it. Nothing is guessed: a workspace
 //! outside any repository has no family and is only subject to the gone rule and the age gate.
 
+use crate::git_common_dir::common_dir;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 static ABSENT: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
 
 use bosn_core::retention::EagerFacts;
 use bosn_core::{LABEL_SCOPE, LABEL_WORKSPACE, ObservedArtifact, ResourceKind};
-
-/// `.git` worktree pointers and `commondir` files are a single short line.
-const POINTER_LIMIT: u64 = 4096;
 
 pub(super) fn observe(artifacts: &[ObservedArtifact]) -> EagerFacts {
     let Ok(mut absent) = ABSENT.get_or_init(Mutex::default).lock() else {
@@ -112,33 +110,6 @@ pub(super) fn recheck(
         }
         EagerReason::FamilyCap => clean_checkout(path),
     }
-}
-
-/// The canonical git common directory of the repository containing `workspace`, if any.
-pub(super) fn common_dir(workspace: &Path) -> Option<PathBuf> {
-    let dot = workspace
-        .ancestors()
-        .map(|directory| directory.join(".git"))
-        .find(|dot| dot.symlink_metadata().is_ok())?;
-    if dot.is_dir() {
-        return dot.canonicalize().ok();
-    }
-    // A worktree: `.git` is a file naming its private git directory, whose `commondir` names
-    // the clone's shared one (both may be relative).
-    let base = dot.parent()?;
-    let gitdir = base.join(pointer(&dot)?.strip_prefix("gitdir:")?.trim());
-    let common = match pointer(&gitdir.join("commondir")) {
-        Some(relative) => gitdir.join(relative.trim()),
-        None => gitdir,
-    };
-    common.canonicalize().ok()
-}
-
-fn pointer(path: &Path) -> Option<String> {
-    if path.metadata().ok()?.len() > POINTER_LIMIT {
-        return None;
-    }
-    std::fs::read_to_string(path).ok()
 }
 
 #[cfg(test)]

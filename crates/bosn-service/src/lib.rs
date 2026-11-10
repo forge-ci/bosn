@@ -97,6 +97,7 @@ mod secure_random;
 #[cfg(test)]
 mod secure_random_tests;
 pub use handoff::IdleHandoff;
+mod git_common_dir;
 mod job_api;
 mod job_loop;
 mod job_support;
