@@ -27,6 +27,7 @@ mod gc_query;
 mod immediate;
 mod read_only;
 mod registry;
+mod registry_schema;
 mod rows;
 mod storage;
 pub mod volume_seed;

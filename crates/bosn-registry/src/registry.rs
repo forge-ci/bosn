@@ -214,7 +214,7 @@ impl Registry {
             return Err(Error::UnsupportedSchema(version));
         }
         if version == SCHEMA_VERSION {
-            ci_state::validate(connection)?;
+            registry_schema::validate_current(connection)?;
         }
         if !allow_upgrade && meta(connection, "ci.migration.cursor")?.is_some() {
             return Err(Error::MigrationInProgress);
