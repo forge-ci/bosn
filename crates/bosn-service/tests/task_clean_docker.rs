@@ -13,6 +13,14 @@ impl OwnedStack {
             .replace("[stack.live]", &format!("[stack.live]\nfamily = '{marker}'"))
             .replace("[stack.live.env]", "machine = { scope = 'machine', destination = '/machine' }\n[stack.live.env]")
             .replace("keep = true", &format!("keep = {keep}"));
+        let manifest = if keep {
+            manifest.replace(
+                "dockerfile = 'live.Dockerfile'",
+                &format!("image = '{PINNED_ALPINE}'"),
+            )
+        } else {
+            manifest
+        };
         Self(Some(StackWorkspace::new(&manifest)))
     }
     fn stack(&self) -> &StackWorkspace {

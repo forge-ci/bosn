@@ -175,9 +175,10 @@ fn check(
         .map_err(|e| e.to_string())?;
     let mut containers = Vec::new();
     for id in ids {
-        let entries =
-            parse_read::<ContainerDetail>(engine.inspect_containers(&[id.clone()], options))
-                .ok_or_else(|| held(&target.name, format!("unreadable container {id}")))?;
+        let entries = parse_read::<ContainerDetail>(
+            engine.inspect_containers(std::slice::from_ref(&id), options),
+        )
+        .ok_or_else(|| held(&target.name, format!("unreadable container {id}")))?;
         for entry in entries {
             let holder = format!("container {} ({id})", entry.engine_name());
             if entry.running() {
