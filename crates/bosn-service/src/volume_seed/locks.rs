@@ -5,6 +5,14 @@ use std::path::Path;
 
 pub(crate) fn try_lock(state: &Path, name: &str) -> Result<Option<fs::OwnedFileLock>, String> {
     let directory = state.to_owned();
+    if directory == crate::runners::cache_lock_dir() {
+        // Long-state IPC sockets share this parent with the machine's volume locks.
+        let parent = directory
+            .parent()
+            .ok_or("volume lock directory has no parent")?;
+        kernal_api::platform::ipc::ensure_owner_private_directory(parent)
+            .map_err(|e| e.to_string())?;
+    }
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     let file =
         fs::open_lock_file(&directory.join(format!("{name}.lock"))).map_err(|e| e.to_string())?;

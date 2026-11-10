@@ -297,3 +297,43 @@ fn held_run_volume_names_holder_and_acquires_after_release() {
             );
         });
 }
+
+#[cfg(unix)]
+#[test]
+fn volume_lease_keeps_the_long_state_socket_parent_private() {
+    let root = tempfile::tempdir().unwrap();
+    let mut volume = target();
+    volume.name = format!(
+        "private-{}",
+        root.path().file_name().unwrap().to_string_lossy()
+    );
+    let modes = [(
+        volume.name.clone(),
+        bosn_core::manifest::VolumeMode::Exclusive,
+    )]
+    .into();
+    async_engine::RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(async {
+            let cancellation = async_engine::CancellationSource::new();
+            let _lease = locks::destinations(
+                root.path(),
+                &[volume],
+                &modes,
+                &async_engine::Deadline::after(std::time::Duration::from_secs(5)),
+                &cancellation.token(),
+                "task holder",
+            )
+            .await
+            .unwrap();
+            let state = root.path().join("long-state-directory".repeat(8));
+            let endpoint = crate::endpoint(&state).unwrap();
+            let listener = kernal_api::platform::ipc::AsyncListener::bind_owner_only(&endpoint)
+                .expect("volume leases must leave the shared IPC parent owner-private");
+            assert!(endpoint.target_exists().unwrap());
+            drop(listener);
+            endpoint.retire().unwrap();
+        });
+}
