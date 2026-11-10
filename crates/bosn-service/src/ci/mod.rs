@@ -62,6 +62,7 @@ pub mod cache_policy;
 pub mod checkout;
 pub mod client;
 pub mod config;
+mod cursor;
 pub mod engine;
 pub mod events;
 pub mod flush;

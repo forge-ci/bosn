@@ -959,10 +959,10 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // #833/#671 diagnostics and #777 advisory reply tag 73 (default false) are additive, no bump.
 // #724: protocol 3 adds request tag 32 (task args). Protocol 2 requests omit it;
 // non-empty args require protocol 3. #885 adds optional tag 33 (clean), requiring protocol 4.
-// #666: protocol 5 adds guarded tag 34 (wait), keeps protocol 4, and names blockers in reply tag 74.
+// #666 adds tag 34 (wait), protocol 5/4, reply 74. #307 changes HTTP SSE schema only; no daemon wire change.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "7bc7b8c983be31f5827187b2fda3941ce05401bd821baaf11e7cfeaab17ec440",
+    "e565caa1e45da4eeeaadf6d662871449c6cc8f68f5082aaf9fe9ac6628bf97e7",
 );
 
 #[test]

@@ -288,9 +288,9 @@ fn run_status_sse_replays_after_reconnect() {
         let path = format!("/v1/runs/{}/events", record.id);
         let first = raw(port, get(port, &path, &host, Some(&cookie))).await;
         assert_eq!(first.status, 200, "{}", first.body);
-        assert!(first.body.contains("id: 1"), "{}", first.body);
-        assert!(first.body.contains("id: 2"), "{}", first.body);
-        assert!(first.body.contains("id: 3"), "{}", first.body);
+        let frames = sse_ids_and_kinds(&first.body);
+        assert_eq!(frames.len(), 3);
+        assert!(frames.windows(2).all(|pair| pair[0].0 < pair[1].0));
         assert!(first.body.contains("event: status"), "{}", first.body);
         assert!(first.body.contains("\"state\":\"done\""), "{}", first.body);
         let reconnect = format!(
@@ -298,9 +298,7 @@ fn run_status_sse_replays_after_reconnect() {
         );
         let resumed = raw(port, reconnect).await;
         assert_eq!(resumed.status, 200);
-        assert!(resumed.body.contains("id: 3"), "{}", resumed.body);
-        assert!(!resumed.body.contains("id: 1"), "{}", resumed.body);
-        assert!(!resumed.body.contains("id: 2"), "{}", resumed.body);
+        assert_eq!(sse_ids_and_kinds(&resumed.body), frames[2..]);
     });
 }
 
@@ -718,5 +716,131 @@ fn system_history_ranges_are_typed_and_have_the_expected_shape() {
             .await;
             assert_eq!(reply.status, 400, "{query}");
         }
+    });
+}
+
+// Exercise the HTTP contract using the same durable writers as the runtime.
+#[test]
+fn unified_cursor_interleaves_replays_and_reconciles_terminal_status() {
+    with_registry(|registry, dir| async move {
+        let mut record = fake_record();
+        let store = crate::ci::store::Store::new(&dir);
+        std::fs::create_dir_all(store.run_dir(&record.id)).unwrap();
+        crate::ci::status::append(&store, &record, 1).unwrap();
+        let mut logs = store.log_writer(&record.id).unwrap();
+        let log = |seq, stream: &str| crate::ci::model::LogRecord {
+            seq,
+            stream: stream.into(),
+            job: None,
+            section: None,
+            text: "raw".into(),
+        };
+        logs.append(&log(1, "stdout")).unwrap();
+        logs.flush();
+        record.state = crate::ci::RunState::Running;
+        crate::ci::status::append(&store, &record, 2).unwrap();
+        logs.append(&log(2, "stderr")).unwrap();
+        logs.flush();
+        // Deliberately omit the terminal journal append (#498 reconciliation).
+        record.finish(crate::ci::Conclusion::Success, None);
+        store.save_run(&record);
+        let (ci, _server, port) = listener(&dir, registry).await;
+        let cookie = sign_in(&ci, port).await;
+        let host = format!("127.0.0.1:{port}");
+        let path = format!("/v1/runs/{}/events", record.id);
+        assert_eq!(raw(port, get(port, &path, &host, None)).await.status, 401);
+        let first = raw(port, get(port, &path, &host, Some(&cookie))).await;
+        let frames = sse_ids_and_kinds(&first.body);
+        assert_eq!(
+            frames
+                .iter()
+                .map(|(_, kind)| kind.as_str())
+                .collect::<Vec<_>>(),
+            ["status", "stdout", "status", "stderr", "status"],
+            "{}",
+            first.body
+        );
+        assert!(frames.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        for middle in [1, 3] {
+            let request = format!(
+                "GET {path} HTTP/1.1\r\nHost: {host}\r\nCookie: {cookie}\r\nLast-Event-ID: {}\r\nConnection: close\r\n\r\n",
+                frames[middle].0,
+            );
+            let resumed = raw(port, request).await;
+            assert_eq!(sse_ids_and_kinds(&resumed.body), frames[middle + 1..]);
+            assert!(resumed.body.contains("\"state\":\"done\""));
+        }
+        // A pre-upgrade status-only cursor must still receive running and done.
+        let legacy = format!(
+            "GET {path} HTTP/1.1\r\nHost: {host}\r\nCookie: {cookie}\r\nLast-Event-ID: 1\r\nConnection: close\r\n\r\n"
+        );
+        let resumed = raw(port, legacy).await;
+        assert!(resumed.body.contains("\"state\":\"running\""));
+        assert!(resumed.body.contains("\"state\":\"done\""));
+    });
+}
+
+fn sse_ids_and_kinds(body: &str) -> Vec<(u64, String)> {
+    let mut id = None;
+    let mut frames = Vec::new();
+    for line in body.lines() {
+        if let Some(value) = line.strip_prefix("id: ") {
+            id = Some(value.parse().unwrap());
+        }
+        if let Some(kind) = line.strip_prefix("event: ") {
+            frames.push((id.take().unwrap(), kind.to_owned()));
+        }
+    }
+    frames
+}
+
+#[test]
+fn unified_cursor_keeps_legacy_statuses_and_orders_across_pages_and_restart() {
+    with_registry(|registry, dir| async move {
+        let mut record = fake_record();
+        let store = crate::ci::store::Store::new(&dir);
+        std::fs::create_dir_all(store.run_dir(&record.id)).unwrap();
+        let queued =
+            serde_json::to_string(&crate::ci::status::StatusSnapshot::of(&record, 1)).unwrap();
+        record.state = crate::ci::RunState::Running;
+        let running =
+            serde_json::to_string(&crate::ci::status::StatusSnapshot::of(&record, 2)).unwrap();
+        std::fs::write(
+            crate::ci::status::path(&store, &record.id),
+            format!("{queued}\n{running}\n"),
+        )
+        .unwrap();
+        let mut logs = store.log_writer(&record.id).unwrap();
+        for seq in 1..=70 {
+            logs.append(&crate::ci::model::LogRecord {
+                seq,
+                stream: "stdout".into(),
+                job: None,
+                section: None,
+                text: "raw".into(),
+            })
+            .unwrap();
+        }
+        drop(logs);
+        // A new Store must recover the allocator from additive fields on disk.
+        let reopened = crate::ci::store::Store::new(&dir);
+        record.finish(crate::ci::Conclusion::Success, None);
+        crate::ci::status::append(&reopened, &record, 3).unwrap();
+        reopened.save_run(&record);
+        let (ci, _server, port) = listener(&dir, registry).await;
+        let cookie = sign_in(&ci, port).await;
+        let path = format!("/v1/runs/{}/events", record.id);
+        let host = format!("127.0.0.1:{port}");
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nHost: {host}\r\nCookie: {cookie}\r\nLast-Event-ID: 1\r\nConnection: close\r\n\r\n"
+        );
+        let reply = raw(port, request).await;
+        let frames = sse_ids_and_kinds(&reply.body);
+        assert_eq!(frames.len(), 72, "{}", reply.body);
+        assert_eq!(frames[0], (2, "status".into()));
+        assert!(frames.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        assert_eq!(frames.last().unwrap().1, "status");
+        assert!(reply.body.contains("\"state\":\"running\""));
+        assert!(reply.body.contains("\"state\":\"done\""));
     });
 }

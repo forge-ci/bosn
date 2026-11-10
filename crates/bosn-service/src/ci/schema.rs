@@ -36,6 +36,7 @@ pub fn document() -> Value {
     let request = sub::<CiRequest>(&mut generator);
     let event = sub::<RunEvent>(&mut generator);
     let status_event = sub::<StatusSnapshot>(&mut generator);
+    let log_event = sub::<super::model::LogRecord>(&mut generator);
     let error = sub::<ErrorReply>(&mut generator);
     let definitions: Map<String, Value> = generator.take_definitions(true).into_iter().collect();
     json!({
@@ -49,6 +50,7 @@ pub fn document() -> Value {
             "replies": {"type": "object", "properties": replies},
             "event": event,
             "status_event": status_event,
+            "log_event": {"allOf": [log_event], "description": "SSE stdout/stderr/bosn row: seq is the unified per-run cursor and SSE id, shared with status_event."},
             "error": error,
         },
         "$defs": definitions,

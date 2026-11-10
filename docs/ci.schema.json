@@ -2433,6 +2433,7 @@
           "type": "string"
         },
         "seq": {
+          "description": "SSE id: unified per-run cursor across status and raw log events.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -2813,6 +2814,14 @@
     },
     "event": {
       "$ref": "#/$defs/RunEvent"
+    },
+    "log_event": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/LogRecord"
+        }
+      ],
+      "description": "SSE stdout/stderr/bosn row: seq is the unified per-run cursor and SSE id, shared with status_event."
     },
     "replies": {
       "properties": {

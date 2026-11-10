@@ -1,5 +1,5 @@
 // bosn ci dashboard: runs, the stage/job/step tree, step logs and runner
-// management, live over /v1/events. Helpers (icons, `el`, `request`,
+// management, live over one SSE subscription. Helpers (icons, `el`, `request`,
 // `confirmButton`) come from /shared.js; writes are same-origin POSTs (the
 // daemon checks Origin).
 "use strict";
@@ -297,7 +297,10 @@ function schedule() {
   }, 400);
 }
 function connect() {
+  if (selected && !runFinished) return;
+  if (runSource) runSource.close();
   const source = new EventSource("/v1/events");
+  runSource = source;
   source.onmessage = (message) => {
     const event = JSON.parse(message.data);
     if (event.type === "resync" || !selected || event.run === selected) schedule();
@@ -323,25 +326,29 @@ function openRunSource(run) {
   if (selected !== run || runFinished) return;
   const source = new EventSource(`/v1/runs/${run}/events?from_seq=${runCursor}`);
   runSource = source;
-  source.addEventListener("status", (message) => {
-    if (selected !== run) { source.close(); return; }
+  const receive = (message) => {
+    if (runSource !== source || selected !== run) { source.close(); return; }
     const event = JSON.parse(message.data);
     runCursor = event.seq;
     schedule();
-    if (event.state === "done") {
+    if (message.type === "status" && event.state === "done") {
       runFinished = true;
       source.close();
+      connect();
     }
-  });
+  };
+  for (const kind of ["status", "stdout", "stderr", "bosn"]) source.addEventListener(kind, receive);
   source.onerror = async () => {
     if (runSource !== source) return;
     source.close();
     if (selected !== run || runFinished) return;
     try {
       const snapshot = await api(`/v1/runs/${run}`);
+      if (runSource !== source || selected !== run) return;
       if (snapshot.state === "done") {
         runFinished = true;
         schedule();
+        connect();
         return;
       }
     } catch (_) { /* Retry after transient network errors. */ }

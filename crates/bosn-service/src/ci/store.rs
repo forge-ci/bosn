@@ -12,9 +12,10 @@
 //! ```
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     io::{self, BufRead, Seek, Write},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 use serde::{Deserialize, Serialize};
@@ -72,12 +73,14 @@ pub struct LogPage {
 #[derive(Clone, Debug)]
 pub struct Store {
     root: PathBuf,
+    pub(super) cursors: Arc<Mutex<BTreeMap<String, u64>>>,
 }
 
 impl Store {
     pub fn new(state_dir: &Path) -> Self {
         Self {
             root: state_dir.join("ci"),
+            cursors: Arc::default(),
         }
     }
 
@@ -130,7 +133,7 @@ impl Store {
     pub fn event(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("event.json")
     }
-    fn log_path(&self, id: &str) -> PathBuf {
+    pub(super) fn log_path(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("log.jsonl")
     }
 
@@ -209,6 +212,8 @@ impl Store {
             .ok()
             .map(|file| LogWriter {
                 out: io::BufWriter::new(file),
+                store: self.clone(),
+                run: run.into(),
                 offset: 0,
                 lost: 0,
             })
@@ -286,6 +291,8 @@ impl Store {
 
 /// Appends log records, tracking byte offsets for the sparse seq index.
 pub struct LogWriter {
+    store: Store,
+    run: String,
     out: io::BufWriter<std::fs::File>,
     offset: u64,
     /// Records that could not be written (their seqs are missing).
@@ -295,13 +302,20 @@ impl LogWriter {
     /// Append one record; returns its byte offset, or `None` if it was lost.
     pub fn append(&mut self, record: &LogRecord) -> Option<u64> {
         let at = self.offset;
-        let mut line = serde_json::to_string(record).ok()?;
-        line.push('\n');
-        if self.out.write_all(line.as_bytes()).is_err() {
+        let result = super::cursor::append(&self.store, &self.run, |event_seq| {
+            let mut line = serde_json::to_vec(&super::cursor::Stored { event_seq, record })
+                .map_err(io::Error::other)?;
+            line.push(b'\n');
+            self.out.write_all(&line)?;
+            // Publish under the allocator lock: a later status cannot overtake buffered logs.
+            self.out.flush()?;
+            Ok(line.len())
+        });
+        let Ok(size) = result else {
             self.lost += 1;
             return None;
-        }
-        self.offset += line.len() as u64;
+        };
+        self.offset += size as u64;
         Some(at)
     }
     pub fn flush(&mut self) {
