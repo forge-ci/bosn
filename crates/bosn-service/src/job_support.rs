@@ -40,6 +40,16 @@ pub(crate) struct ActorManifestAppTaskSessionRecorder {
     pub(crate) run: Option<RunContext>,
 }
 impl ManifestAppTaskSessionRecorder for ActorManifestAppTaskSessionRecorder {
+    fn registry_id(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
+        Box::pin(async {
+            self.actor
+                .status()
+                .await
+                .map(|s| s.registry_id)
+                .map_err(|e| e.to_string())
+        })
+    }
+
     fn run_context(&self) -> Option<&RunContext> {
         self.run.as_ref()
     }

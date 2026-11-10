@@ -372,6 +372,16 @@ pub async fn execute_setup_app_task<E: SetupAppTaskEngine>(
     engine: &E,
     request: SetupAppTaskRequest<'_>,
 ) -> Result<SetupTaskResult, SetupTaskError> {
+    execute_named_setup_app_task(engine, request, None).await
+}
+
+/// Execute in a daemon-created task container, or the legacy stack container.
+/// The caller must prove ownership before supplying a named target.
+pub async fn execute_named_setup_app_task<E: SetupAppTaskEngine>(
+    engine: &E,
+    request: SetupAppTaskRequest<'_>,
+    named_container: Option<&str>,
+) -> Result<SetupTaskResult, SetupTaskError> {
     let command = derive_command(&SetupTaskRequest {
         plan: request.plan,
         workspace_root: request.workspace_root.clone(),
@@ -381,16 +391,7 @@ pub async fn execute_setup_app_task<E: SetupAppTaskEngine>(
         cancellation: request.cancellation,
         events: request.events,
     })?;
-    if request.passthrough_env.iter().any(|name| {
-        name.is_empty()
-            || !name
-                .bytes()
-                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
-    }) {
-        return Err(SetupTaskError::InvalidRequest(
-            "passthrough environment name is invalid",
-        ));
-    }
+    validate_passthrough_env(&request.passthrough_env)?;
     let SetupTaskCommand::Run {
         image_identity,
         command,
@@ -416,6 +417,7 @@ pub async fn execute_setup_app_task<E: SetupAppTaskEngine>(
         request.prepared_image,
     )
     .map_err(|_| SetupTaskError::InvalidRequest("invalid container creation profile"))?;
+    let container_name = named_container.map(str::to_owned).unwrap_or(container_name);
     let task_token = crate::task_stop::new_task_token(&container_name, &request.task_name);
     let result = match engine
         .stream(
@@ -470,6 +472,20 @@ pub async fn execute_setup_app_task<E: SetupAppTaskEngine>(
         image_identity,
         exit_code: result.exit_code,
     })
+}
+
+fn validate_passthrough_env(names: &[String]) -> Result<(), SetupTaskError> {
+    if names.iter().any(|name| {
+        name.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    }) {
+        return Err(SetupTaskError::InvalidRequest(
+            "passthrough environment name is invalid",
+        ));
+    }
+    Ok(())
 }
 
 fn derive_command(request: &SetupTaskRequest<'_>) -> Result<SetupTaskCommand, SetupTaskError> {

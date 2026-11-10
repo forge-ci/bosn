@@ -291,6 +291,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 &task_command,
                 runtime.github_api_proxy,
             );
+            let mut ephemeral = None;
             let result = async {
                 if let Some((_, source)) = &github_api {
                     logs.send(format!(
@@ -339,25 +340,10 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 logs.send("[manifest-app-task] proving exact managed application ownership".into())
                     .await
                     .map_err(|_| "manifest app task log consumer closed".to_owned())?;
-                let observed = adopt_setup_app(
-                    &self.engine,
-                    CoreSetupEnsureRequest {
-                        plan: &plan,
-                        workspace_root: request.workspace.clone(),
-                        prepared_image: &prepared,
-                        options: RunOptions::streaming(remaining, MANIFEST_SETUP_OUTPUT_LIMIT),
-                        cancellation,
-                        events: &events,
-                    },
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-                if !observed.running {
-                    return Err(
-                        "manifest app task requires the exact managed application to be running"
-                            .into(),
-                    );
-                }
+                let observed = crate::ephemeral_task::prepare(
+                    &self.engine, &plan, &prepared, &request, runtime.keep,
+                    session, cancellation, &events, remaining, &mut ephemeral,
+                ).await.map_err(|error| error.to_string())?;
                 // #314: name the verified container and the checkout its
                 // binds were proven against, so a run in one worktree can be
                 // seen not to target another worktree's tree.
@@ -425,7 +411,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 let workspace = plan.workspace_root.to_string_lossy();
                 stop_retired_generations(session, &workspace, &request.stack, logs).await?;
                 begin_manifest_task_session(session, &observed).await?;
-                let result = execute_setup_app_task(
+                let result = bosn_setup::execute_named_setup_app_task(
                     &engine,
                     SetupAppTaskRequest {
                         plan: &plan,
@@ -438,6 +424,7 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                         cancellation,
                         events: &events,
                     },
+                    ephemeral.as_ref().map(|container| container.name.as_str()),
                 )
                 .await;
                 // Whatever the outcome (success, failure, cancel, stall or
@@ -476,6 +463,8 @@ impl ManifestAppTaskExecutor for DockerManifestAppTaskExecutor {
                 }
             }
             .await;
+            let result =
+                crate::ephemeral_task::finish(&self.engine, ephemeral, session, result).await;
             drop(github_api);
             drop(events);
             forwarder

@@ -42,6 +42,7 @@ impl DaemonChild {
         command
             .args(["daemon", "serve", "--state-dir"])
             .arg(state)
+            .env("XDG_STATE_HOME", state.join("xdg-state"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
