@@ -205,7 +205,7 @@ pub(super) async fn reset(
     })
     .await
     .map_err(|e| uncertain(&name, e.to_string()))?
-    .map_err(|e| uncertain(&name, e))
+    .map_err(|e: String| uncertain(&name, e))
 }
 
 // Recreate only after Copying was deleted. A crash before that delete leaves

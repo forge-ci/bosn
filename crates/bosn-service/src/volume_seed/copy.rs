@@ -54,6 +54,7 @@ async fn seed_inner(
         nonce: nonce.clone(),
         state: SeedState::Copying,
     };
+    let create_deadline = Deadline::after(Duration::from_secs(30));
     let intent = CacheHelperIntent {
         registry_id: snapshot.owner,
         nonce,
@@ -102,7 +103,13 @@ async fn seed_inner(
     }
     let deadline = Deadline::after(budget.saturating_sub(Duration::from_secs(30)));
     let outcome = run(
-        context, target, &seed, &intent, &identity, &deadline, cancel,
+        context,
+        target,
+        &seed,
+        &intent,
+        &identity,
+        [&create_deadline, &deadline],
+        cancel,
     )
     .await;
     // Recovery verifies the full frozen profile, removes by immutable ID, and
@@ -129,7 +136,7 @@ async fn run(
     seed: &VolumeSeed,
     intent: &CacheHelperIntent,
     identity: &CacheHelperIdentity,
-    deadline: &Deadline,
+    deadlines: [&Deadline; 2],
     cancel: &CancellationToken,
 ) -> Result<(), String> {
     if cancel.is_cancelled() {
@@ -154,14 +161,14 @@ async fn run(
     let created = checked(
         context,
         helper::args(identity, intent, &seed.source),
-        deadline,
+        deadlines[0],
         cancel,
     )
     .await?;
     let document = checked(
         context,
         vec!["container".into(), "inspect".into(), identity.name.clone()],
-        deadline,
+        deadlines[0],
         cancel,
     )
     .await?;
@@ -184,7 +191,7 @@ async fn run(
     checked(
         context,
         vec!["start".into(), "--attach".into(), id],
-        deadline,
+        deadlines[1],
         cancel,
     )
     .await?;
@@ -196,6 +203,9 @@ async fn checked(
     deadline: &Deadline,
     cancel: &CancellationToken,
 ) -> Result<String, String> {
+    if deadline.remaining().is_zero() {
+        return Err("seed action budget exhausted".into());
+    }
     let options = bosn_engine::RunOptions::bounded(deadline.remaining(), 1024 * 1024);
     let result = async_engine::cancellable(
         cancel,
