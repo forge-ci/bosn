@@ -199,6 +199,15 @@ async fn prepare_container(
     remaining: Duration,
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
+    if keep {
+        return if request.clean == CleanVolumes::None {
+            adopt_running(engine, setup).await
+        } else {
+            ensure_setup_app(engine, setup)
+                .await
+                .map_err(|e| e.to_string().into())
+        };
+    }
     let CoreSetupEnsureRequest {
         plan,
         prepared_image: image,
@@ -206,20 +215,6 @@ async fn prepare_container(
         events,
         ..
     } = setup;
-    if keep {
-        return adopt_running(
-            engine,
-            CoreSetupEnsureRequest {
-                plan,
-                workspace_root: request.workspace.clone(),
-                prepared_image: image,
-                options: RunOptions::streaming(remaining, 8 * 1024 * 1024),
-                cancellation,
-                events,
-            },
-        )
-        .await;
-    }
     if plan.macos_guest.is_some() {
         return Err("ephemeral macOS guest tasks are unsupported; set keep = true".into());
     }
