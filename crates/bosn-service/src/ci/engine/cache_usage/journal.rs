@@ -5,7 +5,7 @@ use crate::{
     act_registry::{ActRegistryCommand, ActRegistryReply},
 };
 
-pub(in crate::ci::engine) struct ActiveHelper<'a> {
+pub(crate) struct ActiveHelper<'a> {
     backend: &'a DockerActBackend,
     nonce: String,
 }

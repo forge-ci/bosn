@@ -92,6 +92,7 @@ mod secure_random;
 mod secure_random_tests;
 pub use handoff::IdleHandoff;
 mod ephemeral_task;
+mod overlay_source;
 mod task_clean;
 mod task_wait;
 pub use task_clean::CleanVolumes;

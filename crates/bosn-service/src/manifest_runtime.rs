@@ -323,11 +323,20 @@ pub(crate) fn manifest_host_docker_socket(
     if !normalized_container_path(&mount.destination) {
         return Err("manifest mount target is not a normalized absolute path".into());
     }
+    if matches!(
+        manifest_source_binding(mount),
+        SourceBinding::Overlay { .. }
+    ) {
+        return Err("host Docker socket cannot use overlay mode".into());
+    }
     require_host_docker_socket(source.host_path())?;
     Ok(Some(SetupHostDockerSocket {
         source,
         target: mount.destination.clone(),
-        readonly: manifest_mount_readonly(mount)?,
+        readonly: match manifest_source_binding(mount) {
+            SourceBinding::Bind { readonly } => readonly,
+            SourceBinding::Overlay { .. } => true,
+        },
         proxy_dir,
     }))
 }
@@ -355,6 +364,32 @@ pub(crate) fn require_host_docker_socket(_path: &str) -> Result<(), String> {
 /// bind.  Absolute legacy sources are accepted only when their canonical path
 /// is inside the selected workspace; callers never get to name a host path at
 /// the typed engine boundary.
+pub(crate) fn manifest_source_mounts(
+    workspace: &Path,
+    stack: &bosn_core::manifest::Stack,
+    proxy_dir: Option<String>,
+) -> Result<
+    (
+        Vec<bosn_core::WorkspaceMount>,
+        Option<SetupHostDockerSocket>,
+    ),
+    String,
+> {
+    let mut mounts = Vec::new();
+    let mut host_docker_socket = None;
+    for mount in &stack.mounts {
+        if let Some(socket) = manifest_host_docker_socket(mount, proxy_dir.clone())? {
+            if host_docker_socket.is_some() {
+                return Err("manifest declares the host Docker socket more than once".into());
+            }
+            host_docker_socket = Some(socket);
+            continue;
+        }
+        mounts.push(manifest_workspace_mount(workspace, mount)?);
+    }
+    Ok((mounts, host_docker_socket))
+}
+
 pub(crate) fn manifest_workspace_mount(
     workspace: &Path,
     mount: &bosn_core::manifest::Mount,
@@ -366,19 +401,31 @@ pub(crate) fn manifest_workspace_mount(
     Ok(bosn_core::WorkspaceMount {
         source,
         target: mount.destination.clone(),
-        readonly: manifest_mount_readonly(mount)?,
+        readonly: match manifest_source_binding(mount) {
+            SourceBinding::Bind { readonly } => readonly,
+            SourceBinding::Overlay { .. } => true,
+        },
     })
 }
 
-/// The bind's read-only flag. An overlay is refused rather than silently
-/// bound read-write; slice 2 of #666 implements it.
-pub(crate) fn manifest_mount_readonly(mount: &bosn_core::manifest::Mount) -> Result<bool, String> {
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum SourceBinding {
+    Bind {
+        readonly: bool,
+    },
+    Overlay {
+        upper: bosn_core::manifest::OverlayUpper,
+    },
+}
+
+pub(crate) fn manifest_source_binding(mount: &bosn_core::manifest::Mount) -> SourceBinding {
+    use bosn_core::manifest::{MountMode, OverlayUpper};
     match mount.mode {
-        bosn_core::manifest::MountMode::Rw => Ok(false),
-        bosn_core::manifest::MountMode::Ro => Ok(true),
-        bosn_core::manifest::MountMode::Overlay => {
-            Err("overlay mounts are not implemented yet (#888)".into())
-        }
+        MountMode::Rw => SourceBinding::Bind { readonly: false },
+        MountMode::Ro => SourceBinding::Bind { readonly: true },
+        MountMode::Overlay => SourceBinding::Overlay {
+            upper: mount.upper.clone().unwrap_or(OverlayUpper::Tmpfs),
+        },
     }
 }
 

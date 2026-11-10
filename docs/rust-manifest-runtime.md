@@ -72,7 +72,7 @@ an idle kept container holds no lease. CI job-cache leases are separate.
 Clean runs recreate volumes cold without seeding them. A preparation container
 left by an earlier explicit ensure still counts as a holder: stop it explicitly
 before cleaning. Daemons older than protocol 4 are refused before clean submission.
-MCP/Python forwarding of `--wait`/`--clean`, overlay source mounts and exclusive
+MCP/Python forwarding of `--wait`/`--clean` and exclusive
 stack-volume replicas are deferred to [#888](https://github.com/forge-ci/bosn/issues/888).
 
 It pings the daemon for that state directory and, when none answers, starts
@@ -224,6 +224,49 @@ and leaves no success record. The durable job ID is observed with the ordinary
 job status/log/cancel interfaces. Existing setup-document behavior is not
 changed.
 
+## Overlay source mounts
+
+Use `mode = "overlay"` to give a task a writable copy of a source directory
+without changing the host checkout:
+
+```toml
+[stack.build]
+default_target_volume = false
+
+[stack.build.mounts.src]
+source = "."
+destination = "/src"
+mode = "overlay"
+upper = "tmpfs"
+```
+
+This is **copy-on-start**, not a kernel overlay. A separate, network-disabled
+helper binds the resolved host source read-only and copies its whole on-disk
+contents, including `.git` and ignored files, into a volume before the task
+command starts. Numeric UID/GID and modes are preserved, and symlinks remain
+links. The pinned engine image's BusyBox tar supports the copy's `-p` and
+`--numeric-owner` flags. Task containers bind only the resulting volume; they
+receive neither `CAP_SYS_ADMIN` nor `/dev/fuse`.
+
+`upper = "tmpfs"` (also the default when omitted) means a fresh Bosn-labelled
+per-run **disk-backed Docker volume**, not RAM tmpfs. It is removed with the
+task container at finish, including task failure. The next run starts fresh.
+
+For persistence, set `upper = "out"` and declare `[stack.build.volumes.out]`.
+Each run refreshes that volume from the host: host files overwrite matching
+upper files, upper-only files persist, and files deleted on the host remain in
+the upper. This is the opposite of kernel overlay upper precedence. There is
+no deletion synchronization and no `rsync --delete`. The declared volume's
+sharing mode and leases still apply; use the default exclusive mode to serialize
+refreshes.
+
+`keep = true` tasks and standalone stack ensures refuse overlay mounts; run an
+ephemeral task with `bosn run --task NAME`. The copy consumes the task's remaining
+deadline and is cancelled with the task; durable helper cleanup also survives a
+daemon restart. Any copy failure fails the task before its command starts.
+Temporary upper volumes are removed; a named upper is left as-is and may contain
+a partial refresh. The next run overwrites matching host files again.
+
 ## Warm stack volumes across worktrees
 
 Seeding is **opt-in**, with a boolean `seed = true` on a stack-scoped volume.
@@ -279,7 +322,7 @@ improvement is claimed without measurement.
 | `kind = 'macos-x64-guest'` with explicit license acknowledgement | Supported only for `dockurr/macos` and Docker Hub aliases (`docker.io`, `index.docker.io`, `registry-1.docker.io`) pinned by a lowercase 64-hex `sha256` digest, with exactly `[stack.NAME.volumes.storage]` declared as `scope = 'machine'`, `destination = '/storage'`, and `retention = 'pinned'`. A tag-only reference and an image baked from a prepared disk and published elsewhere (for example ghcr.io) are refused; the prepared install lives on the pinned `/storage` volume, not the image. This prevents an ephemeral VM disk and prevents the fixed KVM/tun create shape from executing a manifest-selected privileged image. On Linux, kernal-api must report both `/dev/kvm` and `/dev/net/tun`. Bosn emits only the fixed dockurr KVM/tun/NET_ADMIN, loopback SSH/web-port, 120-second stop timeout, and sizing shape; it never accepts raw privilege/device/port arguments. The durable container resource uses the `manifest-guest:` namespace and rolls over conservatively like a manifest container. Guest SSH is fixed to `127.0.0.1`; non-loopback `guest.ssh_host` declarations are refused. See `docs/macos-guest.md`, whose example manifest is test-checked against this rule. |
 | named `[stack.NAME.volumes]` | Supported for typed Bosn-managed named volumes. The daemon derives the engine name from the declared logical name, scope, canonical workspace, and (for `spec`) generation; callers cannot supply a Docker volume name or mount string. It writes a durable creation intent before `docker volume create`, requires exact ownership labels before reuse, then atomically records the resource and consumes the intent after container ensure. `spec` rolls with generation; `stack` survives generations within its workspace; `machine` follows the declared `family` or stack. Normal rollover never removes data. `manifest volume-gc` can collect only a retired native `spec` + `warm` volume. Durable `stack`/`machine` or `pinned` data remains outside GC and is removable only through confirmation-gated `manifest volume-release`: preview an opaque candidate token, then apply exactly that token. Apply repeats exact registry/use/lease/session/intent checks, two exact Docker-label-and-attachment inspections, and a fixed exact-name remove. |
 | `tmpfs` | Supported only as an array of normalized legacy strings: `/target`, `/target:ro`, `/target:rw`, with at most one each of `size=POSITIVE{b,k,m,g}`, `exec` or `noexec`, and `mode=OCTAL` (1-4 octal digits, at most `7777`), for example `/mount-probe:rw,exec,mode=1777`. The daemon parses those into typed target/readonly/size/exec/mode values before its engine seam, incorporates the declaration into the runtime generation (exec/mode only when declared), and emits only its own finite `--tmpfs` form. Repeated options and all other options (`uid`, `nosuid`, etc.) are refused rather than passed through. tmpfs is disposable container state; a generation rollover creates a new empty tmpfs. |
-| `[stack.NAME.mounts]` workspace bind mounts | Supported for existing paths that canonicalize beneath the selected workspace. Sources may be legacy absolute paths only when they resolve beneath that workspace; traversal, source symlinks, escapes, duplicate targets, reserved targets, and unrepresentable Docker paths are refused, and the refusal names the remedy (move the data under the workspace or declare a Bosn-managed volume). `mode = "rw"` (default) and `"ro"` (alias `readonly = true`) are supported; `mode = "overlay"` parses but is refused at ensure with `overlay mounts are not implemented yet (#666)` rather than bound read-write. |
+| `[stack.NAME.mounts]` workspace bind mounts | Supported for existing paths that canonicalize beneath the selected workspace. Sources may be legacy absolute paths only when they resolve beneath that workspace; traversal, source symlinks, escapes, duplicate targets, reserved targets, and unrepresentable Docker paths are refused, and the refusal names the remedy (move the data under the workspace or declare a Bosn-managed volume). `mode = "rw"` (default) and `"ro"` (alias `readonly = true`) are supported; `mode = "overlay"` uses the copy-on-start volume semantics in [Overlay source mounts](#overlay-source-mounts). |
 | Default build-output volume (#666) | A stack whose workspace-root bind (`source = '.'`) is at `D` gets a synthesized `scope = 'stack'`, `warm`, exclusive volume named `target` at `D/target`, part of the runtime generation like any declared volume. It is not added when the stack sets `default_target_volume = false`, declares a volume named `target`, or already mounts something at `D/target`; nor under a read-only bind unless `target/` already exists on the host (Docker cannot create the mount point in a read-only bind). |
 | `[stack.NAME.volumes] seed` | Optional boolean, default `false`. `true` is valid only with `scope = "stack"`; enables the completion-gated sibling copy described above. |
 | `[stack.NAME.volumes] mode` (#666) | `exclusive`/`shared` are parsed and carried in the plan; nothing enforces them yet. A mode other than the scope's default is part of the runtime generation. |

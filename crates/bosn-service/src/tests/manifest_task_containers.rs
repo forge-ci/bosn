@@ -136,12 +136,74 @@ fn readonly_and_mode_ro_plan_the_same_bind() {
     assert_eq!(alias.generation, mode.generation);
 }
 
+fn overlay(upper: &str) -> String {
+    format!("default_target_volume = false\n{SOURCE}mode = 'overlay'\nupper = '{upper}'\n")
+}
+
 #[test]
-fn an_overlay_mount_is_refused_until_implemented() {
-    let fixture = fixture();
-    let overlay = "[stack.app.mounts.src]\nsource = '.'\ndestination = '/src'\nmode = 'overlay'\n";
-    let error = plan(&fixture, overlay, None).unwrap_err();
-    assert_eq!(error, "overlay mounts are not implemented yet (#888)");
+fn overlay_tmpfs_binds_a_run_volume_without_a_workspace_bind() {
+    let f = fixture();
+    let p = plan(&f, &overlay("tmpfs"), None).unwrap();
+    assert!(p.plan.app.mounts.is_empty());
+    assert_eq!(p.plan.named_volumes[0].target, "/src");
+    assert!(
+        p.plan.named_volumes[0]
+            .name
+            .starts_with("bosn-overlay-run-")
+    );
+}
+
+#[test]
+fn overlay_named_upper_binds_the_declared_volume() {
+    let f = fixture();
+    let body = format!(
+        "{}[stack.app.volumes.out]\nscope = 'stack'\n",
+        overlay("out")
+    );
+    let p = plan(&f, &body, None).unwrap();
+    assert!(p.plan.app.mounts.is_empty());
+    let binding = p
+        .plan
+        .named_volumes
+        .iter()
+        .find(|v| v.target == "/src")
+        .unwrap();
+    assert_eq!(binding.name, p.volumes[0].name);
+}
+
+#[test]
+fn overlay_rejects_undeclared_upper_and_kept_tasks() {
+    let f = fixture();
+    assert!(
+        plan(&f, &overlay("missing"), None)
+            .unwrap_err()
+            .contains("not a volume")
+    );
+    let body = format!(
+        "{}[task.shell]\ncmd = 'sh'\nkeep = true\n",
+        overlay("tmpfs")
+    );
+    assert!(
+        plan(&f, &body, Some("shell"))
+            .unwrap_err()
+            .contains("keep = true")
+    );
+}
+
+#[test]
+fn overlay_mode_and_upper_roll_the_generation() {
+    let f = fixture();
+    let volume = "[stack.app.volumes.out]\nscope = 'stack'\n";
+    let ro = plan(
+        &f,
+        &format!("default_target_volume = false\n{SOURCE}mode = 'ro'\n{volume}"),
+        None,
+    )
+    .unwrap();
+    let tmp = plan(&f, &format!("{}{volume}", overlay("tmpfs")), None).unwrap();
+    let named = plan(&f, &format!("{}{volume}", overlay("out")), None).unwrap();
+    assert_ne!(ro.generation, tmp.generation);
+    assert_ne!(tmp.generation, named.generation);
 }
 
 #[test]
@@ -151,4 +213,41 @@ fn keep_is_carried_from_the_selected_task() {
     assert!(plan(&fixture, tasks, Some("shell")).unwrap().keep);
     assert!(!plan(&fixture, tasks, Some("build")).unwrap().keep);
     assert!(!plan(&fixture, tasks, None).unwrap().keep);
+}
+
+#[test]
+fn overlay_workdir_is_applied_inside_the_task_without_a_host_bind() {
+    let f = fixture();
+    let body = format!(
+        "workdir = '/src'\n{}[task.build]\ncmd = 'pwd'\n",
+        overlay("tmpfs")
+    );
+    let p = plan(&f, &body, Some("build")).unwrap();
+    assert!(p.plan.app.workdir.is_none());
+    assert!(p.plan.app.mounts.is_empty());
+    assert_eq!(p.plan.tasks["build"].command, "cd '/src' || exit; pwd");
+}
+
+#[test]
+fn overlay_workdir_keeps_a_more_specific_bind_mapping() {
+    let f = fixture();
+    std::fs::create_dir(f.workspace.join("sub")).unwrap();
+    let body = format!(
+        "workdir = '/other'\n{}[stack.app.mounts.sub]\nsource = 'sub'\ndestination = '/other'\n[task.build]\ncmd = 'pwd'\n",
+        overlay("tmpfs")
+    );
+    let p = plan(&f, &body, Some("build")).unwrap();
+    assert_eq!(p.plan.app.workdir.as_deref(), Some("sub"));
+    assert_eq!(p.plan.tasks["build"].command, "pwd");
+}
+
+#[test]
+fn overlay_ensure_requires_an_ephemeral_task() {
+    let f = fixture();
+    let p = plan(&f, &overlay("tmpfs"), None).unwrap();
+    assert!(
+        crate::overlay_source::require_task(&p.overlay_sources)
+            .unwrap_err()
+            .contains("--task")
+    );
 }

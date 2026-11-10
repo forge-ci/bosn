@@ -38,3 +38,5 @@ mod task_clean_docker;
 mod task_wait_docker;
 
 mod volume_mode_docker;
+
+mod overlay_source_docker;

@@ -22,7 +22,8 @@ use crate::{RegistryActor, act_engine};
 
 mod cache_usage;
 pub(crate) use cache_usage::{
-    helper::Identity as CacheHelperIdentity, journal::Tracker as CacheHelperTracker,
+    helper::Identity as CacheHelperIdentity,
+    journal::{ActiveHelper as CacheHelperActive, Tracker as CacheHelperTracker},
 };
 mod control;
 mod evidence;
@@ -369,7 +370,7 @@ const RUN_OUTPUT: usize = 1024 * 1024 * 1024;
 
 pub struct DockerActBackend {
     docker: DockerEngine,
-    active_helpers: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    active_helpers: ActiveHelpers,
 }
 
 impl Default for DockerActBackend {
@@ -382,7 +383,7 @@ impl DockerActBackend {
     pub fn new(docker: DockerEngine) -> Self {
         Self {
             docker,
-            active_helpers: Default::default(),
+            active_helpers: active_helper_set(),
         }
     }
 
@@ -963,3 +964,11 @@ mod tests;
 
 #[cfg(all(test, unix))]
 mod cleanup_stderr_tests;
+
+// Helper copies and maintenance may use separate backend handles in one daemon.
+// Share liveness so a maintenance pass cannot reclaim an executing helper.
+type ActiveHelpers = std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>;
+fn active_helper_set() -> ActiveHelpers {
+    static ACTIVE: std::sync::OnceLock<ActiveHelpers> = std::sync::OnceLock::new();
+    ACTIVE.get_or_init(Default::default).clone()
+}

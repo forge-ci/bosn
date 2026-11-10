@@ -62,6 +62,7 @@ fn failed_cleanup_keeps_the_run_lease_until_confirmed_removal() {
                     id: "owned-id".into(),
                 }),
                 volumes: lease,
+                overlay_volumes: Vec::new(),
             };
             assert!(
                 finish(&engine, lifetime, &Recorder, Ok("done".into()))
