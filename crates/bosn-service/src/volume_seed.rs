@@ -202,6 +202,21 @@ pub(crate) async fn recover_startup(registry: &RegistryActor, state_dir: &Path) 
                     );
                     continue;
                 };
+                let name = seed.destination.clone();
+                let _destination_lock = match async_engine::launch_blocking(move || {
+                    locks::try_lock(&crate::runners::cache_lock_dir(), &name)
+                })
+                .await
+                {
+                    Ok(Ok(Some(lock))) => lock,
+                    Ok(Ok(None)) => continue, // A newly admitted ensure owns this attempt.
+                    other => {
+                        crate::daemon_log!(
+                            "bosn volume seed: startup recovery lock unavailable: {other:?}"
+                        );
+                        continue;
+                    }
+                };
                 let target = ManifestVolumeResource {
                     id: format!("manifest-volume:{}", intent.name),
                     name: intent.name.clone(),
