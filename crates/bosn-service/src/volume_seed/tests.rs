@@ -105,9 +105,11 @@ fn exclusive_volume_lock_never_waits() {
 fn registry_seed_lease_is_exclusive_and_released_without_schema_changes() {
     use crate::manifest_volume_registry::{Command, execute};
     let root = tempfile::tempdir().unwrap();
-    let mut registry =
-        bosn_registry::Registry::create_writer(root.path().join("registry.sqlite3"), "seed-test")
-            .unwrap();
+    let mut registry = bosn_registry::Registry::create_writer(
+        root.path().join("registry.sqlite3"),
+        "aabbccdd-0000-4000-8000-000000000327",
+    )
+    .unwrap();
     let resource = candidate("source", 2.0).resource;
     let mut tx = registry.begin_immediate().unwrap();
     tx.put_resource(&resource).unwrap();
