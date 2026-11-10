@@ -95,6 +95,7 @@ pub(super) async fn remove(
 
 pub(super) fn retry_cleanup(engine: DockerEngine, lifetime: TaskLifetime) {
     async_engine::launch(async move {
+        let _lease = lifetime.volumes;
         let Some(container) = &lifetime.container else {
             return;
         };
