@@ -88,6 +88,8 @@ pub struct Volume {
     pub retention: Retention,
     /// Defaults by scope; see [`VolumeMode::default_for`].
     pub mode: VolumeMode,
+    /// Seed newly created stack volumes from an idle sibling; defaults to true.
+    pub seed: bool,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Mount {
@@ -484,7 +486,11 @@ fn parse_volumes(
     raw.iter()
         .map(|(name, v)| {
             let t = table_value(v, "volume")?;
-            reject_unknown(t, &["scope", "destination", "retention", "mode"], "volume")?;
+            reject_unknown(
+                t,
+                &["scope", "destination", "retention", "mode", "seed"],
+                "volume",
+            )?;
             if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
                 return err(format!(
                     "volume {name:?} must be a single safe path component"
@@ -524,6 +530,7 @@ fn parse_volumes(
                 destination,
                 retention,
                 mode,
+                seed: optional_bool(t, "seed", "volume")?.unwrap_or(true),
             })
         })
         .collect()

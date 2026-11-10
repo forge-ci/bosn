@@ -28,3 +28,5 @@ mod support;
 mod unmanaged_apply;
 mod unmanaged_census_cli;
 mod version_cli;
+
+mod volume_seed_docker;

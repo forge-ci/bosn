@@ -112,6 +112,7 @@ mod manifest_volume_registry;
 pub mod mcp;
 pub mod owned_accounting;
 mod owner;
+mod volume_seed;
 pub use owner::{ClientOwner, Liveness};
 pub mod raw_run_log;
 mod registry_actor;

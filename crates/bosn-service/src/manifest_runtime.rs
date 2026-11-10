@@ -159,6 +159,8 @@ pub(crate) fn manifest_named_volumes(
                 ("com.zackees.bosn.setup-container".into(), name.clone()),
             ]);
             Ok(ManifestVolumeResource {
+                seed_name: (volume.seed && volume.scope == Scope::Stack)
+                    .then(|| volume.name.clone()),
                 id: format!("manifest-volume:{name}"),
                 name,
                 stack: stack.name.clone(),

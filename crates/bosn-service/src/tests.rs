@@ -268,6 +268,7 @@ fn test_manifest_recovery_contract(execution: &SetupEnsureExecution) -> Manifest
 fn manifest_volume_resource(workspace: &str, stack: &str) -> ManifestVolumeResource {
     let name = "bosn-v-stack-aaaaaaaaaaaaaaaaaaaaaaaa".to_owned();
     ManifestVolumeResource {
+        seed_name: None,
         id: format!("manifest-volume:{name}"),
         name: name.clone(),
         stack: stack.into(),

@@ -28,7 +28,7 @@ const MAX_RECORDS: usize = 100_000;
 /// This registry's durable ownership facts, read once per pass.
 pub(crate) struct RegisteredOwnership {
     owner: String,
-    resources: Vec<Resource>,
+    pub(crate) resources: Vec<Resource>,
     /// Resource ids and names a lease, execution session or creation intent still names.
     protected: BTreeSet<String>,
 }
@@ -170,7 +170,7 @@ fn record_retention(
     }
 }
 
-fn read_all<T>(
+pub(crate) fn read_all<T>(
     mut page: impl FnMut(usize) -> Result<bosn_registry::Page<T>, bosn_registry::Error>,
 ) -> Result<Vec<T>, String> {
     let mut items = Vec::new();

@@ -630,6 +630,8 @@ pub struct SetupEnsureExecution {
 /// output from a parsed declaration, never RPC-provided Docker controls.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManifestVolumeResource {
+    /// Logical name eligible for sibling seeding (executor-local, never on the wire).
+    pub seed_name: Option<String>,
     pub id: String,
     pub name: String,
     pub stack: String,

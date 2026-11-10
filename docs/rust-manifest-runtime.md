@@ -186,6 +186,36 @@ and leaves no success record. The durable job ID is observed with the ordinary
 job status/log/cancel interfaces. Existing setup-document behavior is not
 changed.
 
+## Warm stack volumes across worktrees
+
+A newly created `scope = "stack"` volume can start with a full copy of the
+most recently used idle sibling volume in the same git clone, stack, and logical
+volume name. Linked worktrees share the canonical git common directory; separate
+clones and workspaces outside git do not share seeds. Existing volumes are never
+seeded or overwritten. A source must have no container attachments (including
+stopped containers), no recorded lease, and an available exclusive lease.
+
+The helper mounts the source read-only. Each worktree keeps its own independent
+volume; writes never flow back to the source. The destination records
+`com.zackees.bosn.seeded-from=<source volume>`. Seeded volumes follow ordinary
+stack-volume retention, including workspace-gone, family-cap, and branch-merged.
+
+Set `seed = false` on an individual volume to opt out:
+
+```toml
+[stack.cook.volumes.target]
+scope = "stack"
+destination = "/target"
+seed = false
+```
+
+Seeding is best effort: unavailable or busy sources, a missing local helper image,
+or copy errors leave a cold volume and log the reason in `daemon.log`.
+This is a full `cp -a` copy with extra disk and startup cost; there is no
+copy-on-write/reflink or commit-ancestry selection yet. Compiler fingerprints
+still decide which copied artifacts can be reused. Fresh-worktree soldr timings
+remain to be measured; no performance improvement is claimed here.
+
 ## Support and refusal matrix
 
 | Manifest stack field | First native runtime slice |

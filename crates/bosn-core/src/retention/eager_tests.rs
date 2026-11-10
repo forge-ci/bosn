@@ -404,3 +404,23 @@ fn image_family_cap_requires_clean_workspace() {
     );
     assert!(plan.candidates.is_empty());
 }
+
+#[test]
+fn seeded_worktree_volume_is_reclaimed_when_gone_while_source_survives() {
+    let source = stack_volume("source", "/clone", 2.0);
+    let mut seeded = stack_volume("seeded", "/worktree", 2.0);
+    seeded
+        .labels
+        .insert(format!("{}.seeded-from", crate::NAMESPACE), "source".into());
+    let plan = plan_managed_with(
+        &[source, seeded],
+        Some(REGISTRY),
+        RetentionPolicy::default(),
+        &facts(&["/worktree"], &[]),
+    );
+    assert_eq!(
+        ids(&plan),
+        vec![("seeded", Some(EagerReason::WorkspaceGone))]
+    );
+    assert!(plan.held.iter().any(|v| v.id == "source"));
+}

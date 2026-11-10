@@ -61,6 +61,7 @@ pub(crate) fn with_default_target_volume(
         destination: Some(destination),
         retention: Retention::Warm,
         mode: bosn_core::manifest::VolumeMode::Exclusive,
+        seed: true,
     });
     stack
 }
