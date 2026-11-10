@@ -143,13 +143,12 @@ pub(super) async fn ensure_safe(
     };
     if decision(seed.as_ref(), &observed.labels)? == Decision::Reset {
         // An orphan nonce can still have a live helper: settle it before touching bytes.
-        if let Some(nonce) = observed.labels.get(&nonce_label()) {
-            if let Reply::Helper(Some(record)) = op(context, Command::Helper(nonce.clone())).await?
-            {
-                helper::settle(context, &record)
-                    .await
-                    .map_err(|e| uncertain(&target.name, e))?;
-            }
+        if let Some(nonce) = observed.labels.get(&nonce_label())
+            && let Reply::Helper(Some(record)) = op(context, Command::Helper(nonce.clone())).await?
+        {
+            helper::settle(context, &record)
+                .await
+                .map_err(|e| uncertain(&target.name, e))?;
         }
         reset(context, target, None).await?;
         recreate_cold(context, target).await?;
