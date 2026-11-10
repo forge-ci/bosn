@@ -119,9 +119,9 @@ fn skipped_qualified_remote_job_stays_skipped() {
 
 /// Recorded with act 0.2.88 from bosn's copy of the workflow beside it (the
 /// `wheel` job gated by [`crate::ci::matrix_runner`]).
-pub(crate) const RECORDED: &str =
+const RECORDED: &str =
     include_str!("../../../tests/fixtures/act/act-0.2.88-matrix-legs-runner.jsonl");
-pub(crate) const LISTING: &str = "Stage  Job ID  Job name                  Workflow name  Workflow file  Events\n\
+const LISTING: &str = "Stage  Job ID  Job name                  Workflow name  Workflow file  Events\n\
                        0      first   first                     legs           legs.yml       push  \n\
                        1      lint    lint                      legs           legs.yml       push  \n\
                        1      wheel   Wheel (${{ matrix.os }})  legs           legs.yml       push  \n";

@@ -2,106 +2,61 @@
 
 use super::*;
 use crate::ci::{
-    Conclusion, RunRecord, RunState,
-    lifecycle::{CleanupEnd, EngineReport, ExecutionEnd},
-    model::{ActParser, ItemConclusion, ItemStatus, RunTree, parse_act_list},
+    Conclusion,
+    model::{ItemConclusion, ItemStatus},
     reply::RunView,
-    store::Store,
-    workflow::{Declared, DeclaredStep},
+    runtime::dashboard_tests::{ExpectedEvent, replay},
+    workflow::Declared,
 };
 
-// Reuse the existing single include bindings: no second fixture path (and no
-// concat! outside src/, which the crates.io amalgamator cannot relocate).
-use crate::ci::model::leg_tests::{LISTING, RECORDED};
-use crate::ci::model::parser_tests::FIXTURE;
+#[path = "leg_dashboard_tests.rs"]
+mod legs;
+use legs::{LISTING, RECORDED, assert_legs};
+
+const FIXTURE: &str =
+    include_str!("../../../tests/fixtures/act/act-0.2.88-matrix-needs-failure.jsonl");
 
 const NEEDS_LIST: &str = "Stage  Job ID  Job name  Workflow name  Workflow file  Events\n\
 0      a       a         spike          ci.yml         push\n\
 1      b       b         spike          ci.yml         push\n\
 2      off     off       spike          ci.yml         push\n";
 
-fn declared_steps() -> Declared {
-    let steps = |names: &[&str]| {
-        names
-            .iter()
-            .enumerate()
-            .map(|(i, name)| DeclaredStep {
-                id: i.to_string(),
-                name: (*name).into(),
-            })
-            .collect()
-    };
-    Declared {
-        steps: [
-            (
-                "a".into(),
-                steps(&["echo hello ${{ matrix.leg }}", "echo skipped"]),
-            ),
-            ("b".into(), steps(&["echo before", "exit 3"])),
-            ("off".into(), steps(&["after failure"])),
-        ]
-        .into(),
-        ..Declared::default()
-    }
-}
+// The recorded workflow plus a declared dependent that act never starts after
+// b fails. Its needs stage comes from the listing, as in a real act --list.
+const NEEDS_WORKFLOW: &str = r#"name: spike
+on: [push]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        leg: [one, two]
+    steps:
+      - run: echo hello ${{ matrix.leg }}
+      - if: false
+        run: echo skipped
+  b:
+    needs: a
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo before
+      - run: exit 3
+  off:
+    needs: b
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo after failure
+"#;
 
-/// This is the parser_tests path, with each resulting LogRecord persisted and
-/// each tree transition journalled before the next fixture line arrives.
-fn record_fixture(
-    dir: &std::path::Path,
-    lines: &str,
-    listing: &str,
-    legs: bool,
-) -> (RunRecord, Vec<String>) {
-    let request = crate::ci::tests::request("fixture", 'a');
-    let mut record = RunRecord::queued(
-        "aaaaaaaa-bbbb-4ccc-8ddd-000000000001".into(),
-        &request,
-        "push",
-        b"{}",
-    );
-    let store = Store::new(dir);
-    std::fs::create_dir_all(store.run_dir(&record.id)).unwrap();
-    crate::ci::status::append(&store, &record, 1).unwrap();
-    record.state = RunState::Running;
-    crate::ci::status::append(&store, &record, 2).unwrap();
-    let mut parser = ActParser::new(RunTree::declared(&parse_act_list(listing)));
-    let mut logs = store.log_writer(&record.id).unwrap();
-    let mut kinds = vec!["status".into(), "status".into()];
-    let mut status_seq = 2;
-    for (index, line) in lines.lines().enumerate() {
-        let before = parser.tree.clone();
-        if let Some(log) = parser.feed(index as u64 + 1, line) {
-            logs.append(&log).unwrap();
-            logs.flush();
-            record.log_records = log.seq;
-            kinds.push(log.stream);
-        }
-        if before != parser.tree {
-            record.tree = parser.tree.clone();
-            status_seq += 1;
-            crate::ci::status::append(&store, &record, status_seq).unwrap();
-            kinds.push("status".into());
-        }
-    }
-    let outcome = Ok(EngineReport {
-        execution: ExecutionEnd::Exited(if legs { 0 } else { 1 }),
-        cleanup: CleanupEnd::Removed,
-        engine_id: None,
-        storage: None,
-    });
-    let declared = if legs {
-        Declared::default()
-    } else {
-        declared_steps()
-    };
-    let (conclusion, reason) = crate::ci::report::conclude(&outcome, &mut parser.tree, &declared);
-    record.tree = parser.tree;
-    record.finish(conclusion, reason);
-    store.save_run(&record);
-    crate::ci::status::append(&store, &record, status_seq + 1).unwrap();
-    kinds.push("status".into());
-    (record, kinds)
+fn declared_steps(dir: &std::path::Path) -> Declared {
+    let source = dir.join("source");
+    let workflow = ".github/workflows/ci.yml";
+    let path = source.join(workflow);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, NEEDS_WORKFLOW).unwrap();
+    let declared = crate::ci::workflow::declared(&source, workflow, "fixture");
+    assert!(declared.errors.is_empty(), "{:?}", declared.errors);
+    declared
 }
 
 fn assert_needs(view: &RunView) {
@@ -153,10 +108,10 @@ fn assert_needs(view: &RunView) {
             .map(|s| (s.name.as_str(), s.conclusion, s.duration_ms))
             .collect::<Vec<_>>(),
         [
-            ("Set up job", Some(ItemConclusion::Success), Some(0)),
+            ("Set up job", Some(ItemConclusion::Success), None),
             ("echo before", Some(ItemConclusion::Success), Some(63)),
             ("exit 3", Some(ItemConclusion::Failure), Some(59)),
-            ("Complete job", Some(ItemConclusion::Success), Some(0)),
+            ("Complete job", Some(ItemConclusion::Success), None),
         ]
     );
     assert_eq!(b.sections[2].exit_code, Some(3));
@@ -167,37 +122,13 @@ fn assert_needs(view: &RunView) {
     );
 }
 
-fn assert_legs(view: &RunView) {
-    let jobs: Vec<_> = view.record.tree.jobs().collect();
-    assert_eq!(jobs.len(), 5);
-    assert_eq!(view.record.conclusion, Some(Conclusion::Incomplete));
-    for (name, conclusion, duration) in [
-        ("legs/first", ItemConclusion::Success, 60),
-        (
-            "legs/Wheel (ubuntu-latest) (ubuntu-latest, 3.11)",
-            ItemConclusion::Success,
-            65,
-        ),
-        (
-            "legs/Wheel (windows-latest) (windows-latest, 3.11)",
-            ItemConclusion::Unsupported,
-            76,
-        ),
-        ("legs/lint (ruff)", ItemConclusion::Success, 59),
-        ("legs/lint (pyright)", ItemConclusion::Success, 60),
-    ] {
-        let job = jobs
-            .iter()
-            .find(|j| j.key == name)
-            .unwrap_or_else(|| panic!("missing {name}: {jobs:#?}"));
-        assert_eq!(job.conclusion, Some(conclusion));
-        assert_eq!(job.sections.first().unwrap().name, "Set up job");
-        assert_eq!(job.sections.last().unwrap().name, "Complete job");
-        assert_eq!(job.sections[1].duration_ms, Some(duration));
-    }
-}
-
-async fn assert_replay(port: u16, host: &str, cookie: &str, id: &str, kinds: Vec<String>) {
+async fn assert_replay(
+    port: u16,
+    host: &str,
+    cookie: &str,
+    id: &str,
+    expected: Vec<ExpectedEvent>,
+) {
     let path = format!("/v1/runs/{id}/events?from_seq=0");
     let first = raw(port, get(port, &path, host, Some(cookie))).await;
     assert_eq!(first.status, 200);
@@ -207,7 +138,13 @@ async fn assert_replay(port: u16, host: &str, cookie: &str, id: &str, kinds: Vec
             .iter()
             .map(|(_, kind)| kind.clone())
             .collect::<Vec<_>>(),
-        kinds
+        expected
+            .iter()
+            .map(|event| match event {
+                ExpectedEvent::Status(_) => "status".to_owned(),
+                ExpectedEvent::Log(log) => log.stream.clone(),
+            })
+            .collect::<Vec<_>>()
     );
     assert!(frames.windows(2).all(|pair| pair[1].0 == pair[0].0 + 1));
     let middle = frames.len() / 2;
@@ -219,11 +156,31 @@ async fn assert_replay(port: u16, host: &str, cookie: &str, id: &str, kinds: Vec
     assert_eq!(resumed.status, 200);
     assert_eq!(sse_ids_and_kinds(&resumed.body), frames[middle + 1..]);
     // Compare data as well as IDs/kinds: raw output and tree snapshots replay exactly.
-    let suffix = first
-        .body
-        .find(&format!("id: {}\n", frames[middle + 1].0))
-        .unwrap();
-    assert_eq!(resumed.body, first.body[suffix..]);
+    let payloads = |body: &str| {
+        body.lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let data = payloads(&first.body);
+    assert_eq!(payloads(&resumed.body), data[middle + 1..]);
+    assert_eq!(data.len(), expected.len());
+    for (data, expected) in data.iter().zip(expected) {
+        match expected {
+            ExpectedEvent::Status(expected) => {
+                let mut actual: crate::ci::status::StatusSnapshot =
+                    serde_json::from_str(data).unwrap();
+                actual.seq = 0;
+                assert_eq!(actual, expected);
+            }
+            ExpectedEvent::Log(mut expected) => {
+                let mut actual: crate::ci::model::LogRecord = serde_json::from_str(data).unwrap();
+                actual.seq = 0;
+                expected.seq = 0;
+                assert_eq!(actual, expected);
+            }
+        }
+    }
     assert!(resumed.body.contains("\"state\":\"done\""));
 }
 
@@ -231,8 +188,14 @@ async fn assert_replay(port: u16, host: &str, cookie: &str, id: &str, kinds: Vec
 fn act_fixture_drives_the_full_dashboard() {
     for (lines, listing, legs) in [(FIXTURE, NEEDS_LIST, false), (RECORDED, LISTING, true)] {
         with_registry(|registry, dir| async move {
-            let (record, kinds) = record_fixture(&dir, lines, listing, legs);
             let (ci, _server, port) = listener(&dir, registry).await;
+            let declared = if legs {
+                Declared::default()
+            } else {
+                declared_steps(&dir)
+            };
+            let (record, expected) =
+                replay(&ci, lines, listing, &declared, if legs { 0 } else { 1 }).await;
             let cookie = sign_in(&ci, port).await;
             let host = format!("127.0.0.1:{port}");
             let page = format!("/ci/runs/{}", record.id);
@@ -257,7 +220,7 @@ fn act_fixture_drives_the_full_dashboard() {
             } else {
                 assert_needs(&view);
             }
-            assert_replay(port, &host, &cookie, &record.id, kinds).await;
+            assert_replay(port, &host, &cookie, &record.id, expected).await;
         });
     }
 }

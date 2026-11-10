@@ -3,9 +3,9 @@
 
 use super::*;
 
-pub(crate) const FIXTURE: &str =
+const FIXTURE: &str =
     include_str!("../../../tests/fixtures/act/act-0.2.88-matrix-needs-failure.jsonl");
-pub(crate) const LIST: &str = "Stage  Job ID  Job name  Workflow name  Workflow file  Events\n\
+const LIST: &str = "Stage  Job ID  Job name  Workflow name  Workflow file  Events\n\
                         0      a       a         spike          ci.yml         push  \n\
                         1      b       b         spike          ci.yml         push  \n\
                         1      off     Off job   spike          ci.yml         push  \n";

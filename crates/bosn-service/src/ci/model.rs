@@ -708,7 +708,7 @@ impl ActLine {
 }
 
 #[cfg(test)]
-pub(super) mod leg_tests;
+mod leg_tests;
 
 #[cfg(test)]
 mod output_tests;
@@ -719,7 +719,7 @@ mod outputs;
 pub use outputs::{JobOutputEvidence, OutputEvidenceError};
 mod legs;
 #[cfg(test)]
-pub(super) mod parser_tests;
+mod parser_tests;
 #[cfg(test)]
 mod property_tests;
 mod timing;

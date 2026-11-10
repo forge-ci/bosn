@@ -993,3 +993,6 @@ impl CiRuntime {
         self.list(None, None, 100)
     }
 }
+
+#[cfg(test)]
+pub(super) mod dashboard_tests;
