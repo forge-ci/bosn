@@ -61,7 +61,7 @@ impl StackWorkspace {
         std::fs::write(self.workspace.join("bosn.toml"), manifest).expect("write bosn.toml");
     }
 
-    fn bosn_run(&self, task: &str) -> Command {
+    pub(super) fn bosn_run(&self, task: &str) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_bosn"));
         command
             .current_dir(&self.workspace)
@@ -78,7 +78,7 @@ impl StackWorkspace {
         Self::output_of(task, output)
     }
 
-    fn output_of(task: &str, output: std::process::Output) -> String {
+    pub(super) fn output_of(task: &str, output: std::process::Output) -> String {
         let text = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),

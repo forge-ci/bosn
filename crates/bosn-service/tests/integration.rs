@@ -32,3 +32,5 @@ mod version_cli;
 mod volume_seed_docker;
 
 mod ephemeral_task_docker;
+
+mod task_clean_docker;

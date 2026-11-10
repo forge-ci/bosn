@@ -7,6 +7,7 @@ use bosn_registry::{Registry, Resource, VolumeCreationIntent};
 
 pub(crate) enum Command {
     PutIntents(Vec<ManifestVolumeResource>),
+    RecordVolumes(Vec<ManifestVolumeResource>),
     Begin {
         source: Box<Resource>,
         seed: VolumeSeed,
@@ -34,6 +35,15 @@ pub(crate) fn execute(
 ) -> Result<Reply, bosn_registry::Error> {
     match command {
         Command::PutIntents(volumes) => put_manifest_volume_intents(registry, &volumes)?,
+        Command::RecordVolumes(volumes) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| bosn_registry::Error::BadRow("system clock before epoch"))?
+                .as_secs_f64();
+            let mut tx = registry.begin_immediate()?;
+            crate::registry_records::record_manifest_volumes(&mut tx, &volumes, now)?;
+            tx.commit()?;
+        }
         Command::Snapshot => {
             return Ok(Reply::Snapshot(Snapshot {
                 owner: registry.registry_id()?,

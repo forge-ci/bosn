@@ -931,11 +931,12 @@ fn ping_reply(identity: &DaemonIdentity) -> ReplyWire {
 
 fn decode_task_request(payload: &[u8]) -> Result<Request, Error> {
     let request = Request::decode(payload).map_err(|_| Error::Protocol("request decode"))?;
-    if request.operation != 23 && !request.task_args.is_empty() {
+    if request.operation != 23 && (!request.task_args.is_empty() || request.task_clean.is_some()) {
         return Err(Error::Protocol(
             "task arguments require a manifest app task",
         ));
     }
+    CleanVolumes::from_wire(request.task_clean)?;
     Ok(request)
 }
 
@@ -946,6 +947,7 @@ async fn submit_manifest_task(
 ) -> Result<u64, Error> {
     jobs.submit_manifest_app_task(
         ManifestAppTaskJobRequest {
+            clean: CleanVolumes::from_wire(r.task_clean)?,
             workspace: PathBuf::from(r.workspace),
             manifest: r.setup_config,
             stack: r.stack,

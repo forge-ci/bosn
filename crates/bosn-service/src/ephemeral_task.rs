@@ -152,6 +152,45 @@ pub(crate) async fn prepare(
     plan: &SetupPlan,
     image: &PreparedImage,
     request: &ManifestAppTaskJobRequest,
+    clean_context: (bool, &Path, &[ManifestVolumeResource]),
+    session: &dyn ManifestAppTaskSessionRecorder,
+    cancellation: &async_engine::CancellationToken,
+    events: &async_engine::Sender<EngineEvent>,
+    remaining: Duration,
+    lifetime: &mut Option<TaskContainer>,
+) -> Result<SetupEnsureResult, TaskContainerError> {
+    let (keep, state, volumes) = clean_context;
+    crate::managed_retention::clean::execute(engine, state, volumes, request.clean, cancellation)
+        .await
+        .map_err(|e| TaskContainerError::Operation(e.to_string()))?;
+    let cleaning = request.clean != CleanVolumes::None;
+    if cleaning {
+        session.task_volumes(volumes, false).await?;
+    }
+    let result = prepare_container(
+        engine,
+        plan,
+        image,
+        request,
+        keep,
+        session,
+        cancellation,
+        events,
+        remaining,
+        lifetime,
+    )
+    .await?;
+    if cleaning {
+        session.task_volumes(volumes, true).await?;
+    }
+    Ok(result)
+}
+
+pub(crate) async fn prepare_container(
+    engine: &DockerEngine,
+    plan: &SetupPlan,
+    image: &PreparedImage,
+    request: &ManifestAppTaskJobRequest,
     keep: bool,
     session: &dyn ManifestAppTaskSessionRecorder,
     cancellation: &async_engine::CancellationToken,

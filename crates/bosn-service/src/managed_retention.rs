@@ -982,6 +982,7 @@ use report::{auto_retention_enabled, pass_report_line, setup_container_report_li
 
 mod authority;
 pub(crate) mod catalog;
+pub(crate) mod clean;
 pub use catalog::{Release, labelled_registries, release_registry};
 mod idle;
 mod image_facts;

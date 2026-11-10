@@ -9,7 +9,7 @@ use std::time::Duration;
 
 pub(super) const OPTIONS: RunOptions = RunOptions::bounded(Duration::from_secs(30), 1024 * 1024);
 
-pub(super) fn inspect(
+pub(crate) fn inspect(
     engine: &DockerEngine,
     name: &str,
 ) -> Result<Option<InspectedVolume>, String> {

@@ -512,7 +512,7 @@ pub(crate) fn record_manifest_volumes(
     now: f64,
 ) -> Result<(), bosn_registry::Error> {
     for volume in volumes {
-        transaction.put_resource(&Resource {
+        transaction.put_resource_preserving_pin(&Resource {
             id: volume.id.clone(),
             kind: ResourceKind::Volume,
             name: volume.name.clone(),

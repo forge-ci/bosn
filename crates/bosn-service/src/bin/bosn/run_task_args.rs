@@ -37,7 +37,19 @@ pub(super) fn set_switch(
     flag: &str,
     no_ensure: &mut bool,
     detach: &mut bool,
+    clean: &mut bosn_service::CleanVolumes,
 ) -> Result<bool, String> {
+    if flag.starts_with("--clean") {
+        if *clean != bosn_service::CleanVolumes::None {
+            return Err("--clean given twice".into());
+        }
+        *clean = match flag {
+            "--clean" => bosn_service::CleanVolumes::Checkout,
+            "--clean=all" => bosn_service::CleanVolumes::All,
+            _ => return Err("expected --clean or --clean=all".into()),
+        };
+        return Ok(true);
+    }
     let switch = match flag {
         "--no-ensure" => no_ensure,
         "--detach" => detach,
@@ -77,5 +89,20 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("refuses extra arguments"), "{error}");
         super::validate_task_args(text, std::path::Path::new("/tmp"), Some("check"), &[]).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod clean_tests {
+    #[test]
+    fn clean_flags_require_a_task_and_accept_only_the_two_modes() {
+        let parse = |args: &[&str]| {
+            super::super::parse_arguments(args.iter().map(std::ffi::OsString::from))
+        };
+        assert!(parse(&["--task", "check", "--clean"]).is_ok());
+        assert!(parse(&["--task", "check", "--clean=all"]).is_ok());
+        assert!(parse(&["--stack", "app", "--clean"]).is_err());
+        assert!(parse(&["--task", "check", "--clean=bad"]).is_err());
+        assert!(parse(&["--task", "check", "--clean", "--clean=all"]).is_err());
     }
 }

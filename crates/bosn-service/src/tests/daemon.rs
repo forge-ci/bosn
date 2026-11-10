@@ -959,10 +959,10 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // ignore it, so the daemon protocol is unchanged.
 // #833/#671 diagnostics and #777 advisory reply tag 73 (default false) are additive, no bump.
 // #724: protocol 3 adds request tag 32 (task args). Protocol 2 requests omit it;
-// non-empty args require protocol 3 to prevent silent argument loss.
+// non-empty args require protocol 3. #666 adds optional tag 33 (clean), requiring protocol 4.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "de5a01e5947a782fc2d58cec9d2d3bc87c20697e76a45a2a755103a86d8c85b0",
+    "a4f79d87ab39923541a3c6380d738b0755fe9f8caf769f6878a87c27cc4f180e",
 );
 
 #[test]

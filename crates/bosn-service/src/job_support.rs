@@ -40,6 +40,26 @@ pub(crate) struct ActorManifestAppTaskSessionRecorder {
     pub(crate) run: Option<RunContext>,
 }
 impl ManifestAppTaskSessionRecorder for ActorManifestAppTaskSessionRecorder {
+    fn task_volumes<'a>(
+        &'a self,
+        volumes: &'a [ManifestVolumeResource],
+        created: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            use crate::manifest_volume_registry::Command;
+            let command = if created {
+                Command::RecordVolumes(volumes.to_vec())
+            } else {
+                Command::PutIntents(volumes.to_vec())
+            };
+            self.actor
+                .manifest_volume_command(command)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+    }
+
     fn registry_id(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
         Box::pin(async {
             self.actor
@@ -262,6 +282,10 @@ pub(crate) fn manifest_app_task_digest(request: &ManifestAppTaskJobRequest) -> S
     ] {
         material.extend_from_slice(&(part.len() as u64).to_le_bytes());
         material.extend_from_slice(part);
+    }
+    if let Some(mode) = request.clean.wire() {
+        material.extend_from_slice(b"\0clean\0");
+        material.extend_from_slice(&mode.to_le_bytes());
     }
     for arg in &request.args {
         material.extend_from_slice(&(arg.len() as u64).to_le_bytes());

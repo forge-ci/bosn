@@ -703,6 +703,8 @@ pub(crate) struct Request {
     pub(crate) owner_created: Vec<u64>,
     #[prost(string, repeated, tag = "32")]
     pub(crate) task_args: Vec<String>,
+    #[prost(uint32, optional, tag = "33")]
+    pub(crate) task_clean: Option<u32>,
 }
 impl Request {
     pub(crate) fn operation(operation: u32) -> Self {
@@ -739,6 +741,7 @@ impl Request {
             owner_pid: 0,
             owner_created: Vec::new(),
             task_args: Vec::new(),
+            task_clean: None,
         }
     }
     /// Stamp the owner of the work this request submits.

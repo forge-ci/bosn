@@ -3,7 +3,7 @@ use crate::ManifestVolumeResource;
 use kernal_api::{async_engine, platform::fs};
 use std::path::Path;
 
-pub(super) fn try_lock(state: &Path, name: &str) -> Result<Option<fs::OwnedFileLock>, String> {
+pub(crate) fn try_lock(state: &Path, name: &str) -> Result<Option<fs::OwnedFileLock>, String> {
     let directory = state.to_owned();
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     let file =

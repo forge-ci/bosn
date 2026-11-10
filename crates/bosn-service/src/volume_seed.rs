@@ -10,8 +10,8 @@ mod copy;
 mod gate;
 pub(crate) use gate::authorize_plan;
 mod helper;
-mod locks;
-mod observe;
+pub(crate) mod locks;
+pub(crate) mod observe;
 #[cfg(test)]
 mod tests;
 

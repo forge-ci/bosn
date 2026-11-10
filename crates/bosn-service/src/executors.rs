@@ -118,6 +118,7 @@ pub struct ManifestAppTaskJobRequest {
     pub stack: String,
     pub task_name: String,
     pub args: Vec<String>,
+    pub clean: crate::CleanVolumes,
     pub deadline: Duration,
     pub output_limit: usize,
 }
@@ -231,6 +232,15 @@ pub trait ManifestAppTaskExecutor: Send + Sync {
 /// Durable, conservative ownership evidence for a manifest app task. The
 /// identity is the registry-matching deterministic managed container name.
 pub trait ManifestAppTaskSessionRecorder: Send + Sync {
+    /// Persist the exact volume contract before creation, then consume the intents after proof.
+    fn task_volumes<'a>(
+        &'a self,
+        _volumes: &'a [ManifestVolumeResource],
+        _created: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async { Err("task volume registry authority unavailable".into()) })
+    }
+
     /// Registry authority for a task's ephemeral Docker objects.
     fn registry_id(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
         Box::pin(async { Err("task registry authority unavailable".into()) })

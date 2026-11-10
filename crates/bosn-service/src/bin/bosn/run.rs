@@ -49,6 +49,7 @@ const EXIT_INTERRUPTED: i32 = 130;
 pub struct RunArguments {
     pub task: Option<String>,
     pub args: Vec<String>,
+    pub clean: bosn_service::CleanVolumes,
     pub stack: Option<String>,
     /// `None` means the nearest `bosn.toml` in the current directory or an
     /// ancestor, as the Python CLI resolved it.
@@ -75,7 +76,7 @@ pub fn run(arguments: impl Iterator<Item = OsString>) {
     std::process::exit(code)
 }
 
-pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [-- ARGS...]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
+pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [--clean[=all]] [-- ARGS...]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
 
 pub fn parse_arguments(
     mut arguments: impl Iterator<Item = OsString>,
@@ -89,6 +90,7 @@ pub fn parse_arguments(
     let mut output_limit = None;
     let mut no_ensure = false;
     let mut detach = false;
+    let mut clean = bosn_service::CleanVolumes::None;
     while let Some(flag) = arguments.next() {
         let flag = flag
             .into_string()
@@ -97,7 +99,7 @@ pub fn parse_arguments(
             task_args = task_args::collect_args(arguments)?;
             break;
         }
-        if task_args::set_switch(&flag, &mut no_ensure, &mut detach)? {
+        if task_args::set_switch(&flag, &mut no_ensure, &mut detach, &mut clean)? {
             continue;
         }
         let value = arguments
@@ -167,11 +169,12 @@ pub fn parse_arguments(
     require_target(
         task.is_some(),
         stack.is_some(),
-        no_ensure || detach || !task_args.is_empty(),
+        no_ensure || detach || !task_args.is_empty() || clean != bosn_service::CleanVolumes::None,
     )?;
     Ok(RunArguments {
         task,
         args: task_args,
+        clean,
         stack,
         manifest,
         state_dir,
@@ -188,7 +191,7 @@ fn require_target(task: bool, stack: bool, task_switches: bool) -> Result<(), St
         return Err("--task or --stack is required".into());
     }
     if !task && task_switches {
-        return Err("--no-ensure and --detach require --task".into());
+        return Err("--no-ensure, --detach and --clean require --task".into());
     }
     Ok(())
 }
@@ -325,7 +328,7 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
     let client = crate::daemon_client(&state_dir).map_err(|_| "invalid state directory")?;
     ensure_daemon(&runtime, &client, &state_dir)?;
 
-    if !arguments.no_ensure {
+    if !arguments.no_ensure && arguments.clean == bosn_service::CleanVolumes::None {
         eprintln!(
             "bosn run: ensuring stack {stack} for {}",
             workspace.display()
@@ -364,6 +367,7 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
         stack,
         task_name: task.clone(),
         args: arguments.args,
+        clean: arguments.clean,
         deadline: arguments.deadline.unwrap_or(DEFAULT_TASK_DEADLINE),
         output_limit: arguments.output_limit,
     };
