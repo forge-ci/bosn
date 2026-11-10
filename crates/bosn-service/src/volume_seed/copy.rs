@@ -117,6 +117,7 @@ async fn seed_inner(
         Err(error) => {
             gate::reset(context, target, Some(&seed)).await?;
             gate::op(context, Command::Delete(seed)).await?;
+            gate::recreate_cold(context, target).await?;
             crate::daemon_log!("bosn volume seed: {}: cold create: {error}", target.name);
         }
     }
@@ -135,16 +136,18 @@ async fn run(
         return Err("seed cancelled before create".into());
     }
     let engine = context.engine.clone();
-    let target = target.clone();
+    let target_copy = target.clone();
+    let owner = intent.registry_id.clone();
     let seed_copy = seed.clone();
     async_engine::launch_blocking(move || {
-        if observe::inspect(&engine, &target.name)?.is_some() {
+        if observe::inspect(&engine, &target_copy.name)?.is_some() {
             return Err("destination appeared before seed create".into());
         }
         if !observe::unmounted(&engine, &seed_copy.source)? {
             return Err("source is mounted".into());
         }
-        helper::create_volume(&engine, &target, Some(&seed_copy))
+        helper::create_volume(&engine, &target_copy, Some((&seed_copy, &owner)))?;
+        helper::prove_destination(&engine, &target_copy, &seed_copy, &owner)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -168,6 +171,16 @@ async fn run(
     }
     let tracker = CacheHelperTracker::new(context.registry, &intent.nonce);
     tracker.register(&id).await?;
+    let engine = context.engine.clone();
+    let target = target.clone();
+    let seed = seed.clone();
+    let owner = intent.registry_id.clone();
+    async_engine::launch_blocking(move || {
+        helper::prove_destination(&engine, &target, &seed, &owner)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
     checked(
         context,
         vec!["start".into(), "--attach".into(), id],

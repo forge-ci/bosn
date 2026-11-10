@@ -345,6 +345,7 @@ pub(crate) fn verify_volume_observation(
             return Err(mismatch());
         }
     }
+    super::seed_labels::verify(expected, observed)?;
     let mountpoint = observed
         .get("Mountpoint")
         .and_then(Value::as_str)

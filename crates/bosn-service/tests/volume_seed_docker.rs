@@ -364,6 +364,8 @@ impl Fixture {
             "--label".into(),
             format!("com.zackees.bosn.seeded-from={source}"),
             "--label".into(),
+            format!("{}={}", bosn_core::LABEL_SEED_REGISTRY, intent.registry_id),
+            "--label".into(),
             format!("com.zackees.bosn.seed-nonce={}", intent.nonce),
             destination.clone(),
         ]);
@@ -647,4 +649,78 @@ impl Drop for ClientGuard {
             let _ = self.0.wait();
         }
     }
+}
+
+#[test]
+#[ignore = "requires Docker and the pinned helper images"]
+fn live_docker_crash_after_reset_removal_before_record_delete_replays() {
+    let mut f = Fixture::new();
+    let intent = f.inject_partial();
+    let mut registry = f.writer();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.finish_absent_cache_helper(
+        &intent.nonce,
+        intent.created_at + bosn_registry::cache_helper::LATE_CREATE_WINDOW_SECS,
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    drop(registry);
+    assert!(docker_capture(&f.engine, ["volume", "rm", &intent.volume]).ok());
+    // Crash here: Copying remains, but absence is a replayable reset result.
+    f.restart();
+    f.assert_recovered_cold(&intent);
+}
+#[test]
+#[ignore = "requires Docker and the pinned helper images"]
+fn live_docker_other_registry_cannot_reset_completed_seed_data() {
+    let f = Fixture::new();
+    f.run(&f.clone, "write");
+    f.remove_containers(&f.clone);
+    assert!(f.run(&f.worktree, "read").contains("warm"));
+    f.run(&f.worktree, "change");
+    f.remove_containers(&f.worktree);
+    let other_state = f._root.path().join("other-state");
+    let mut other = DaemonChild::start(&other_state);
+    let runtime = RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    wait_for_client(&runtime, &mut other, &other_state);
+    let result = Command::new(env!("CARGO_BIN_EXE_bosn"))
+        .current_dir(&f.worktree)
+        .args(["run", "--stack", "cook", "--state-dir"])
+        .arg(&other_state)
+        .args(["--deadline-ms", "30000"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("SeedDestinationUncertain"));
+    assert!(f.run(&f.worktree, "read").contains("changed"));
+    drop(other);
+}
+#[test]
+#[ignore = "requires BOSN_V6_TEST_BINARY pointing to a saved schema-6 daemon"]
+fn live_docker_schema6_writer_refuses_schema7_seed_registry() {
+    let mut f = Fixture::new();
+    drop(f.daemon.take());
+    let binary =
+        std::env::var_os("BOSN_V6_TEST_BINARY").expect("provide a real schema-6 daemon binary");
+    let result = Command::new(binary)
+        .args(["daemon", "serve", "--state-dir"])
+        .arg(&f.state)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let error = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        error.contains('7') && (error.contains("schema") || error.contains("UnsupportedSchema")),
+        "{error}"
+    );
+    assert_eq!(
+        Registry::open_read_only(f.state.join("registry.sqlite3"))
+            .unwrap()
+            .meta("schema_version")
+            .unwrap(),
+        Some("7".into())
+    );
 }

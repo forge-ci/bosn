@@ -26,14 +26,16 @@ pub(super) fn action_blocking(engine: &DockerEngine, args: &[String]) -> Result<
 pub(super) fn create_volume(
     engine: &DockerEngine,
     target: &ManifestVolumeResource,
-    seed: Option<&VolumeSeed>,
+    seed: Option<(&VolumeSeed, &str)>,
 ) -> Result<(), String> {
     let mut args = vec!["volume".into(), "create".into()];
     for (k, v) in &target.labels {
         args.extend(["--label".into(), format!("{k}={v}")]);
     }
-    if let Some(seed) = seed {
+    if let Some((seed, owner)) = seed {
         args.extend([
+            "--label".into(),
+            format!("{}={owner}", bosn_core::LABEL_SEED_REGISTRY),
             "--label".into(),
             format!("{}={}", super::gate::source_label(), seed.source),
             "--label".into(),
@@ -90,4 +92,32 @@ pub(super) async fn settle(
     DockerActBackend::new(context.engine.clone())
         .reconcile_measurement(context.registry, record)
         .await
+}
+
+pub(super) fn destination_labels_match(
+    target: &ManifestVolumeResource,
+    seed: &VolumeSeed,
+    owner: &str,
+    labels: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    target.labels.iter().all(|(k, v)| labels.get(k) == Some(v))
+        && labels.get(bosn_core::LABEL_SEEDED_FROM) == Some(&seed.source)
+        && labels.get(bosn_core::LABEL_SEED_NONCE) == Some(&seed.nonce)
+        && labels
+            .get(bosn_core::LABEL_SEED_REGISTRY)
+            .map(String::as_str)
+            == Some(owner)
+}
+pub(super) fn prove_destination(
+    engine: &DockerEngine,
+    target: &ManifestVolumeResource,
+    seed: &VolumeSeed,
+    owner: &str,
+) -> Result<(), String> {
+    let observed =
+        super::observe::inspect(engine, &target.name)?.ok_or("seed destination disappeared")?;
+    if !destination_labels_match(target, seed, owner, &observed.labels) {
+        return Err("seed destination ownership or nonce changed".into());
+    }
+    Ok(())
 }

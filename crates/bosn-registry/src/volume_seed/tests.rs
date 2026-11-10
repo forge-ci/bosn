@@ -115,3 +115,49 @@ fn copying_keeps_settled_helper_proof_until_reset_even_under_metadata_retention(
     tx.commit().unwrap();
     assert!(registry.volume_seeds().unwrap().is_empty());
 }
+
+#[test]
+fn v6_upgrade_is_atomic_and_preserves_resources_and_leases() {
+    let root = fs::TemporaryDirectory::new().unwrap();
+    let path = root.path().join("registry.sqlite3");
+    let mut registry = Registry::create_writer(&path, OWNER).unwrap();
+    let resource = Resource {
+        id: "manifest-volume:source".into(),
+        kind: ResourceKind::Volume,
+        name: seed().source,
+        stack: "cook".into(),
+        generation: "sha256:source".into(),
+        scope: Scope::Stack,
+        workspace: "/workspace".into(),
+        created_at: 1.0,
+        last_used: 2.0,
+        state: ResourceState::Active,
+        retention: Retention::Warm,
+    };
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.put_resource(&resource).unwrap();
+    tx.put_lease(&Lease {
+        id: "existing-lease".into(),
+        resource_id: resource.id.clone(),
+        pid: 1,
+        proc_start: None,
+        acquired_at: 1.0,
+        heartbeat_at: 1.0,
+        ttl_seconds: 1.0,
+    })
+    .unwrap();
+    tx.commit().unwrap();
+    drop(registry);
+    let mut connection = Connection::open(&path).unwrap();
+    let mut tx = connection.begin_immediate().unwrap();
+    tx.execute("DROP TABLE volume_seeds", &[]).unwrap();
+    tx.execute("UPDATE meta SET value='6' WHERE key='schema_version'", &[])
+        .unwrap();
+    tx.commit().unwrap();
+    drop(connection);
+    let registry = Registry::open_writer(&path).unwrap();
+    assert_eq!(registry.meta("schema_version").unwrap(), Some("7".into()));
+    assert_eq!(registry.resources(0, 10).unwrap().items, vec![resource]);
+    assert_eq!(registry.leases(0, 10).unwrap().items.len(), 1);
+    assert!(registry.volume_seeds().unwrap().is_empty());
+}

@@ -175,10 +175,10 @@ fn read_only_missing_does_not_create_and_legacy_or_newer_schemas_are_refused() {
             &[],
         )
         .unwrap();
-    connection.execute("INSERT INTO meta VALUES ('schema_version','7'),('registry_id','11111111-2222-4333-8444-555555555555')", &[]).unwrap();
+    connection.execute("INSERT INTO meta VALUES ('schema_version','8'),('registry_id','11111111-2222-4333-8444-555555555555')", &[]).unwrap();
     assert!(matches!(
         Registry::open_writer(&v6),
-        Err(Error::UnsupportedSchema(7))
+        Err(Error::UnsupportedSchema(8))
     ));
     let (_bad_dir, malformed) = database_path();
     let reserved = kernal_api::platform::fs::create_private_file(&malformed).unwrap();

@@ -29,6 +29,7 @@ const MAX_RECORDS: usize = 100_000;
 pub(crate) struct RegisteredOwnership {
     owner: String,
     pub(crate) resources: Vec<Resource>,
+    seeds: Vec<bosn_registry::volume_seed::VolumeSeed>,
     /// Resource ids and names a lease, execution session or creation intent still names.
     protected: BTreeSet<String>,
 }
@@ -68,16 +69,35 @@ impl RegisteredOwnership {
                 .into_iter()
                 .map(|intent| intent.name),
         );
-        for seed in registry.volume_seeds().map_err(|e| e.to_string())? {
+        let seeds = registry.volume_seeds().map_err(|e| e.to_string())?;
+        for seed in &seeds {
             if seed.state == bosn_registry::volume_seed::SeedState::Copying {
-                protected.extend([seed.source, seed.destination]);
+                protected.extend([seed.source.clone(), seed.destination.clone()]);
             }
         }
         Ok(Self {
             owner,
+            seeds,
             resources,
             protected,
         })
+    }
+
+    fn seed_complete(&self, name: &str, labels: &BTreeMap<String, String>) -> bool {
+        use bosn_core::{LABEL_SEED_NONCE, LABEL_SEED_REGISTRY, LABEL_SEEDED_FROM};
+        if ![LABEL_SEED_REGISTRY, LABEL_SEED_NONCE, LABEL_SEEDED_FROM]
+            .iter()
+            .any(|key| labels.contains_key(*key))
+        {
+            return true;
+        }
+        labels.get(LABEL_SEED_REGISTRY) == Some(&self.owner)
+            && self.seeds.iter().any(|seed| {
+                seed.destination == name
+                    && seed.state == bosn_registry::volume_seed::SeedState::Complete
+                    && labels.get(LABEL_SEED_NONCE) == Some(&seed.nonce)
+                    && labels.get(LABEL_SEEDED_FROM) == Some(&seed.source)
+            })
     }
 
     /// Prove a setup-labelled object against its registry record, or `None` when it is not one.
@@ -91,7 +111,10 @@ impl RegisteredOwnership {
         labels: &BTreeMap<String, String>,
         now: f64,
     ) -> Option<Normalized> {
-        if labels.contains_key(bosn_core::LABEL_REGISTRY)
+        if labels
+            .get(bosn_core::LABEL_SEED_REGISTRY)
+            .is_some_and(|owner| owner != &self.owner)
+            || labels.contains_key(bosn_core::LABEL_REGISTRY)
             || labels.contains_key(bosn_core::LABEL_KIND)
             || labels.get(LABEL_SETUP_MANAGED).map(String::as_str) != Some(SETUP_MANAGED_VALUE)
             || labels.get(LABEL_SETUP_NAME).map(String::as_str) != Some(engine_name)
@@ -130,7 +153,8 @@ impl RegisteredOwnership {
         Some(Normalized {
             labels: normalized,
             idle_seconds: (now - resource.last_used).max(0.0),
-            protected: self.protected.contains(&resource.id)
+            protected: !self.seed_complete(engine_name, labels)
+                || self.protected.contains(&resource.id)
                 || self.protected.contains(&resource.name),
         })
     }

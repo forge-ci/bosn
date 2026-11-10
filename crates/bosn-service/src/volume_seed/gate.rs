@@ -56,10 +56,10 @@ pub(super) fn decision(
     }
 }
 pub(super) fn source_label() -> String {
-    format!("{}.seeded-from", bosn_core::NAMESPACE)
+    bosn_core::LABEL_SEEDED_FROM.into()
 }
 pub(super) fn nonce_label() -> String {
-    format!("{}.seed-nonce", bosn_core::NAMESPACE)
+    bosn_core::LABEL_SEED_NONCE.into()
 }
 pub(super) fn uncertain(destination: &str, detail: impl Into<String>) -> SeedError {
     SeedError::SeedDestinationUncertain {
@@ -80,28 +80,49 @@ pub(super) async fn snapshot(context: &SeedContext<'_>) -> Result<Snapshot, Seed
         _ => Err("seed snapshot reply mismatch".to_string().into()),
     }
 }
-pub(super) async fn seed_record(
-    context: &SeedContext<'_>,
+pub(super) fn verify_owner(
     destination: &str,
-) -> Result<Option<VolumeSeed>, SeedError> {
-    Ok(snapshot(context)
-        .await?
-        .seeds
-        .into_iter()
-        .find(|s| s.destination == destination))
+    labels: &std::collections::BTreeMap<String, String>,
+    owner: &str,
+) -> Result<(), SeedError> {
+    if [
+        bosn_core::LABEL_SEEDED_FROM,
+        bosn_core::LABEL_SEED_NONCE,
+        bosn_core::LABEL_SEED_REGISTRY,
+    ]
+    .iter()
+    .any(|key| labels.contains_key(*key))
+        && labels
+            .get(bosn_core::LABEL_SEED_REGISTRY)
+            .map(String::as_str)
+            != Some(owner)
+    {
+        return Err(uncertain(
+            destination,
+            "seed belongs to another or unknown registry",
+        ));
+    }
+    Ok(())
 }
 // Returns true after recovery/reset, suppressing another seed during the same ensure.
 pub(super) async fn ensure_safe(
     context: &SeedContext<'_>,
     target: &ManifestVolumeResource,
 ) -> Result<bool, SeedError> {
-    let seed = seed_record(context, &target.name).await?;
+    let snapshot = snapshot(context).await?;
+    let seed = snapshot
+        .seeds
+        .into_iter()
+        .find(|s| s.destination == target.name);
     let engine = context.engine.clone();
     let name = target.name.clone();
     let observed =
         kernal_api::async_engine::launch_blocking(move || observe::inspect(&engine, &name))
             .await
             .map_err(|e| SeedError::Operation(e.to_string()))??;
+    if let Some(volume) = &observed {
+        verify_owner(&target.name, &volume.labels, &snapshot.owner)?;
+    }
     if let Some(seed) = &seed {
         if seed.state == SeedState::Copying {
             settle(context, seed)
@@ -109,6 +130,7 @@ pub(super) async fn ensure_safe(
                 .map_err(|e| uncertain(&target.name, e.to_string()))?;
             reset(context, target, Some(seed)).await?;
             op(context, Command::Delete(seed.clone())).await?;
+            recreate_cold(context, target).await?;
             return Ok(true);
         }
         if observed.is_none() {
@@ -130,6 +152,7 @@ pub(super) async fn ensure_safe(
             }
         }
         reset(context, target, None).await?;
+        recreate_cold(context, target).await?;
         return Ok(true);
     }
     Ok(false)
@@ -178,9 +201,71 @@ pub(super) async fn reset(
                 return Err("destination absence unproven".into());
             }
         }
-        helper::create_volume(&engine, &target, None)
+        Ok(())
     })
     .await
     .map_err(|e| uncertain(&name, e.to_string()))?
     .map_err(|e| uncertain(&name, e))
+}
+
+// Recreate only after Copying was deleted. A crash before that delete leaves
+// absence (replayable), never an unlabelled volume that looks like a nonce swap.
+pub(super) async fn recreate_cold(
+    context: &SeedContext<'_>,
+    target: &ManifestVolumeResource,
+) -> Result<(), SeedError> {
+    let engine = context.engine.clone();
+    let target = target.clone();
+    let name = target.name.clone();
+    kernal_api::async_engine::launch_blocking(move || helper::create_volume(&engine, &target, None))
+        .await
+        .map_err(|e| uncertain(&name, e.to_string()))?
+        .map_err(|e| uncertain(&name, e))
+}
+
+/// Registry authority travels in the private setup receipt so its final Docker
+/// inspection also refuses a volume swapped after the earlier completion gate.
+pub(crate) async fn authorize_plan(
+    state: Option<&std::path::Path>,
+    plan: &mut bosn_setup::SetupPlan,
+) -> Result<(), String> {
+    let Some(state) = state else {
+        return Ok(());
+    };
+    let path = state.join("registry.sqlite3");
+    let authority = kernal_api::async_engine::launch_blocking(move || {
+        if !path.try_exists().map_err(|e| e.to_string())? {
+            return Ok(None);
+        }
+        let registry = bosn_registry::Registry::open_read_only(&path).map_err(|e| e.to_string())?;
+        Ok::<_, String>(Some((
+            registry.registry_id().map_err(|e| e.to_string())?,
+            registry.volume_seeds().map_err(|e| e.to_string())?,
+        )))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let Some((owner, seeds)) = authority else {
+        return Ok(());
+    };
+    for volume in &mut plan.named_volumes {
+        for key in [
+            bosn_core::LABEL_SEEDED_FROM,
+            bosn_core::LABEL_SEED_NONCE,
+            bosn_core::LABEL_SEED_REGISTRY,
+        ] {
+            volume.labels.remove(key);
+        }
+        if let Some(seed) = seeds
+            .iter()
+            .find(|s| s.destination == volume.name && s.state == SeedState::Complete)
+        {
+            volume.labels.extend([
+                (bosn_core::LABEL_SEEDED_FROM.into(), seed.source.clone()),
+                (bosn_core::LABEL_SEED_NONCE.into(), seed.nonce.clone()),
+                (bosn_core::LABEL_SEED_REGISTRY.into(), owner.clone()),
+            ]);
+        }
+    }
+    Ok(())
 }

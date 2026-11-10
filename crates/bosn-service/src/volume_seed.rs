@@ -8,6 +8,7 @@ use std::path::Path;
 
 mod copy;
 mod gate;
+pub(crate) use gate::authorize_plan;
 mod helper;
 mod locks;
 mod observe;
@@ -147,7 +148,26 @@ impl SeedContext<'_> {
                 }
             }
         }
-        execute_setup_ensure_pipeline(self.engine, pipeline, cancellation, events, logs).await
+        self.guarded_pipeline(pipeline, cancellation, events, logs)
+            .await
+    }
+    async fn guarded_pipeline(
+        &self,
+        pipeline: &SetupEnsurePipeline<'_>,
+        cancellation: &async_engine::CancellationToken,
+        events: &async_engine::Sender<EngineEvent>,
+        logs: &crate::raw_run_log::JobLogSink,
+    ) -> Result<PreparedSetupEnsure, String> {
+        let mut plan = pipeline.plan.clone();
+        authorize_plan(Some(self.state_dir), &mut plan).await?;
+        let guarded = SetupEnsurePipeline {
+            plan: &plan,
+            workspace: pipeline.workspace.clone(),
+            deadline: pipeline.deadline,
+            prepare_output: pipeline.prepare_output,
+            ensure_output: pipeline.ensure_output,
+        };
+        execute_setup_ensure_pipeline(self.engine, &guarded, cancellation, events, logs).await
     }
 }
 pub(super) const ENSURE_FLOOR: std::time::Duration = std::time::Duration::from_secs(60);

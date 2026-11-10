@@ -207,11 +207,13 @@ The helper mounts it read-only and makes a full `cp -a` copy; there is no CoW.
 Each worktree gets independent storage. Set `seed = false` to opt out.
 
 Immutable `com.zackees.bosn.seeded-from` and `com.zackees.bosn.seed-nonce`
-labels identify the attempt; **registry completion**, not a file inside the
+and `com.zackees.bosn.seed-registry` labels identify the attempt and owning registry; **registry completion**, not a file inside the
 volume, authorizes use. A `Copying` record protects both volumes without TTL.
 Only successful copy plus proven helper removal can commit `Complete`.
-Interrupted copies and orphan seed labels are reset to a cold volume before
-any workload can mount it. If ownership, helper teardown or destination removal
+Foreign or unknown seed registries are refused without changing their data.
+Interrupted copies and this registry's orphan seed labels are reset to a cold volume before
+any workload can mount it. Reset removes and proves absence, deletes `Copying`,
+then recreates cold storage, so every crash boundary is replayable. If ownership, helper teardown or destination removal
 cannot be proven (including an external attachment), ensure refuses with
 `SeedDestinationUncertain` and preserves the uncertain volume.
 
@@ -341,3 +343,12 @@ an explicit manifest autostart field if a policy beyond default-stack selection
 is required, and generation reconciliation. Each must
 remain daemon-owned and registry-backed rather than reintroducing raw Docker or
 Python business logic.
+
+### Registry compatibility for volume seeding
+
+Registry schema 7 fences schema-6 writers that cannot enforce seed completion.
+The sole writer upgrades v6 atomically by adding `volume_seeds` and advancing the
+version, preserving existing resources, leases and CI history. The existing v5
+CI migration also installs this table before committing its version fence.
+No daemon wire fields or DAEMON_PROTOCOL change. Do not downgrade a state
+directory after it has upgraded to schema 7.

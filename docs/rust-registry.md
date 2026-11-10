@@ -7,12 +7,19 @@ the typed rows. A writer holds an advisory lock on the state database inode for
 its complete lifetime. Read-only diagnostics do not lock, initialize, migrate,
 or write.
 
-The schema is v5 and contains the eight Python-v4 tables: `meta`, `resources`,
+Schema v7 retains the eight Python-v4 tables: `meta`, `resources`,
 `resource_uses`, `leases`, `execution_sessions`, `volume_creation_intents`,
 `generations`, and `events`. The unique `(kind, name)` resource identity and
 all Python foreign keys/indexes are retained. List methods require a caller
 chosen limit, clamp it to `1..=1,000`, and never silently truncate: a next
 offset is returned.
+
+V6 added bounded CI current-state tables and v7 adds `volume_seeds` with typed
+`Copying`/`Complete` records. A sole-writer v6 upgrade creates the new table and
+advances the version atomically, retaining resources, leases and CI history.
+V5's resumable CI migration installs the seed table under the same version fence.
+Older writers refuse v7; this is required to keep partial copies behind the
+completion gate. Wire protocol compatibility is unchanged.
 
 Execution-session lease IDs are read and written as `Vec<String>` and volume
 intent labels as `BTreeMap<String, String>`; malformed persisted JSON is a

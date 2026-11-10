@@ -152,3 +152,45 @@ fn budget_reserves_ensure_floor_and_caps_the_copy() {
         Some(Duration::from_secs(600))
     );
 }
+
+#[test]
+fn foreign_seed_owner_is_never_reset_or_used_as_our_orphan() {
+    let mut labels = std::collections::BTreeMap::from([
+        (bosn_core::LABEL_SEEDED_FROM.into(), "source".into()),
+        (bosn_core::LABEL_SEED_NONCE.into(), "nonce".into()),
+        (bosn_core::LABEL_SEED_REGISTRY.into(), "registry-a".into()),
+    ]);
+    assert!(gate::verify_owner("destination", &labels, "registry-a").is_ok());
+    assert!(matches!(
+        gate::verify_owner("destination", &labels, "registry-b"),
+        Err(gate::SeedError::SeedDestinationUncertain { .. })
+    ));
+    labels.remove(bosn_core::LABEL_SEED_REGISTRY);
+    assert!(gate::verify_owner("destination", &labels, "registry-b").is_err());
+}
+#[test]
+fn idempotent_create_cannot_authorize_copying_into_a_racing_volume() {
+    let target = target();
+    let seed = bosn_registry::volume_seed::VolumeSeed {
+        source: "source".into(),
+        destination: target.name.clone(),
+        nonce: "our-nonce".into(),
+        state: bosn_registry::volume_seed::SeedState::Copying,
+    };
+    let mut labels = target.labels.clone();
+    assert!(!helper::destination_labels_match(
+        &target, &seed, "owner", &labels
+    ));
+    labels.extend([
+        (bosn_core::LABEL_SEEDED_FROM.into(), seed.source.clone()),
+        (bosn_core::LABEL_SEED_NONCE.into(), seed.nonce.clone()),
+        (bosn_core::LABEL_SEED_REGISTRY.into(), "owner".into()),
+    ]);
+    assert!(helper::destination_labels_match(
+        &target, &seed, "owner", &labels
+    ));
+    labels.insert(bosn_core::LABEL_SEED_NONCE.into(), "racing-creator".into());
+    assert!(!helper::destination_labels_match(
+        &target, &seed, "owner", &labels
+    ));
+}

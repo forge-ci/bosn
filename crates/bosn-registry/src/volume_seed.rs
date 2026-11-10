@@ -1,4 +1,4 @@
-//! Additive v6 extension: durable stack-volume seed completion, never a TTL lease.
+//! Schema-v7 extension: durable stack-volume seed completion, never a TTL lease.
 use super::*;
 use crate::cache_helper::{CacheHelperIntent, CacheHelperRole, CacheHelperState};
 
@@ -20,7 +20,7 @@ impl VolumeSeed {
         self.state == SeedState::Copying && (self.source == volume || self.destination == volume)
     }
 }
-pub(crate) fn initialize(connection: &Connection) -> Result<(), Error> {
+pub(crate) fn initialize(connection: &mut Transaction<'_>) -> Result<(), Error> {
     connection.execute(TABLE, &[])?;
     Ok(())
 }
@@ -42,15 +42,7 @@ pub(crate) fn validate_names(source: &str, destination: &str) -> Result<(), Erro
 }
 fn read(connection: &Connection) -> Result<Vec<VolumeSeed>, Error> {
     // Read-only diagnostics of an older v6 registry must not initialize it.
-    let present = connection.query(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='volume_seeds'",
-        &[],
-        QueryLimits {
-            max_rows: 1,
-            max_bytes: 1024,
-        },
-    )?;
-    if present.is_empty() {
+    if !table_present(connection)? {
         return Ok(Vec::new());
     }
     let rows = connection.query(
@@ -168,3 +160,53 @@ impl Immediate<'_> {
 }
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn validate_schema(connection: &Connection) -> Result<(), Error> {
+    let rows = connection.query(
+        "PRAGMA table_info(volume_seeds)",
+        &[],
+        QueryLimits {
+            max_rows: 16,
+            max_bytes: 4096,
+        },
+    )?;
+    if rows.len() != 4
+        || ["destination", "source", "nonce", "state"]
+            .iter()
+            .any(|name| {
+                !rows.iter().any(|row| {
+                    text(row, 1).is_ok_and(|n| n == *name)
+                        && text(row, 2).is_ok_and(|t| t == "TEXT")
+                })
+            })
+    {
+        return Err(Error::InvalidSchema);
+    }
+    Ok(())
+}
+pub(crate) fn upgrade_v6(connection: &mut Connection) -> Result<(), Error> {
+    crate::ci_state::validate(connection)?;
+    if table_present(connection)? {
+        validate_schema(connection)?;
+    }
+    let mut tx = connection.begin_immediate()?;
+    initialize(&mut tx)?;
+    tx.execute(
+        "UPDATE meta SET value=? WHERE key='schema_version'",
+        &[Value::Text(SCHEMA_VERSION.to_string())],
+    )?;
+    tx.commit()?;
+    validate_schema(connection)
+}
+
+fn table_present(connection: &Connection) -> Result<bool, Error> {
+    let present = connection.query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='volume_seeds'",
+        &[],
+        QueryLimits {
+            max_rows: 1,
+            max_bytes: 1024,
+        },
+    )?;
+    Ok(!present.is_empty())
+}
