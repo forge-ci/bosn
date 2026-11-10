@@ -701,6 +701,7 @@ fn live_docker_other_registry_cannot_reset_completed_seed_data() {
     f.run(&f.worktree, "change");
     f.remove_containers(&f.worktree);
     let other_state = f._root.path().join("other-state");
+    own_registry(&other_state);
     let mut other = DaemonChild::start(&other_state);
     let runtime = RuntimeBuilder::current_thread()
         .enable_all()
