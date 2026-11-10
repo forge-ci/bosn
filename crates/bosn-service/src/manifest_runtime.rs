@@ -355,6 +355,26 @@ pub(crate) fn require_host_docker_socket(_path: &str) -> Result<(), String> {
 /// bind.  Absolute legacy sources are accepted only when their canonical path
 /// is inside the selected workspace; callers never get to name a host path at
 /// the typed engine boundary.
+pub(crate) fn manifest_source_mounts(
+    workspace: &Path,
+    stack: &bosn_core::manifest::Stack,
+    proxy_dir: Option<String>,
+) -> Result<(Vec<bosn_core::WorkspaceMount>, Option<SetupHostDockerSocket>), String> {
+    let mut mounts = Vec::new();
+    let mut host_docker_socket = None;
+    for mount in &stack.mounts {
+        if let Some(socket) = manifest_host_docker_socket(mount, proxy_dir.clone())? {
+            if host_docker_socket.is_some() {
+                return Err("manifest declares the host Docker socket more than once".into());
+            }
+            host_docker_socket = Some(socket);
+            continue;
+        }
+        mounts.push(manifest_workspace_mount(workspace, mount)?);
+    }
+    Ok((mounts, host_docker_socket))
+}
+
 pub(crate) fn manifest_workspace_mount(
     workspace: &Path,
     mount: &bosn_core::manifest::Mount,

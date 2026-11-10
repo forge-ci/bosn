@@ -122,19 +122,8 @@ pub(crate) async fn manifest_stack_plan(
     // set of spellings: the manifest author's explicit choice to let the
     // container drive the host engine (for example `act`, whose job containers
     // are siblings). It is typed, never a generic host path.
-    let mut mounts = Vec::new();
-    let mut host_docker_socket = None;
     let proxy_dir = manifest_docker_proxy_dir(state_dir, stack.kind.is_some())?;
-    for mount in &stack.mounts {
-        if let Some(socket) = manifest_host_docker_socket(mount, proxy_dir.clone())? {
-            if host_docker_socket.is_some() {
-                return Err("manifest declares the host Docker socket more than once".into());
-            }
-            host_docker_socket = Some(socket);
-            continue;
-        }
-        mounts.push(manifest_workspace_mount(&workspace, mount)?);
-    }
+    let (mut mounts, host_docker_socket) = manifest_source_mounts(&workspace, stack, proxy_dir)?;
     if host_docker_socket.is_some() && stack.kind.as_deref() == Some("macos-x64-guest") {
         return Err("the host Docker socket cannot be bound into a macOS guest stack".into());
     }
