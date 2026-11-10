@@ -232,6 +232,8 @@ name = "bosn-engine"
 version = "0.1.0"
 dependencies = [
  "kernal-api",
+ "schemars 1.2.2",
+ "serde",
  "thiserror 2.0.20",
 ]
 

@@ -187,6 +187,8 @@ pub struct CancelReply {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RunnersReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slice_cpu: Option<bosn_engine::SliceCpu>,
     pub runners: RunnerStatus,
     /// Current shared-engine limits, or the limits a new engine would use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +210,8 @@ pub struct RunnersReply {
 /// shared engine against its `act serve` (#547).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DoctorReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slice_cpu: Option<bosn_engine::SliceCpu>,
     /// The shared engine it ran in; `None` when this daemon holds none (the
     /// next run makes it), and then there is no report.
     pub engine: Option<String>,

@@ -644,6 +644,28 @@
         }
       ]
     },
+    "CpuMax": {
+      "description": "Current cgroup v2 CPU quota. `None` quota means unlimited, not unavailable.",
+      "properties": {
+        "period": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quota": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "period"
+      ],
+      "type": "object"
+    },
     "DispatcherHealth": {
       "enum": [
         "live",
@@ -696,6 +718,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ActDoctorReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slice_cpu": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SliceCpu"
             },
             {
               "type": "null"
@@ -2211,6 +2243,16 @@
         },
         "runners": {
           "$ref": "#/$defs/RunnerStatus"
+        },
+        "slice_cpu": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SliceCpu"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2294,6 +2336,36 @@
         "name",
         "stage",
         "status"
+      ],
+      "type": "object"
+    },
+    "SliceCpu": {
+      "description": "Read-only evidence; missing values mean unavailable, never a policy decision.",
+      "properties": {
+        "cpu_max": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CpuMax"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "placement": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "placement"
       ],
       "type": "object"
     },

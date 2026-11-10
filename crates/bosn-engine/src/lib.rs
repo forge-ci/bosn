@@ -953,7 +953,9 @@ fn map_bounded(error: BoundedProcessError) -> CommandError {
 }
 
 mod cpu_priority;
-pub use cpu_priority::{BOSN_SLICE, LOW_CPU_PRIORITY_ARG, Placement, placement};
+pub use cpu_priority::{
+    BOSN_SLICE, CpuMax, LOW_CPU_PRIORITY_ARG, Placement, SliceCpu, placement, slice_cpu,
+};
 mod managed_reads;
 mod stdin_file;
 

@@ -146,6 +146,8 @@ version = "0.1.0"
 dependencies = [
  "kernal-api",
  "libc",
+ "schemars",
+ "serde",
  "thiserror",
 ]
 

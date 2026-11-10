@@ -72,3 +72,23 @@ systemctl show bosn.slice -p CPUWeight          # CPUWeight=10
 docker inspect -f '{{.HostConfig.CgroupParent}} {{.HostConfig.CpuShares}}' <container>
 # bosn.slice 256
 ```
+
+### Read the reported limits
+
+`bosn ci doctor` and `bosn jobs` show placement and a fresh read of the
+operator-provisioned slice's cgroup v2 `cpu.max` and `cpu.weight`, beside the
+lane and engine CPU information. Their JSON reports include optional
+`slice_cpu` evidence (under `ci` for jobs).
+
+For example, `cpu.max: 200000 100000 (2 CPUs)` means the slice may consume
+200000 microseconds of CPU time per 100000-microsecond period, or two CPUs
+across its children. `max 100000 (unlimited)` means no quota at this slice;
+ancestor and container limits can still apply. `cpu.weight: 10` is a relative
+share under contention, not a CPU cap. JSON represents unlimited as a null
+`cpu_max.quota`, with the period preserved.
+
+`weight-only` means the slice is not selected; both limits are unavailable.
+Missing, unreadable, oversized or malformed kernel values are also unavailable
+(JSON null), independently for each value. These are observations only: Bosn
+does not provision the slice or change its limits. The engine retains its
+8-CPU default ceiling, overridden by `[engine] cpus`.

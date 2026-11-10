@@ -85,6 +85,94 @@ pub fn placement() -> Placement {
     })
 }
 
+/// Current cgroup v2 CPU quota. `None` quota means unlimited, not unavailable.
+#[derive(
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct CpuMax {
+    pub quota: Option<u64>,
+    pub period: u64,
+}
+
+impl CpuMax {
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut fields = text.split_whitespace();
+        let quota = match fields.next()? {
+            "max" => None,
+            value => Some(value.parse::<u64>().ok().filter(|value| *value > 0)?),
+        };
+        let period = fields
+            .next()?
+            .parse::<u64>()
+            .ok()
+            .filter(|value| *value > 0)?;
+        if fields.next().is_some() {
+            return None;
+        }
+        Some(Self { quota, period })
+    }
+
+    #[must_use]
+    pub fn cpus(&self) -> Option<f64> {
+        self.quota.map(|quota| quota as f64 / self.period as f64)
+    }
+}
+
+/// Read-only evidence; missing values mean unavailable, never a policy decision.
+#[derive(
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct SliceCpu {
+    pub placement: String,
+    pub cpu_max: Option<CpuMax>,
+    pub cpu_weight: Option<u64>,
+}
+
+fn parse_cpu_weight(text: &str) -> Option<u64> {
+    text.trim()
+        .parse()
+        .ok()
+        .filter(|value| (1..=10000).contains(value))
+}
+
+/// Read current values, on a blocking worker or at a synchronous CLI boundary.
+#[must_use]
+pub fn slice_cpu() -> SliceCpu {
+    read_slice_cpu(placement(), std::path::Path::new("/sys/fs/cgroup"))
+}
+
+fn read_slice_cpu(placement: Placement, root: &std::path::Path) -> SliceCpu {
+    let mut report = SliceCpu {
+        placement: placement.as_str().into(),
+        cpu_max: None,
+        cpu_weight: None,
+    };
+    if placement == Placement::Slice {
+        let slice = root.join(BOSN_SLICE);
+        report.cpu_max =
+            read_cpu_file(&slice.join("cpu.max")).and_then(|text| CpuMax::parse(&text));
+        report.cpu_weight =
+            read_cpu_file(&slice.join("cpu.weight")).and_then(|text| parse_cpu_weight(&text));
+    }
+    report
+}
+
+fn read_cpu_file(path: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+    // cgroupfs values are short; reject oversized or non-UTF8 input.
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(257)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > 256 {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
 /// One probe command's stdout, or empty when it fails or outlives its deadline.
 fn probe(program: &str, args: &[&str]) -> String {
     let Ok(mut child) = Command::new(program)
@@ -207,3 +295,7 @@ mod tests {
         assert_eq!(create.len(), 2);
     }
 }
+
+#[cfg(test)]
+#[path = "cpu_priority_reporting_tests.rs"]
+mod reporting_tests;
