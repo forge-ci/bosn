@@ -435,6 +435,7 @@ fn a_followed_app_task_survives_heartbeat_silence() {
         .run(async {
             let server = async_engine::launch(
                 Service::new(state.clone())
+                    .with_runner_capacity(test_capacity(1, None))
                     .with_manifest_app_task_executor(fake.clone())
                     .serve(),
             );
@@ -807,7 +808,7 @@ impl ManifestAppTaskExecutor for TickingManifestAppTaskExecutor {
     }
 }
 
-fn test_capacity(slots: usize, stall: Option<Duration>) -> capacity::RunnerCapacity {
+pub(super) fn test_capacity(slots: usize, stall: Option<Duration>) -> capacity::RunnerCapacity {
     capacity::RunnerCapacity {
         runner_slots: slots,
         control_slots: 2,

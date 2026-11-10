@@ -57,6 +57,7 @@ fn a_dead_owners_jobs_are_cancelled_and_a_live_owners_are_not() {
         .run(async {
             let server = async_engine::launch(
                 Service::new(state.clone())
+                    .with_runner_capacity(super::daemon_jobs::test_capacity(1, None))
                     .with_manifest_app_task_executor(fake.clone())
                     .serve(),
             );
