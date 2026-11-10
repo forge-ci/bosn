@@ -94,9 +94,7 @@ pub fn parse_arguments(
     let mut wait = false;
     let mut clean = bosn_service::CleanVolumes::None;
     while let Some(flag) = arguments.next() {
-        let flag = flag
-            .into_string()
-            .map_err(|_| "arguments must be UTF-8".to_owned())?;
+        let flag = task_args::flag_text(flag)?;
         if flag == "--" {
             task_args = task_args::collect_args(arguments)?;
             break;
@@ -104,9 +102,7 @@ pub fn parse_arguments(
         if task_args::set_switch(&flag, &mut no_ensure, &mut detach, &mut clean, &mut wait)? {
             continue;
         }
-        let value = arguments
-            .next()
-            .ok_or_else(|| format!("{flag} needs a value"))?;
+        let value = task_args::next_value(&mut arguments, &flag)?;
         let text = || task_args::utf8_value(&flag, &value);
         let duplicate = || format!("{flag} given twice");
         match flag.as_str() {
@@ -166,11 +162,7 @@ pub fn parse_arguments(
     require_target(
         task.is_some(),
         stack.is_some(),
-        no_ensure
-            || detach
-            || wait
-            || !task_args.is_empty()
-            || clean != bosn_service::CleanVolumes::None,
+        task_args::needs_task([no_ensure, detach, wait], &task_args, clean),
     )?;
     Ok(RunArguments {
         task,
@@ -193,7 +185,7 @@ fn require_target(task: bool, stack: bool, task_switches: bool) -> Result<(), St
         return Err("--task or --stack is required".into());
     }
     if !task && task_switches {
-        return Err("--no-ensure, --detach and --clean require --task".into());
+        return Err("--no-ensure, --detach, --clean and --wait require --task".into());
     }
     Ok(())
 }

@@ -137,3 +137,27 @@ pub(super) fn report_wait(status: &bosn_service::JobStatus, reported: &mut Optio
         reported.clone_from(&status.waiting_on);
     }
 }
+
+pub(super) fn flag_text(flag: std::ffi::OsString) -> Result<String, String> {
+    flag.into_string()
+        .map_err(|_| "arguments must be UTF-8".to_owned())
+}
+
+pub(super) fn next_value(
+    arguments: &mut impl Iterator<Item = std::ffi::OsString>,
+    flag: &str,
+) -> Result<std::ffi::OsString, String> {
+    arguments
+        .next()
+        .ok_or_else(|| format!("{flag} needs a value"))
+}
+
+pub(super) fn needs_task(
+    switches: [bool; 3],
+    args: &[String],
+    clean: bosn_service::CleanVolumes,
+) -> bool {
+    switches.into_iter().any(|flag| flag)
+        || !args.is_empty()
+        || clean != bosn_service::CleanVolumes::None
+}

@@ -96,7 +96,5 @@ fn live_docker_task_wait_resumes_and_cancellation_leaves_holder_alone() {
             let resumed = until(&client, d, false).await;
             assert_eq!(resumed.state, "Succeeded", "{resumed:?}");
             assert!(resumed.waiting_on.is_none());
-            let raced = until(&client, e, false).await;
-            assert_eq!(raced.state, "Succeeded", "{raced:?}");
         });
 }

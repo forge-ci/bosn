@@ -202,19 +202,7 @@ fn format_table(view: &Value, ci: Option<&RunnersReply>) -> String {
             truncate(job["key"].as_str().unwrap_or(""), 28),
             job["workspace"].as_str().unwrap_or(""),
         );
-        match serde_json::from_value::<JobArguments>(job.clone()) {
-            Ok(task) => {
-                if let Some(name) = task.waiting_on {
-                    let _ = writeln!(out, "       waiting on container: {name}");
-                }
-                if !task.args.is_empty() {
-                    let _ = writeln!(out, "       args: {:?}", task.args);
-                }
-            }
-            Err(error) => {
-                let _ = writeln!(out, "       invalid task arguments: {error}");
-            }
-        }
+        format_task_details(&mut out, &job);
         if let Some(run) = job.get("run") {
             let containers = run["containers"]
                 .as_array()
@@ -251,6 +239,22 @@ fn format_table(view: &Value, ci: Option<&RunnersReply>) -> String {
         }
     }
     out
+}
+
+fn format_task_details(out: &mut String, job: &Value) {
+    match serde_json::from_value::<JobArguments>(job.clone()) {
+        Ok(task) => {
+            if let Some(name) = task.waiting_on {
+                let _ = writeln!(out, "       waiting on container: {name}");
+            }
+            if !task.args.is_empty() {
+                let _ = writeln!(out, "       args: {:?}", task.args);
+            }
+        }
+        Err(error) => {
+            let _ = writeln!(out, "       invalid task arguments: {error}");
+        }
+    }
 }
 
 fn duration(seconds: u64) -> String {
