@@ -5,6 +5,9 @@ use crate::support::setup_docker::*;
 struct OwnedStack(Option<StackWorkspace>);
 impl OwnedStack {
     fn new() -> Self {
+        Self::with_keep(false)
+    }
+    fn with_keep(keep: bool) -> Self {
         let marker = test_unique_suffix();
         let manifest = stack_manifest(&marker, &[("probe", concat!(
             "if test -e /state/file; then echo stack-warm; else echo stack-cold; fi; ",
@@ -12,7 +15,15 @@ impl OwnedStack {
             "touch /state/file /machine/file"))])
             .replace("[stack.live]", &format!("[stack.live]\nfamily = '{marker}'"))
             .replace("[stack.live.env]", "machine = { scope = 'machine', destination = '/machine' }\n[stack.live.env]")
-            .replace("keep = true", "keep = false");
+            .replace("keep = true", if keep { "keep = true" } else { "keep = false" });
+        let manifest = if keep {
+            manifest.replace(
+                "dockerfile = 'live.Dockerfile'",
+                &format!("image = '{PINNED_ALPINE}'"),
+            )
+        } else {
+            manifest
+        };
         Self(Some(StackWorkspace::new(&manifest)))
     }
     fn stack(&self) -> &StackWorkspace {
@@ -96,6 +107,55 @@ fn live_docker_clean_first_persists_ownership_for_repeated_clean_runs() {
         output.contains("stack-cold") && output.contains("machine-warm"),
         "{output}"
     );
+    let output = stack.clean("--clean=all");
+    assert!(
+        output.contains("stack-cold") && output.contains("machine-cold"),
+        "{output}"
+    );
+}
+
+#[test]
+#[ignore = "requires a local Docker daemon and the pinned Alpine image"]
+fn live_docker_clean_kept_task_refuses_running_holder_then_resets_stopped_container() {
+    let stack = OwnedStack::with_keep(true);
+    let first = stack.stack().bosn_run("probe").output().unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(String::from_utf8_lossy(&first.stdout).contains("stack-cold"));
+    let name = stack.stack().containers().pop().unwrap();
+    let identity = || {
+        docker_capture(
+            &stack.stack().engine,
+            ["container", "inspect", "--format", "{{.Id}}", &name],
+        )
+    };
+    let before = identity();
+    assert!(before.ok());
+    let refused = stack
+        .stack()
+        .bosn_run("probe")
+        .arg("--clean")
+        .output()
+        .unwrap();
+    let error = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success());
+    assert!(
+        error.contains("busy") || error.contains("held by"),
+        "{error}"
+    );
+    stack.stop_preparation();
+    let output = stack.clean("--clean");
+    assert!(
+        output.contains("stack-cold") && output.contains("machine-warm"),
+        "{output}"
+    );
+    let after = identity();
+    assert!(after.ok());
+    assert_ne!(before.stdout, after.stdout);
+    stack.stop_preparation();
     let output = stack.clean("--clean=all");
     assert!(
         output.contains("stack-cold") && output.contains("machine-cold"),

@@ -92,6 +92,58 @@ pub(crate) async fn execute(
     .map_err(|e| CleanError::Observation(e.to_string()))?
 }
 
+/// The caller has already proven the exact setup configuration and attachments.
+/// Retention adds durable ownership, lease and pin gates before non-forced removal.
+pub(crate) async fn remove_kept(
+    engine: &DockerEngine,
+    state: &Path,
+    observed: bosn_setup::SetupEnsureResult,
+    cancellation: &async_engine::CancellationToken,
+) -> Result<(), CleanError> {
+    let engine = engine.clone();
+    let state = state.to_owned();
+    let cancellation = cancellation.clone();
+    async_engine::launch_blocking(move || {
+        let options = RunOptions::bounded(RETENTION_READ_DEADLINE, RETENTION_OUTPUT_LIMIT);
+        let entries = parse_read::<ContainerDetail>(
+            engine.inspect_containers(std::slice::from_ref(&observed.container_id), options),
+        )
+        .ok_or_else(|| held(&observed.container_name, "unreadable container"))?;
+        let entry = entries
+            .into_iter()
+            .next()
+            .ok_or_else(|| held(&observed.container_name, "missing container"))?;
+        let owner = registry_owner(&state)?;
+        let authority = authority::Authority::load(&state, false);
+        let proven = authority.prove(
+            ResourceKind::Container,
+            entry.engine_name(),
+            entry.labels(),
+            0.0,
+            entry.running(),
+        );
+        let candidate = verdict(
+            &observed.container_id,
+            ResourceKind::Container,
+            proven,
+            &owner,
+        )?;
+        revalidate(&engine, &state, &candidate, Some(&owner), policy())?;
+        if cancellation.is_cancelled() {
+            return Err(held(&observed.container_name, "cancelled client"));
+        }
+        remove_owned(&engine, &candidate)?;
+        crate::daemon_log!(
+            "bosn task clean: removed kept container {} ({})",
+            observed.container_name,
+            observed.container_id
+        );
+        Ok(())
+    })
+    .await
+    .map_err(|e| CleanError::Observation(e.to_string()))?
+}
+
 fn registry_owner(state: &Path) -> Result<String, String> {
     bosn_registry::Registry::open_read_only(state.join("registry.sqlite3"))
         .and_then(|r| r.registry_id())
