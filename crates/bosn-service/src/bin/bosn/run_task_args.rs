@@ -106,3 +106,10 @@ mod clean_tests {
         assert!(parse(&["--task", "check", "--clean", "--clean=all"]).is_err());
     }
 }
+
+pub(super) fn utf8_value(flag: &str, value: &std::ffi::OsStr) -> Result<String, String> {
+    value
+        .to_os_string()
+        .into_string()
+        .map_err(|_| format!("{flag} value must be UTF-8"))
+}

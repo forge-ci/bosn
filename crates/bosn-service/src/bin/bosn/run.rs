@@ -105,12 +105,7 @@ pub fn parse_arguments(
         let value = arguments
             .next()
             .ok_or_else(|| format!("{flag} needs a value"))?;
-        let text = || {
-            value
-                .clone()
-                .into_string()
-                .map_err(|_| format!("{flag} value must be UTF-8"))
-        };
+        let text = || task_args::utf8_value(&flag, &value);
         let duplicate = || format!("{flag} given twice");
         match flag.as_str() {
             "--task" => {
@@ -383,6 +378,10 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
         return Ok(0);
     }
     let status = follow_job(&runtime, &client, &state_dir, job, true)?;
+    task_result(status, &task, job)
+}
+
+fn task_result(status: JobStatus, task: &str, job: u64) -> Result<i32, String> {
     match status.state.as_str() {
         "Succeeded" => Ok(0),
         "Cancelled" => Ok(EXIT_INTERRUPTED),
