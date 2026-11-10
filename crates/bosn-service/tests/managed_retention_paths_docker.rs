@@ -345,3 +345,84 @@ fn running(engine: &DockerEngine, container: &str) -> bool {
         ],
     ) == "true"
 }
+
+/// Legacy forwarding and non-forwarding images differ only in their live PID 1 proof.
+#[test]
+#[ignore = "requires a throwaway Docker engine and the pinned Alpine image"]
+fn live_docker_legacy_entrypoint_retention_proof() {
+    throwaway_machine_root();
+    let engine = DockerEngine::docker();
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    own_registry(&state);
+    let unique = test_unique_suffix();
+    let decoys = Decoys::plant(&engine, &unique);
+    let mut cleanup = Throwaway::new(&engine);
+    for (suffix, script, retire) in [
+        ("forward", "exec \"$@\"", true),
+        ("own", "while :; do sleep 3600; done", false),
+    ] {
+        let name = format!("bosn794-{unique}-{suffix}");
+        let image = format!("{name}:test");
+        std::fs::write(root.path().join("Dockerfile"), format!(
+            "FROM {PINNED_ALPINE}\nRUN printf '%s\\n' '#!/bin/sh' '{script}' > /entrypoint.sh && chmod +x /entrypoint.sh\nENTRYPOINT [\"/entrypoint.sh\"]\n"
+        )).unwrap();
+        cleanup.images.push(image.clone());
+        assert!(
+            docker_capture(
+                &engine,
+                ["build", "-t", &image, root.path().to_str().unwrap()]
+            )
+            .ok()
+        );
+        cleanup.containers.push(name.clone());
+        let mut args = vec![
+            "run".to_owned(),
+            "-d".into(),
+            "--name".into(),
+            name.clone(),
+            bosn_engine::LOW_CPU_PRIORITY_ARG.into(),
+            "--label".into(),
+            "com.zackees.bosn.setup-managed=v1".into(),
+            "--label".into(),
+            format!("com.zackees.bosn.setup-container={name}"),
+            "--label".into(),
+            format!("com.zackees.bosn.setup-content-sha256={}", "a".repeat(64)),
+            image,
+        ];
+        args.extend(bosn_setup::login_shell_args(
+            bosn_setup::MANIFEST_LINUX_IDLE_COMMAND,
+        ));
+        assert!(docker_capture(&engine, args).ok());
+        record_legacy_host(&state, &name);
+        let pass = zero_age_pass(&engine, &state);
+        assert_eq!(pass.stopped_idle.contains(&name), retire, "{suffix}");
+        if retire {
+            assert!(!container_exists(&engine, &name));
+        } else {
+            assert!(running(&engine, &name));
+        }
+        decoys.assert_intact(&engine);
+    }
+}
+
+fn record_legacy_host(state: &std::path::Path, name: &str) {
+    let mut registry =
+        bosn_registry::Registry::open_writer(state.join("registry.sqlite3")).unwrap();
+    let mut tx = registry.begin_immediate().unwrap();
+    tx.put_resource(&bosn_registry::Resource {
+        id: format!("manifest-container:app:{name}"),
+        kind: bosn_core::ResourceKind::Container,
+        name: name.into(),
+        stack: "app".into(),
+        generation: format!("sha256:{}", "a".repeat(64)),
+        scope: bosn_core::Scope::Machine,
+        workspace: "/workspace".into(),
+        created_at: 1.0,
+        last_used: 1.0,
+        state: bosn_core::ResourceState::Active,
+        retention: bosn_core::Retention::Pinned,
+    })
+    .unwrap();
+    tx.commit().unwrap();
+}

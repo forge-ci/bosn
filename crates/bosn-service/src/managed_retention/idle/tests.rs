@@ -74,7 +74,7 @@ fn world(
         let document = serde_json::json!([{
             "Id": fixture.name, "Name": format!("/{}", fixture.name),
             "Created": "2020-01-01T00:00:00Z",
-            "State": {"Running": fixture.running},
+            "State": {"Running": fixture.running, "StartedAt": "2020-01-01T00:00:00Z"},
             "Config": {"Labels": labels, "Cmd": cmd},
         }]);
         std::fs::write(
@@ -88,6 +88,12 @@ fn world(
     transaction.commit().unwrap();
     std::fs::write(root.path().join("ids"), ids).unwrap();
     std::fs::write(root.path().join("top"), top).unwrap();
+    let argv = bosn_setup::login_shell_args(crate::MANIFEST_LINUX_IDLE_COMMAND);
+    std::fs::write(
+        root.path().join("cmdline"),
+        format!("{}\0-lc\0{}\0", argv[3], argv[4]),
+    )
+    .unwrap();
     let engine = DockerEngine::synthetic_for_test(
         "/bin/sh",
         [
@@ -103,6 +109,17 @@ case "$1" in
       printf '%s' "$sep"; sed -e 's/^\[//' -e 's/\]$//' "$IDLE_FIXTURE/$id.json"; sep=','
     done
     printf ']' ;;
+  exec)
+    cat "$IDLE_FIXTURE/cmdline"
+    if [ -f "$IDLE_FIXTURE/next-cmdline" ]; then
+      cp "$IDLE_FIXTURE/next-cmdline" "$IDLE_FIXTURE/cmdline"
+    fi
+    if [ -f "$IDLE_FIXTURE/next-inspect" ]; then
+      cp "$IDLE_FIXTURE/next-inspect" "$IDLE_FIXTURE/idle.json"
+    fi
+    if [ -f "$IDLE_FIXTURE/next-top" ]; then
+      cp "$IDLE_FIXTURE/next-top" "$IDLE_FIXTURE/top"
+    fi ;;
   top) cat "$IDLE_FIXTURE/top" ;;
   stop) printf '%s\n' "$4" >> "$IDLE_FIXTURE/stopped" ;;
   *) exit 99 ;;
@@ -260,5 +277,112 @@ fn keepalive_detection_checks_the_effective_entrypoint() {
         serde_json::json!(["/entrypoint.sh"]),
         serde_json::json!(command),
     );
-    assert!(!super::is_keepalive(&foreign));
+    assert!(super::is_keepalive(&foreign)); // Candidate only; live argv still required.
+}
+
+#[test]
+fn legacy_forwarding_entrypoint_retires_only_with_exact_live_proof() {
+    let fixtures = [Fixture {
+        name: "idle",
+        idle_hours: 7.0,
+        keepalive: true,
+        running: true,
+        recorded: true,
+    }];
+    let (root, engine) = world(&fixtures, KEEPALIVE_TOP);
+    let path = root.path().join("idle.json");
+    // Use the fixture JSON only to model Docker's inspect boundary.
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    document[0]["Config"]["Entrypoint"] = serde_json::json!(["/entrypoint.sh"]);
+    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    let outcome = retire_idle_keepalives(&engine, root.path(), GATE, 16);
+    assert_eq!(outcome.stopped, ["idle"]);
+}
+
+#[test]
+fn ambiguous_or_changed_live_evidence_keeps_legacy_host() {
+    for scenario in [
+        "own-shell",
+        "malformed",
+        "missing",
+        "argv-race",
+        "restart",
+        "identity",
+        "workload",
+        "unregistered",
+        "foreign",
+    ] {
+        let fixtures = [Fixture {
+            name: "idle",
+            idle_hours: 7.0,
+            keepalive: true,
+            running: true,
+            recorded: scenario != "unregistered",
+        }];
+        let (root, engine) = world(&fixtures, KEEPALIVE_TOP);
+        let path = root.path().join("idle.json");
+        let mut document: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        document[0]["Config"]["Entrypoint"] = serde_json::json!(["/entrypoint.sh"]);
+        if scenario == "foreign" {
+            document[0]["Config"]["Labels"][bosn_core::LABEL_REGISTRY] =
+                serde_json::json!("foreign");
+        }
+        std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        match scenario {
+            "own-shell" => {
+                std::fs::write(root.path().join("cmdline"), b"sh\0-c\0sleep 3600\0").unwrap()
+            }
+            "malformed" => {
+                std::fs::write(root.path().join("cmdline"), b"sh\0-lc\0unterminated").unwrap()
+            }
+            "missing" => {
+                std::fs::rename(root.path().join("cmdline"), root.path().join("hidden")).unwrap()
+            }
+            "argv-race" => {
+                std::fs::write(root.path().join("next-cmdline"), b"sh\0-c\0sleep 3600\0").unwrap()
+            }
+            "workload" => std::fs::write(
+                root.path().join("next-top"),
+                "PID COMMAND\n1 sh\n2 sleep\n3 build\n",
+            )
+            .unwrap(),
+            "restart" | "identity" => {
+                if scenario == "restart" {
+                    document[0]["State"]["StartedAt"] = serde_json::json!("2021-01-01T00:00:00Z");
+                } else {
+                    document[0]["Id"] = serde_json::json!("replacement");
+                }
+                std::fs::write(
+                    root.path().join("next-inspect"),
+                    serde_json::to_vec(&document).unwrap(),
+                )
+                .unwrap();
+            }
+            _ => {}
+        }
+        let outcome = retire_idle_keepalives(&engine, root.path(), GATE, 16);
+        assert!(outcome.stopped.is_empty(), "{scenario}: {outcome:?}");
+        assert_eq!(stopped(&root), "", "{scenario}");
+    }
+}
+
+#[test]
+fn pid_one_argv_requires_a_complete_exact_nul_separated_command() {
+    for bytes in [
+        b"".as_slice(),
+        b"sh",
+        b"sh\0",
+        b"\xff\0",
+        b"sh\0-lc\0other\0",
+    ] {
+        assert!(super::KeepaliveArgv::parse(bytes).is_none());
+    }
+    let argv = bosn_setup::login_shell_args(crate::MANIFEST_LINUX_IDLE_COMMAND);
+    let launcher = format!("{}\0", argv.join("\0"));
+    assert!(super::KeepaliveArgv::parse(launcher.as_bytes()).is_none());
+    let valid = format!("{}\0-lc\0{}\0", argv[3], argv[4]);
+    assert!(super::KeepaliveArgv::parse(valid.as_bytes()).is_some());
+    assert!(super::KeepaliveArgv::parse(format!("{valid}extra\0").as_bytes()).is_none());
 }

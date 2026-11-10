@@ -92,11 +92,9 @@ pub(super) fn retire_idle_keepalives(
         ) else {
             continue;
         };
-        candidates.extend(
-            entries
-                .into_iter()
-                .filter(|entry| idle_keepalive(&ownership, entry, gate)),
-        );
+        candidates.extend(entries.into_iter().filter(|entry| {
+            idle_keepalive(&ownership, entry, gate) && keepalive_only(engine, &entry.id, options)
+        }));
     }
     for entry in candidates {
         if outcome.stopped.len() >= limit {
@@ -158,11 +156,7 @@ fn stop_if_still_idle(
     let Some(entry) = entries.into_iter().next() else {
         return Ok(false);
     };
-    let top = engine
-        .with_args(["top", &entry.id, "-eo", "pid,comm"])
-        .capture(options)
-        .map_err(|error| format!("idle container {name}: process table unreadable: {error}"))?;
-    if !top.ok() || !only_keepalive_processes(&top.stdout) {
+    if !same_incarnation(planned, &entry) || !keepalive_only(engine, &entry.id, options) {
         return Ok(false);
     }
     // The registry last: a task that registered a session after the first read protects here.
@@ -187,7 +181,8 @@ fn stop_if_still_idle(
     }
 }
 
-/// The exact keepalive launcher argv, never a declared command that merely ends in one.
+/// Configured keepalive candidate, never proof that an image entrypoint forwarded.
+/// `keepalive_only` must additionally prove the effective live PID 1 argv.
 pub(super) fn is_keepalive(entry: &ContainerDetail) -> bool {
     let Some(config) = entry.config.as_ref() else {
         return false;
@@ -199,16 +194,46 @@ pub(super) fn is_keepalive(entry: &ContainerDetail) -> bool {
     match config.entrypoint.as_deref() {
         None | Some([]) => cmd == expected.as_slice(),
         Some([shell]) if shell == "sh" => cmd == &expected[1..],
-        _ => false,
+        _ => cmd == expected.as_slice(),
     }
 }
 
-/// Whether `docker top` shows only the keepalive right now. Unreadable is `false`.
+/// Live PID 1 argv plus the existing process-list proof. Unreadable is `false`.
 pub(super) fn keepalive_only(engine: &DockerEngine, id: &str, options: RunOptions) -> bool {
+    let Ok(cmdline) = engine
+        .with_args(["exec", id, "cat", "/proc/1/cmdline"])
+        .capture(RunOptions::bounded(RETENTION_READ_DEADLINE, 4096))
+    else {
+        return false;
+    };
+    if !cmdline.ok() || KeepaliveArgv::parse(&cmdline.stdout).is_none() {
+        return false;
+    }
     engine
         .with_args(["top", id, "-eo", "pid,comm"])
         .capture(options)
         .is_ok_and(|top| top.ok() && only_keepalive_processes(&top.stdout))
+}
+
+/// Typed proof: complete NUL-terminated Linux argv, exactly the fixed launcher.
+struct KeepaliveArgv;
+
+impl KeepaliveArgv {
+    fn parse(bytes: &[u8]) -> Option<Self> {
+        let text = std::str::from_utf8(bytes).ok()?.strip_suffix('\0')?;
+        let argv: Vec<_> = text.split('\0').collect();
+        // The outer launcher execs `sh -lc SCRIPT`; only that final argv is proof.
+        let expected = bosn_setup::login_shell_args(crate::MANIFEST_LINUX_IDLE_COMMAND);
+        (argv == [expected[3].as_str(), "-lc", expected[4].as_str()]).then_some(Self)
+    }
+}
+
+/// Missing or invalid startup identity is uncertainty, never permission to stop.
+fn same_incarnation(planned: &ContainerDetail, fresh: &ContainerDetail) -> bool {
+    planned.id == fresh.id
+        && planned.started_age(now_seconds()).is_some()
+        && planned.state.as_ref().map(|s| &s.started_at)
+            == fresh.state.as_ref().map(|s| &s.started_at)
 }
 
 /// `docker top -eo pid,comm` shows exactly one shell and one `sleep`.
