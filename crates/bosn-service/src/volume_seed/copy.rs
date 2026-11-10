@@ -206,14 +206,24 @@ async fn checked(
     if deadline.remaining().is_zero() {
         return Err("seed action budget exhausted".into());
     }
-    let options = bosn_engine::RunOptions::bounded(deadline.remaining(), 1024 * 1024);
+    let deadline = *deadline;
+    let engine = context.engine.clone();
     let result = async_engine::cancellable(
         cancel,
-        context.engine.with_args(args).capture_async(options),
+        async_engine::launch_blocking(move || {
+            let remaining = deadline.remaining();
+            if remaining.is_zero() {
+                return Err("seed action budget exhausted before spawn".to_string());
+            }
+            engine
+                .with_args(args)
+                .capture(bosn_engine::RunOptions::bounded(remaining, 1024 * 1024))
+                .map_err(|e| e.to_string())
+        }),
     )
     .await
     .map_err(|_| "seed cancelled".to_string())?
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())??;
     result.require_complete().map_err(|e| e.to_string())?;
     if !result.ok() {
         return Err(format!(
