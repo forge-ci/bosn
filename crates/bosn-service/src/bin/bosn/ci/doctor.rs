@@ -29,6 +29,7 @@ pub(super) fn run(arguments: impl Iterator<Item = OsString>) -> Result<i32, Fail
                 r.engine_capacity_error.as_deref(),
             )
         );
+        println!("{}", format_slice_cpu(r.slice_cpu.as_ref()));
         match (&r.engine, &r.report) {
             (Some(engine), Some(report)) => {
                 println!("engine: {engine}");

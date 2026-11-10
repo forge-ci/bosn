@@ -284,6 +284,11 @@ struct JobArguments {
 }
 
 fn format_capacity(out: &mut String, view: &Value, ci: Option<&RunnersReply>) {
+    let _ = writeln!(
+        out,
+        "{}",
+        super::ci::format_slice_cpu(ci.and_then(|reply| reply.slice_cpu.as_ref()))
+    );
     let capacity: Option<TaskLaneCapacity> = serde_json::from_value(view["capacity"].clone()).ok();
     let _ = writeln!(
         out,
@@ -403,6 +408,9 @@ mod tests {
                 "limit": 2, "running": 0, "queued": 0, "drained": false,
                 "engine": "act", "act_version": "act2.19", "widget": "absent"
             },
+            "slice_cpu": {
+                "placement": "bosn.slice", "cpu_max": {"quota": 200000, "period": 100000}, "cpu_weight": 10
+            },
             "engine_capacity": {
                 "cpus": 8, "memory_bytes": 17179869184_u64,
                 "cpu_source": "default_ceiling", "running": true
@@ -413,6 +421,7 @@ mod tests {
         assert_eq!(
             format_table(&view, Some(&ci)),
             concat!(
+                "CPU placement: bosn.slice; cpu.max: 200000 100000 (2 CPUs); cpu.weight: 10\n",
                 "task lane: 32 slots x 4 CPUs per slot (host 16 logical CPUs), control slots: 8, stall teardown: 1800s, docker proxy: on\n",
                 "CI lane: admission limit 2; running engine 8 CPUs (default 8-CPU ceiling), 16 GiB memory\n",
                 " runner: 0 running, 0 queued\n",

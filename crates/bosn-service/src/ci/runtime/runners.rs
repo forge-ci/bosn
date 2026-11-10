@@ -76,7 +76,11 @@ impl CiRuntime {
         self.kick();
         let status = self.runner_status(&self.lock());
         let (engine_capacity, engine_capacity_error) = self.engine_capacity().await;
+        let slice_cpu = async_engine::launch_blocking(bosn_engine::slice_cpu)
+            .await
+            .ok();
         Ok(RunnersReply {
+            slice_cpu,
             runners: status,
             engine_capacity,
             engine_capacity_error,

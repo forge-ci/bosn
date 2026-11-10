@@ -51,7 +51,7 @@ mod doctor;
 mod notes;
 #[path = "ci/stages.rs"]
 mod stages;
-pub use capacity::{format_ci_capacity, format_task_capacity};
+pub use capacity::{format_ci_capacity, format_slice_cpu, format_task_capacity};
 use stages::print_setup_stages;
 
 const EXIT_REFUSED: i32 = 3;

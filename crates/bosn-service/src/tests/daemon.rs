@@ -954,15 +954,15 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // #780 adds optional defaulted stage observations to run records and reports.
 // Older clients ignore them and newer clients read older records as empty,
 // so the daemon protocol remains 2.
-// #767 adds the optional `engine_capacity_error` to two replies; older clients
-// ignore it, so the daemon protocol is unchanged.
+// #673: optional slice_cpu in doctor/runners; old peers ignore it, no protocol bump.
+// #767: optional engine_capacity_error in replies is additive, no protocol bump.
 // #833/#671 diagnostics and #777 advisory reply tag 73 (default false) are additive, no bump.
 // #724: protocol 3 adds request tag 32 (task args). Protocol 2 requests omit it;
 // non-empty args require protocol 3. #885 adds optional tag 33 (clean), requiring protocol 4.
 // #666 adds tag 34 (wait), protocol 5/4, reply 74. #307 changes HTTP SSE schema only; no daemon wire change.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "e565caa1e45da4eeeaadf6d662871449c6cc8f68f5082aaf9fe9ac6628bf97e7",
+    "8efa400d0a96802c6aa7b07a510eee9d5c0bebb60cb1e69c0b5d14c0e06d4ca1",
 );
 
 #[test]
