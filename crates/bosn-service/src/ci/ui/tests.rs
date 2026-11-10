@@ -844,3 +844,6 @@ fn unified_cursor_keeps_legacy_statuses_and_orders_across_pages_and_restart() {
         assert!(reply.body.contains("\"state\":\"done\""));
     });
 }
+
+#[path = "dashboard_tests.rs"]
+mod dashboard_tests;
