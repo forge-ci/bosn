@@ -231,6 +231,11 @@ pub trait ManifestAppTaskExecutor: Send + Sync {
 /// Durable, conservative ownership evidence for a manifest app task. The
 /// identity is the registry-matching deterministic managed container name.
 pub trait ManifestAppTaskSessionRecorder: Send + Sync {
+    /// Registry authority for a task's ephemeral Docker objects.
+    fn registry_id(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
+        Box::pin(async { Err("task registry authority unavailable".into()) })
+    }
+
     fn begin<'a>(
         &'a self,
         managed_container_identity: String,

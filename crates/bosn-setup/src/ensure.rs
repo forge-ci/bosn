@@ -570,6 +570,23 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
     })
 }
 
+/// Validate or create the named volumes before creating a task's own container.
+pub async fn prepare_task_container<E: SetupEnsureEngine>(
+    engine: &E,
+    request: &SetupEnsureRequest<'_>,
+    name: &str,
+) -> Result<SetupEnsureCommand, SetupEnsureError> {
+    let command = derive::task_container_command(request.plan, request.prepared_image, name)?;
+    let SetupEnsureCommand::Create { volumes, .. } = &command else {
+        return Err(SetupEnsureError::EngineProtocol(
+            "task profile is not a create",
+        ));
+    };
+    let deadline = Deadline::after(request.options.deadline);
+    ensure_named_volumes(engine, volumes, &deadline, request).await?;
+    Ok(command)
+}
+
 async fn ensure_named_volumes<E: SetupEnsureEngine>(
     engine: &E,
     volumes: &[SetupEnsureVolume],

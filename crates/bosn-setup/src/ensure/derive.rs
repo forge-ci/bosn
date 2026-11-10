@@ -531,3 +531,26 @@ pub(crate) fn validated_environment(
     }
     Ok(input.clone())
 }
+
+/// Derive a task container from the same validated creation profile as its stack.
+pub(crate) fn task_container_command(
+    plan: &SetupPlan,
+    image: &PreparedImage,
+    name: &str,
+) -> Result<SetupEnsureCommand, SetupEnsureError> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+    {
+        return Err(SetupEnsureError::InvalidRequest(
+            "invalid task container name",
+        ));
+    }
+    let mut derived = derive_creation(plan, &plan.workspace_root, image)?;
+    derived.container_name = name.into();
+    derived
+        .labels
+        .insert(LABEL_CONTAINER_NAME.into(), name.into());
+    Ok(derived.create_command())
+}

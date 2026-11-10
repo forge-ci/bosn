@@ -10,16 +10,16 @@ use crate::support::setup_docker::*;
 
 /// A temporary workspace, its private daemon, and teardown of every
 /// container (and its volumes) that binds the workspace.
-struct StackWorkspace {
-    engine: DockerEngine,
+pub(super) struct StackWorkspace {
+    pub(super) engine: DockerEngine,
     _root: tempfile::TempDir,
-    workspace: std::path::PathBuf,
-    state: std::path::PathBuf,
+    pub(super) workspace: std::path::PathBuf,
+    pub(super) state: std::path::PathBuf,
     daemon: Option<DaemonChild>,
 }
 
 impl StackWorkspace {
-    fn new(manifest: &str) -> Self {
+    pub(super) fn new(manifest: &str) -> Self {
         let engine = DockerEngine::docker();
         pinned_alpine_identity(&engine);
         let root = if let Some(dir) = std::env::var_os("BOSN_LIVE_TEST_ROOT") {
@@ -46,6 +46,7 @@ impl StackWorkspace {
             format!("FROM {PINNED_ALPINE}\nRUN sed -i '/^umask/d' /etc/profile\n"),
         )
         .expect("write live.Dockerfile");
+        own_registry(&this.state);
         let mut daemon = DaemonChild::start(&this.state);
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
@@ -64,6 +65,7 @@ impl StackWorkspace {
         let mut command = Command::new(env!("CARGO_BIN_EXE_bosn"));
         command
             .current_dir(&self.workspace)
+            .env("XDG_STATE_HOME", self.state.join("xdg-state"))
             .args(["run", "--task", task, "--state-dir"])
             .arg(&self.state);
         command
@@ -71,7 +73,7 @@ impl StackWorkspace {
 
     /// `bosn run --task NAME`; returns its stdout then its stderr (Bosn's
     /// own job lines), failing on a non-zero exit.
-    fn run_task(&self, task: &str) -> String {
+    pub(super) fn run_task(&self, task: &str) -> String {
         let output = self.bosn_run(task).output().expect("run bosn run");
         Self::output_of(task, output)
     }
@@ -90,7 +92,7 @@ impl StackWorkspace {
     }
 
     /// Every container, running or not, that binds this test's workspace.
-    fn containers(&self) -> Vec<String> {
+    pub(super) fn containers(&self) -> Vec<String> {
         let listed = docker_capture(
             &self.engine,
             [
@@ -188,7 +190,7 @@ impl Drop for StackWorkspace {
 
 /// One `live` stack built from `live.Dockerfile`, binding the workspace and
 /// keeping a stack-scoped volume at `/state`, plus `tasks` as (name, cmd).
-fn stack_manifest(marker: &str, tasks: &[(&str, &str)]) -> String {
+pub(super) fn stack_manifest(marker: &str, tasks: &[(&str, &str)]) -> String {
     let mut manifest = format!(
         "[stack.live]\n\
          dockerfile = 'live.Dockerfile'\n\
@@ -201,7 +203,7 @@ fn stack_manifest(marker: &str, tasks: &[(&str, &str)]) -> String {
     );
     for (name, cmd) in tasks {
         manifest.push_str(&format!(
-            "[task.{name}]\nstack = 'live'\ncmd = '''{cmd}'''\n"
+            "[task.{name}]\nkeep = true\nstack = 'live'\ncmd = '''{cmd}'''\n"
         ));
     }
     manifest

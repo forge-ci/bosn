@@ -49,7 +49,7 @@ pub use ensure::{
     LABEL_MANAGED as SETUP_MANAGED_LABEL, SetupEnsureCommand, SetupEnsureEngine, SetupEnsureError,
     SetupEnsureMacosGuest, SetupEnsureMount, SetupEnsureObservedContainer, SetupEnsureRequest,
     SetupEnsureResponse, SetupEnsureResult, SetupEnsureTmpfs, adopt_setup_app, ensure_setup_app,
-    setup_container_name, verify_setup_observation,
+    prepare_task_container, setup_container_name, verify_setup_observation,
 };
 
 mod shell;
@@ -59,7 +59,7 @@ mod task;
 pub use task::{
     SetupAppTaskCommand, SetupAppTaskEngine, SetupAppTaskRequest, SetupTaskCommand,
     SetupTaskEngine, SetupTaskError, SetupTaskMount, SetupTaskRequest, SetupTaskResult,
-    execute_setup_app_task, execute_setup_task,
+    execute_named_setup_app_task, execute_setup_app_task, execute_setup_task,
 };
 mod task_stop;
 pub use task_stop::TASK_TOKEN_ENV;

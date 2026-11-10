@@ -524,13 +524,7 @@ pub(crate) struct ManifestRuntimePlan {
         expect(dead_code, reason = "read by the #666 task-container slice")
     )]
     pub(crate) volume_modes: BTreeMap<String, bosn_core::manifest::VolumeMode>,
-    /// The selected task's `keep` (#666); false without a task. Carried, not
-    /// yet acted on, and not part of the generation: it selects the
-    /// container's lifetime, not its shape.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "read by the #666 task-container slice")
-    )]
+    /// Select the task container lifetime without changing generation identity.
     pub(crate) keep: bool,
 }
 
