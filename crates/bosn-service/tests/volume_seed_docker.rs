@@ -596,16 +596,13 @@ impl Fixture {
                 .unwrap()
                 .into_iter()
                 .find(|s| s.state == bosn_registry::volume_seed::SeedState::Copying)
-            {
-                if let Some(id) = registry
+                && let Some(id) = registry
                     .cache_helper(&seed.nonce)
                     .unwrap()
                     .and_then(|h| h.container_id)
-                {
-                    if docker_capture(&self.engine, ["pause", &id]).ok() {
-                        return (seed, id);
-                    }
-                }
+                && docker_capture(&self.engine, ["pause", &id]).ok()
+            {
+                return (seed, id);
             }
             assert!(
                 Instant::now() < deadline,
