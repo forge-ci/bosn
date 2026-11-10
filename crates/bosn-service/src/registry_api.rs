@@ -24,10 +24,13 @@ impl RegistryActor {
         }
         let (reply, wait) = async_engine::oneshot_channel();
         self.sender
-            .send(DbCommand::PutManifestVolumeIntents { volumes, reply })
+            .send(DbCommand::ManifestVolumes {
+                command: manifest_volume_registry::Command::PutIntents(volumes),
+                reply,
+            })
             .await
             .map_err(|_| Error::ActorClosed)?;
-        wait.await.map_err(|_| Error::ActorClosed)?
+        wait.await.map_err(|_| Error::ActorClosed)?.map(|_| ())
     }
     pub(crate) async fn begin_setup_app_task_session(
         &self,
@@ -699,9 +702,9 @@ pub(crate) enum DbCommand {
         contract: ManifestRecoveryContract,
         reply: async_engine::OneshotSender<Result<bool, Error>>,
     },
-    PutManifestVolumeIntents {
-        volumes: Vec<ManifestVolumeResource>,
-        reply: async_engine::OneshotSender<Result<(), Error>>,
+    ManifestVolumes {
+        command: manifest_volume_registry::Command,
+        reply: async_engine::OneshotSender<Result<bool, Error>>,
     },
     RecordSetupAdoption {
         execution: Box<SetupEnsureExecution>,

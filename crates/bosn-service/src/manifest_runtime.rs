@@ -148,12 +148,7 @@ pub(crate) fn manifest_named_volumes(
                 Scope::Stack => workspace_identity.into(),
                 Scope::Machine => stack.family.clone().unwrap_or_else(|| stack.name.clone()),
             };
-            let mut hasher = Sha256Hasher::new();
-            manifest_generation_field(&mut hasher, b"bosn-manifest-volume-v1");
-            manifest_generation_field(&mut hasher, stack.name.as_bytes());
-            manifest_generation_field(&mut hasher, volume.name.as_bytes());
-            manifest_generation_field(&mut hasher, scope_key.as_bytes());
-            let identity = hasher.finalize().to_string();
+            let identity = manifest_volume_identity(&stack.name, &volume.name, &scope_key);
             let name = format!("bosn-v-{}-{}", volume.scope.as_str(), &identity[..24]);
             let labels = BTreeMap::from([
                 ("com.zackees.bosn.setup-managed".into(), "v1".into()),
@@ -677,4 +672,14 @@ pub(crate) fn valid_manifest_macos_guest_image(value: &str) -> bool {
             | "index.docker.io/dockurr/macos"
             | "registry-1.docker.io/dockurr/macos"
     )
+}
+
+/// Stable volume digest, shared by planning and sibling-volume matching.
+pub(crate) fn manifest_volume_identity(stack: &str, volume: &str, scope_key: &str) -> String {
+    let mut hasher = Sha256Hasher::new();
+    manifest_generation_field(&mut hasher, b"bosn-manifest-volume-v1");
+    manifest_generation_field(&mut hasher, stack.as_bytes());
+    manifest_generation_field(&mut hasher, volume.as_bytes());
+    manifest_generation_field(&mut hasher, scope_key.as_bytes());
+    hasher.finalize().to_string()
 }

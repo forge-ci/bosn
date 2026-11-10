@@ -108,6 +108,7 @@ mod manifest_plan;
 mod manifest_recovery;
 mod manifest_runtime;
 mod manifest_target_volume;
+mod manifest_volume_registry;
 pub mod mcp;
 pub mod owned_accounting;
 mod owner;
