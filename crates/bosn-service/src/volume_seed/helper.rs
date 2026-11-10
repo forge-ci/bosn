@@ -61,6 +61,11 @@ pub(super) fn args(
         "--pull=never".into(),
         "--network=none".into(),
         "--read-only".into(),
+        "--tmpfs".into(),
+        format!(
+            "/var/lib/docker:{}",
+            bosn_registry::cache_helper::VOLUME_SEED_TMPFS
+        ),
         "--init=false".into(),
         "--restart=no".into(),
         "--memory=512m".into(),

@@ -250,6 +250,11 @@ fn volume_seed_matches(row: &Helper, volume: &str, source: &str, destination: &s
     destination == volume
         && !row.host_config.privileged
         && row.mounts.len() == 2
+        && row.host_config.tmpfs.as_ref().is_some_and(|mounts| {
+            mounts.len() == 1
+                && mounts.get("/var/lib/docker").map(String::as_str)
+                    == Some(bosn_registry::cache_helper::VOLUME_SEED_TMPFS)
+        })
         && row
             .mounts
             .iter()

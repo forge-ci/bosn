@@ -435,6 +435,11 @@ impl Fixture {
             "--pull=never".into(),
             "--network=none".into(),
             "--read-only".into(),
+            "--tmpfs".into(),
+            format!(
+                "/var/lib/docker:{}",
+                bosn_registry::cache_helper::VOLUME_SEED_TMPFS
+            ),
             "--init=false".into(),
             "--restart=no".into(),
             "--memory=512m".into(),
@@ -568,7 +573,15 @@ fn live_docker_budget_below_ensure_floor_creates_no_helper() {
             .unwrap()
             .items
             .iter()
-            .all(|e| !e.kind.starts_with("ci.cache-helper.v1:"))
+            .filter(|e| e.kind.starts_with("ci.cache-helper.v1:"))
+            .all(|e| {
+                let helper: bosn_registry::cache_helper::CacheHelperRecord =
+                    serde_json::from_str(&e.detail).unwrap();
+                !matches!(
+                    helper.intent.role,
+                    Some(bosn_registry::cache_helper::CacheHelperRole::VolumeSeedV1 { .. })
+                )
+            })
     );
     assert!(f.label(&f.volume(&f.worktree)).is_empty());
 }

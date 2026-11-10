@@ -13,7 +13,7 @@ pub(super) fn verify(
     if keys.iter().any(|k| labels.contains_key(*k))
         && keys
             .iter()
-            .any(|k| labels.get(*k).is_none() || labels.get(*k) != expected.labels.get(*k))
+            .any(|k| !labels.contains_key(*k) || labels.get(*k) != expected.labels.get(*k))
     {
         return Err(SetupEnsureError::OwnershipMismatch);
     }
