@@ -12,11 +12,16 @@ pub(crate) const RECORD_BYTES: usize = 24_576;
 pub const MAX_HELPER_PAGE: usize = 64;
 /// Docker control deadline (30 s) plus ten minutes for a late create to settle.
 pub const LATE_CREATE_WINDOW_SECS: f64 = 630.0;
+pub const VOLUME_SEED_COMMAND: &str = "cp -a /source/. /destination/";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CacheHelperRole {
     MaintenanceV1,
+    VolumeSeedV1 {
+        source: String,
+        destination: String,
+    },
     /// Complete foreign source authority; the helper journal belongs to its
     /// executing daemon, independently of the source's original registry.
     ToolSourceFinalizationV1 {
@@ -66,7 +71,9 @@ pub struct RecoveryHelperBinding<'a> {
 impl CacheHelperRole {
     pub fn recovery_binding(&self) -> Option<RecoveryHelperBinding<'_>> {
         match self {
-            Self::MaintenanceV1 | Self::ToolSourceFinalizationV1 { .. } => None,
+            Self::MaintenanceV1
+            | Self::VolumeSeedV1 { .. }
+            | Self::ToolSourceFinalizationV1 { .. } => None,
             Self::ToolRecoveryV1 {
                 run_id,
                 intent,
@@ -122,6 +129,7 @@ impl CacheHelperIntent {
         let role = match &self.role {
             None => "measure",
             Some(CacheHelperRole::MaintenanceV1) => "maintain",
+            Some(CacheHelperRole::VolumeSeedV1 { .. }) => "volume-seed",
             Some(CacheHelperRole::ToolSourceFinalizationV1 { .. }) => "finalize-source",
             Some(CacheHelperRole::ToolRecoveryV1 { .. }) => "recover",
             Some(CacheHelperRole::ToolRecoveryReleaseV1 { .. }) => "release",
@@ -139,6 +147,16 @@ impl CacheHelperIntent {
             || digest.is_none_or(|digest| !hex_id(digest))
         {
             return Err(Error::BadRow("cache helper intent"));
+        }
+        if let Some(CacheHelperRole::VolumeSeedV1 {
+            source,
+            destination,
+        }) = &self.role
+        {
+            crate::volume_seed::validate_names(source, destination)?;
+            if self.volume != *destination {
+                return Err(Error::BadRow("seed helper destination"));
+            }
         }
         if let Some(CacheHelperRole::ToolSourceFinalizationV1 {
             context,

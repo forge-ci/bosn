@@ -29,6 +29,7 @@ mod read_only;
 mod registry;
 mod rows;
 mod storage;
+pub mod volume_seed;
 use gc_query::*;
 pub use immediate::*;
 pub use read_only::*;

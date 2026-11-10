@@ -29,7 +29,7 @@ impl RegistryActor {
     pub(crate) async fn manifest_volume_command(
         &self,
         command: manifest_volume_registry::Command,
-    ) -> Result<bool, Error> {
+    ) -> Result<manifest_volume_registry::Reply, Error> {
         let (reply, wait) = async_engine::oneshot_channel();
         self.sender
             .send(DbCommand::ManifestVolumes { command, reply })
@@ -709,7 +709,7 @@ pub(crate) enum DbCommand {
     },
     ManifestVolumes {
         command: manifest_volume_registry::Command,
-        reply: async_engine::OneshotSender<Result<bool, Error>>,
+        reply: async_engine::OneshotSender<Result<manifest_volume_registry::Reply, Error>>,
     },
     RecordSetupAdoption {
         execution: Box<SetupEnsureExecution>,

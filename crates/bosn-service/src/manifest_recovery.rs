@@ -322,5 +322,6 @@ pub(crate) async fn recover_manifest_startup(
     state_dir: &Path,
     executor: &dyn ManifestRecoveryExecutor,
 ) -> Result<(), Error> {
+    crate::volume_seed::recover_startup(actor, state_dir).await;
     recover_manifest_startup_inner(actor, state_dir, executor).await
 }

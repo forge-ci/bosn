@@ -1,12 +1,14 @@
 //! Seed only newly created stack volumes; source selection is pure.
 use crate::setup_adopt::{PreparedSetupEnsure, SetupEnsurePipeline, execute_setup_ensure_pipeline};
-use crate::{ManifestVolumeResource, RegistryActor, manifest_volume_registry::Command};
+use crate::{ManifestVolumeResource, RegistryActor};
 use bosn_core::{ResourceKind, Scope};
 use bosn_engine::{DockerEngine, EngineEvent};
 use kernal_api::async_engine;
 use std::path::Path;
 
 mod copy;
+mod gate;
+mod helper;
 mod locks;
 mod observe;
 #[cfg(test)]
@@ -70,99 +72,133 @@ impl SeedContext<'_> {
         events: &async_engine::Sender<EngineEvent>,
         logs: &crate::raw_run_log::JobLogSink,
     ) -> Result<PreparedSetupEnsure, String> {
-        // A destination ensure waits asynchronously for another ensure/seed of
-        // that exact volume. Source selection itself always uses a nonblocking try.
-        let locks = locks::destinations(
+        let _locks = locks::destinations(
             self.state_dir,
             self.volumes,
             pipeline.deadline,
             cancellation,
         )
-        .await;
-        let _locks = match locks {
-            Ok(locks) => Some(locks),
-            Err(error) => {
-                crate::daemon_log!(
-                    "bosn volume seed: cold create: volume locking unavailable: {error}"
-                );
-                None
+        .await?;
+        for target in self.volumes {
+            // The gate runs even when seed=false: opt-out never bypasses an unfinished copy.
+            if gate::ensure_safe(self, target)
+                .await
+                .map_err(|e| e.to_string())?
+            {
+                continue;
             }
-        };
-        for volume in self.volumes.iter().filter(|_| _locks.is_some()) {
-            if let Err(error) = self.seed(volume, pipeline.deadline).await {
-                crate::daemon_log!("bosn volume seed: {}: cold create: {error}", volume.name);
+            let Some(query_budget) = budget(pipeline.deadline.remaining()) else {
+                if target.seed_name.is_some() {
+                    crate::daemon_log!(
+                        "bosn volume seed: {}: cold create: ensure floor reserved",
+                        target.name
+                    );
+                }
+                continue;
+            };
+            if target.seed_name.is_none() {
+                continue;
+            }
+            let state = self.state_dir.to_owned();
+            let engine = self.engine.clone();
+            let target_copy = target.clone();
+            let selected = async_engine::timeout_at(
+                async_engine::Deadline::after(query_budget.min(std::time::Duration::from_secs(15))),
+                async_engine::launch_blocking(move || {
+                    observe::source(&state, &engine, &target_copy)
+                }),
+            )
+            .await;
+            let selected = match selected {
+                Ok(worker) => worker.map_err(|e| e.to_string())?,
+                Err(_) => {
+                    crate::daemon_log!(
+                        "bosn volume seed: {}: cold create: source observation budget exhausted",
+                        target.name
+                    );
+                    continue;
+                }
+            };
+            match selected {
+                Ok(Some((source, source_lock))) => {
+                    let _source_lock = source_lock;
+                    copy::seed(
+                        self,
+                        target,
+                        source,
+                        match budget(pipeline.deadline.remaining()) {
+                            Some(budget) => budget,
+                            None => {
+                                crate::daemon_log!(
+                                    "bosn volume seed: {}: cold create: ensure floor reserved",
+                                    target.name
+                                );
+                                continue;
+                            }
+                        },
+                        cancellation,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                }
+                Ok(None) => (),
+                Err(error) => {
+                    crate::daemon_log!("bosn volume seed: {}: cold create: {error}", target.name)
+                }
             }
         }
         execute_setup_ensure_pipeline(self.engine, pipeline, cancellation, events, logs).await
     }
+}
+pub(super) const ENSURE_FLOOR: std::time::Duration = std::time::Duration::from_secs(60);
+fn budget(remaining: std::time::Duration) -> Option<std::time::Duration> {
+    let budget = remaining
+        .checked_sub(ENSURE_FLOOR)?
+        .min(std::time::Duration::from_secs(600));
+    // Reserve control time inside the seed budget for teardown and a cold reset.
+    (budget > std::time::Duration::from_secs(30)).then_some(budget)
+}
 
-    async fn seed(
-        &self,
-        target: &ManifestVolumeResource,
-        deadline: &async_engine::Deadline,
-    ) -> Result<(), String> {
-        if target.seed_name.is_none() {
-            return Ok(());
-        }
-        let state = self.state_dir.to_owned();
-        let engine = self.engine.clone();
-        let target = target.clone();
-        let worker_target = target.clone();
-        let selected =
-            async_engine::launch_blocking(move || observe::source(&state, &engine, &worker_target))
-                .await
-                .map_err(|e| e.to_string())??;
-        let Some((source, source_lock)) = selected else {
-            return Ok(());
-        };
-        let id = format!("volume-seed:{}", target.name);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_secs_f64();
-        let lease = bosn_registry::Lease {
-            id: id.clone(),
-            resource_id: source.id.clone(),
-            pid: std::process::id(),
-            proc_start: None,
-            acquired_at: now,
-            heartbeat_at: now,
-            ttl_seconds: 0.0,
-        };
-        if !self
-            .registry
-            .manifest_volume_command(Command::AcquireSeed {
-                source: Box::new(source.clone()),
-                lease,
-            })
-            .await
-            .map_err(|e| e.to_string())?
-        {
-            return Err(format!("source {} is leased or changed", source.name));
-        }
-        // The cleanup driver outlives a caller dropped by an outer deadline.
-        // Its blocking worker owns the file lease until Docker cleanup finishes.
-        let engine = self.engine.clone();
-        let state = self.state_dir.to_owned();
-        let registry = self.registry.clone();
-        let budget = deadline.remaining();
-        async_engine::launch(async move {
-            let outcome = async_engine::launch_blocking(move || {
-                let _source_lock = source_lock;
-                copy::seed(&engine, &source, &target, &state, budget)
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-            if outcome.helper_uncertain {
-                return Err("seed helper cleanup uncertain; source lease retained".into());
+pub(crate) async fn recover_startup(registry: &RegistryActor, state_dir: &Path) {
+    let engine = DockerEngine::docker();
+    let context = SeedContext {
+        state_dir,
+        engine: &engine,
+        registry,
+        volumes: &[],
+    };
+    match gate::snapshot(&context).await {
+        Ok(snapshot) => {
+            for seed in snapshot
+                .seeds
+                .iter()
+                .filter(|s| s.state == bosn_registry::volume_seed::SeedState::Copying)
+            {
+                let Some(intent) = snapshot.intents.iter().find(|i| i.name == seed.destination)
+                else {
+                    crate::daemon_log!(
+                        "bosn volume seed: {}: recovery held: destination intent missing",
+                        seed.destination
+                    );
+                    continue;
+                };
+                let target = ManifestVolumeResource {
+                    id: format!("manifest-volume:{}", intent.name),
+                    name: intent.name.clone(),
+                    stack: intent.stack.clone(),
+                    generation: intent.generation.clone(),
+                    scope: intent.scope,
+                    workspace: intent.workspace.clone(),
+                    retention: bosn_core::Retention::Warm,
+                    target: String::new(),
+                    labels: intent.labels.clone(),
+                    seed_name: None,
+                };
+                if let Err(error) = gate::ensure_safe(&context, &target).await {
+                    crate::daemon_log!("bosn volume seed: {}: recovery held: {error}", target.name);
+                }
             }
-            registry
-                .manifest_volume_command(Command::ReleaseSeed(id))
-                .await
-                .map_err(|e| format!("seed lease release failed (source stays protected): {e}"))?;
-            outcome.result
-        })
-        .await
-        .map_err(|e| e.to_string())?
+        }
+        Err(error) => crate::daemon_log!("bosn volume seed: startup recovery held: {error}"),
     }
 }

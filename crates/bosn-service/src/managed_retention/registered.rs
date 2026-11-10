@@ -68,6 +68,11 @@ impl RegisteredOwnership {
                 .into_iter()
                 .map(|intent| intent.name),
         );
+        for seed in registry.volume_seeds().map_err(|e| e.to_string())? {
+            if seed.state == bosn_registry::volume_seed::SeedState::Copying {
+                protected.extend([seed.source, seed.destination]);
+            }
+        }
         Ok(Self {
             owner,
             resources,

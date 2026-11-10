@@ -108,6 +108,7 @@ impl Registry {
             ci_metadata_limit_bytes: storage::CI_METADATA_LIMIT_BYTES,
         };
         verify_database_identity(path, identity)?;
+        crate::volume_seed::initialize(&mut registry.connection)?;
         registry.storage_path = std::fs::canonicalize(path)?;
         verify_database_identity(&registry.storage_path, identity)?;
         // Open the checkpoint connection at the same fenced startup boundary,

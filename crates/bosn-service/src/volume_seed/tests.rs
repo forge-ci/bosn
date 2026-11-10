@@ -79,7 +79,7 @@ fn no_repository_existing_volume_and_opt_out_never_seed() {
     assert!(select(Some("/repo/.git"), &target, &candidates, false).is_none());
 }
 #[test]
-fn manifest_seed_defaults_true_and_accepts_typed_opt_out() {
+fn manifest_seed_defaults_off_and_requires_typed_stack_opt_in() {
     let parse = |seed: &str| {
         bosn_core::manifest::parse_manifest_toml(
             &format!(
@@ -88,7 +88,8 @@ fn manifest_seed_defaults_true_and_accepts_typed_opt_out() {
             bosn_core::manifest::ManifestRoots::new("test", "/workspace", "/workspace"),
         )
     };
-    assert!(parse("").unwrap().stacks["cook"].volumes[0].seed);
+    assert!(!parse("").unwrap().stacks["cook"].volumes[0].seed);
+    assert!(parse("seed = true").unwrap().stacks["cook"].volumes[0].seed);
     assert!(!parse("seed = false").unwrap().stacks["cook"].volumes[0].seed);
     assert!(parse("seed = 'false'").is_err());
 }
@@ -102,56 +103,52 @@ fn exclusive_volume_lock_never_waits() {
 }
 
 #[test]
-fn registry_seed_lease_is_exclusive_and_released_without_schema_changes() {
-    use crate::manifest_volume_registry::{Command, execute};
-    let root = tempfile::tempdir().unwrap();
-    let mut registry = bosn_registry::Registry::create_writer(
-        root.path().join("registry.sqlite3"),
-        "aabbccdd-0000-4000-8000-000000000327",
-    )
-    .unwrap();
-    let resource = candidate("source", 2.0).resource;
-    let mut tx = registry.begin_immediate().unwrap();
-    tx.put_resource(&resource).unwrap();
-    tx.commit().unwrap();
-    let lease = bosn_registry::Lease {
-        id: "volume-seed:new".into(),
-        resource_id: resource.id.clone(),
-        pid: std::process::id(),
-        proc_start: None,
-        acquired_at: 3.0,
-        heartbeat_at: 3.0,
-        ttl_seconds: 0.0,
+fn completion_gate_resets_orphans_and_copying_but_uses_complete() {
+    use bosn_registry::volume_seed::{SeedState, VolumeSeed};
+    let mut labels = std::collections::BTreeMap::from([
+        (gate::source_label(), "bosn-v-stack-source".into()),
+        (gate::nonce_label(), "nonce".into()),
+    ]);
+    let mut seed = VolumeSeed {
+        destination: "bosn-v-stack-destination".into(),
+        source: "bosn-v-stack-source".into(),
+        nonce: "nonce".into(),
+        state: SeedState::Copying,
     };
-    assert!(
-        execute(
-            &mut registry,
-            Command::AcquireSeed {
-                source: Box::new(resource.clone()),
-                lease: lease.clone()
-            }
-        )
-        .unwrap()
+    assert_eq!(
+        gate::decision(None, &labels).unwrap(),
+        gate::Decision::Reset
     );
-    assert!(
-        !execute(
-            &mut registry,
-            Command::AcquireSeed {
-                source: Box::new(resource.clone()),
-                lease: lease.clone()
-            }
-        )
-        .unwrap()
+    assert_eq!(
+        gate::decision(Some(&seed), &labels).unwrap(),
+        gate::Decision::Reset
     );
-    assert!(execute(&mut registry, Command::ReleaseSeed(lease.id.clone())).unwrap());
-    assert!(
-        execute(
-            &mut registry,
-            Command::AcquireSeed {
-                source: Box::new(resource),
-                lease
-            }
-        )
-        .unwrap()
+    seed.state = SeedState::Complete;
+    assert_eq!(
+        gate::decision(Some(&seed), &labels).unwrap(),
+        gate::Decision::Use
+    );
+    labels.insert(gate::nonce_label(), "foreign".into());
+    assert!(matches!(
+        gate::decision(Some(&seed), &labels),
+        Err(gate::SeedError::SeedDestinationUncertain { .. })
+    ));
+    assert_eq!(
+        gate::decision(None, &Default::default()).unwrap(),
+        gate::Decision::Use
+    );
+}
+#[test]
+fn budget_reserves_ensure_floor_and_caps_the_copy() {
+    use std::time::Duration;
+    assert!(budget(ENSURE_FLOOR).is_none());
+    assert!(budget(ENSURE_FLOOR - Duration::from_secs(1)).is_none());
+    assert_eq!(
+        budget(Duration::from_secs(200)),
+        Some(Duration::from_secs(140))
+    );
+    assert_eq!(
+        budget(Duration::from_secs(4000)),
+        Some(Duration::from_secs(600))
     );
 }

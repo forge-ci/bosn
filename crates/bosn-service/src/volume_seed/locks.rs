@@ -16,7 +16,7 @@ pub(super) fn try_lock(state: &Path, name: &str) -> Result<Option<fs::OwnedFileL
 }
 
 pub(super) async fn destinations(
-    state: &Path,
+    _state: &Path,
     volumes: &[ManifestVolumeResource],
     deadline: &async_engine::Deadline,
     cancellation: &async_engine::CancellationToken,
@@ -34,25 +34,9 @@ pub(super) async fn destinations(
             if deadline.remaining().is_zero() || cancellation.is_cancelled() {
                 return Err("manifest volume lease wait cancelled or exceeded deadline".into());
             }
-            let state = state.to_owned();
             let name = name.clone();
             if let Some(lock) = async_engine::launch_blocking(move || {
-                let registry =
-                    bosn_registry::Registry::open_read_only(state.join("registry.sqlite3"))
-                        .map_err(|e| e.to_string())?;
-                let held =
-                    crate::managed_retention::registered::read_all(|at| registry.leases(at, 256))?
-                        .iter()
-                        .any(|lease| {
-                            lease.id.starts_with("volume-seed:")
-                                && (lease.resource_id == name
-                                    || lease.resource_id == format!("manifest-volume:{name}"))
-                        });
-                if held {
-                    Ok(None)
-                } else {
-                    try_lock(&crate::runners::cache_lock_dir(), &name)
-                }
+                try_lock(&crate::runners::cache_lock_dir(), &name)
             })
             .await
             .map_err(|e| e.to_string())??

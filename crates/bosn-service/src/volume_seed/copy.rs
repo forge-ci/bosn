@@ -1,247 +1,202 @@
-//! Effectful seed copy. A source is read-only, leased, and proven unmounted.
-use super::observe::{OPTIONS, inspect, unmounted};
-use crate::ManifestVolumeResource;
-use bosn_engine::DockerEngine;
-use bosn_registry::Resource;
+//! Registry-first copy; only a settled helper can authorize Complete.
+use super::{
+    SeedContext,
+    gate::{self, SeedError},
+    helper, observe,
+};
+use crate::{
+    ci::engine::{CacheHelperIdentity, CacheHelperTracker},
+    manifest_volume_registry::{Command, Reply},
+};
+use bosn_registry::{
+    Resource,
+    cache_helper::{CacheHelperIntent, CacheHelperRole},
+    volume_seed::{SeedState, VolumeSeed},
+};
+use kernal_api::async_engine::{self, CancellationToken, Deadline};
+use std::time::Duration;
 
-// Existing pinned helper image, also used by Docker integration fixtures.
-const IMAGE: &str =
-    "alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b";
-
-fn action(engine: &DockerEngine, args: &[String]) -> Result<(), String> {
-    let result = engine
-        .with_args(args.iter().cloned())
-        .capture(OPTIONS)
-        .map_err(|e| e.to_string())?;
-    result.require_complete().map_err(|e| e.to_string())?;
-    if result.ok() {
-        Ok(())
-    } else {
-        Err(format!("volume seed action exited {}", result.exit_code))
-    }
-}
-
-fn create(
-    engine: &DockerEngine,
-    target: &ManifestVolumeResource,
-    source: Option<&str>,
-) -> Result<(), String> {
-    let mut args = vec!["volume".into(), "create".into()];
-    for (key, value) in &target.labels {
-        args.extend(["--label".into(), format!("{key}={value}")]);
-    }
-    if let Some(source) = source {
-        args.extend([
-            "--label".into(),
-            format!("{}.seeded-from={source}", bosn_core::NAMESPACE),
-        ]);
-    }
-    args.push(target.name.clone());
-    action(engine, &args)
-}
-
-pub(super) struct Outcome {
-    pub result: Result<(), String>,
-    pub helper_uncertain: bool,
-}
-
-pub(super) fn seed(
-    engine: &DockerEngine,
-    source: &Resource,
-    target: &ManifestVolumeResource,
-    state: &std::path::Path,
-    budget: std::time::Duration,
-) -> Outcome {
-    let mut helper_uncertain = false;
-    let result = seed_inner(engine, source, target, state, budget, &mut helper_uncertain);
-    Outcome {
-        result,
-        helper_uncertain,
-    }
-}
-
-fn seed_inner(
-    engine: &DockerEngine,
-    source: &Resource,
-    target: &ManifestVolumeResource,
-    state: &std::path::Path,
-    budget: std::time::Duration,
-    helper_uncertain: &mut bool,
-) -> Result<(), String> {
-    if inspect(engine, &target.name)?.is_some() {
-        return Ok(());
-    }
-    let observed = inspect(engine, &source.name)?.ok_or("seed source disappeared")?;
-    if observed
-        .labels
-        .get("com.zackees.bosn.setup-content-sha256")
-        .map(String::as_str)
-        != source.generation.strip_prefix("sha256:")
-        || !unmounted(engine, &source.name)?
-    {
-        return Err("seed source changed or is mounted".into());
-    }
-    let ownership = crate::managed_retention::registered::RegisteredOwnership::load(state)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs_f64();
-    if ownership
-        .normalize(
-            bosn_core::ResourceKind::Volume,
-            &source.name,
-            &observed.labels,
-            now,
+pub(super) async fn seed(
+    context: &SeedContext<'_>,
+    target: &crate::ManifestVolumeResource,
+    source: Resource,
+    budget: Duration,
+    cancel: &CancellationToken,
+) -> Result<(), SeedError> {
+    let deadline = Deadline::after(budget);
+    async_engine::timeout_at(
+        deadline,
+        seed_inner(context, target, source, budget, cancel),
+    )
+    .await
+    .map_err(|_| {
+        gate::uncertain(
+            &target.name,
+            "seed budget exhausted; durable recovery required",
         )
-        .is_none()
-    {
-        return Err("seed source ownership changed".into());
-    }
-    // Do not pull an image on the ensure path: an unavailable helper means cold.
-    action(engine, &["image".into(), "inspect".into(), IMAGE.into()])?;
-    let helper = format!("bosn-volume-seed-{}", target.name);
-    let labels = helper_labels(state, target)?;
-    let mut args = vec![
-        "run".into(),
-        "--name".into(),
-        helper.clone(),
-        bosn_engine::LOW_CPU_PRIORITY_ARG.into(),
-        "--network=none".into(),
-        "--mount".into(),
-        format!(
-            "type=volume,src={},dst=/source,readonly,volume-nocopy",
-            source.name
-        ),
-        "--mount".into(),
-        format!(
-            "type=volume,src={},dst=/destination,volume-nocopy",
-            target.name
-        ),
-        IMAGE.into(),
-        "sh".into(),
-        "-c".into(),
-        "cp -a /source/. /destination/".into(),
-    ];
-    for (key, value) in labels.to_map() {
-        args.splice(4..4, ["--label".into(), format!("{key}={value}")]);
-    }
-    // A full copy can be large, but every command remains bounded on the blocking lane.
-    create(engine, target, Some(&source.name))?;
-    *helper_uncertain = true;
-    let options = bosn_engine::RunOptions::bounded(
-        budget.min(std::time::Duration::from_secs(600)),
-        1024 * 1024,
-    );
-    let result = engine
-        .with_args(args)
-        .capture(options)
-        .map_err(|e| e.to_string())
-        .and_then(|r| {
-            r.require_complete().map_err(|e| e.to_string())?;
-            if r.ok() {
-                Ok(())
-            } else {
-                Err(format!("seed copy exited {}", r.exit_code))
-            }
-        });
-    let cleaned = cleanup(engine, &helper, &labels.to_map());
-    *helper_uncertain = cleaned.is_err();
-    if result.is_err() {
-        cleaned.as_ref().map_err(Clone::clone)?;
-        // Throw away a partial copy, then recreate the ordinary cold volume.
-        let observed =
-            inspect(engine, &target.name)?.ok_or("partial seed destination disappeared")?;
-        if target
-            .labels
-            .iter()
-            .any(|(k, v)| observed.labels.get(k) != Some(v))
-            || observed
-                .labels
-                .get(&format!("{}.seeded-from", bosn_core::NAMESPACE))
-                != Some(&source.name)
-            || !unmounted(engine, &target.name)?
-        {
-            return Err("partial seed destination could not be safely reset".into());
-        }
-        action(engine, &["volume".into(), "rm".into(), target.name.clone()])?;
-        create(engine, target, None)?;
-    }
-    result.and(cleaned)
+    })?
 }
 
-fn cleanup(
-    engine: &DockerEngine,
-    name: &str,
-    expected: &std::collections::BTreeMap<&str, String>,
-) -> Result<(), String> {
-    let result = engine
-        .with_args(["container", "inspect", name])
-        .capture(OPTIONS)
-        .map_err(|e| e.to_string())?;
-    result.require_complete().map_err(|e| e.to_string())?;
-    if result.reports_missing() {
+async fn seed_inner(
+    context: &SeedContext<'_>,
+    target: &crate::ManifestVolumeResource,
+    source: Resource,
+    budget: Duration,
+    cancel: &CancellationToken,
+) -> Result<(), SeedError> {
+    let snapshot = gate::snapshot(context).await?;
+    let nonce = crate::ci::new_uuid()
+        .await
+        .map_err(|e| SeedError::Operation(e.to_string()))?;
+    let seed = VolumeSeed {
+        destination: target.name.clone(),
+        source: source.name.clone(),
+        nonce: nonce.clone(),
+        state: SeedState::Copying,
+    };
+    let intent = CacheHelperIntent {
+        registry_id: snapshot.owner,
+        nonce,
+        volume: target.name.clone(),
+        image: crate::ci::engine::engine_image(),
+        created_at: crate::ci::lifecycle::now_seconds(),
+        role: Some(CacheHelperRole::VolumeSeedV1 {
+            source: source.name.clone(),
+            destination: target.name.clone(),
+        }),
+    };
+    // Missing local helper images are a cold create, before any durable attempt.
+    let image = context
+        .engine
+        .with_args(["image", "inspect", &intent.image])
+        .capture_async(bosn_engine::RunOptions::bounded(
+            Duration::from_secs(15),
+            1024 * 1024,
+        ))
+        .await;
+    if !image.is_ok_and(|r| r.ok() && r.require_complete().is_ok()) {
+        crate::daemon_log!(
+            "bosn volume seed: {}: cold create: pinned helper image unavailable",
+            target.name
+        );
         return Ok(());
     }
+    let identity = CacheHelperIdentity::from_intent(&intent).map_err(SeedError::Operation)?;
+    if !matches!(
+        gate::op(
+            context,
+            Command::Begin {
+                source: Box::new(source),
+                seed: seed.clone(),
+                helper: Box::new(intent.clone())
+            }
+        )
+        .await?,
+        Reply::Committed
+    ) {
+        crate::daemon_log!(
+            "bosn volume seed: {}: cold create: sibling became busy",
+            target.name
+        );
+        return Ok(());
+    }
+    let deadline = Deadline::after(budget.saturating_sub(Duration::from_secs(30)));
+    let outcome = run(
+        context, target, &seed, &intent, &identity, &deadline, cancel,
+    )
+    .await;
+    // Recovery verifies the full frozen profile, removes by immutable ID, and
+    // never finishes an absent unacknowledged create inside its late-create window.
+    gate::settle(context, &seed)
+        .await
+        .map_err(|e| gate::uncertain(&target.name, e.to_string()))?;
+    match outcome {
+        Ok(()) => {
+            gate::op(context, Command::Complete(seed)).await?;
+        }
+        Err(error) => {
+            gate::reset(context, target, Some(&seed)).await?;
+            gate::op(context, Command::Delete(seed)).await?;
+            crate::daemon_log!("bosn volume seed: {}: cold create: {error}", target.name);
+        }
+    }
+    Ok(())
+}
+async fn run(
+    context: &SeedContext<'_>,
+    target: &crate::ManifestVolumeResource,
+    seed: &VolumeSeed,
+    intent: &CacheHelperIntent,
+    identity: &CacheHelperIdentity,
+    deadline: &Deadline,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    if cancel.is_cancelled() {
+        return Err("seed cancelled before create".into());
+    }
+    let engine = context.engine.clone();
+    let target = target.clone();
+    let seed_copy = seed.clone();
+    async_engine::launch_blocking(move || {
+        if observe::inspect(&engine, &target.name)?.is_some() {
+            return Err("destination appeared before seed create".into());
+        }
+        if !observe::unmounted(&engine, &seed_copy.source)? {
+            return Err("source is mounted".into());
+        }
+        helper::create_volume(&engine, &target, Some(&seed_copy))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let created = checked(
+        context,
+        helper::args(identity, intent, &seed.source),
+        deadline,
+        cancel,
+    )
+    .await?;
+    let document = checked(
+        context,
+        vec!["container".into(), "inspect".into(), identity.name.clone()],
+        deadline,
+        cancel,
+    )
+    .await?;
+    let id = identity.verify(&document, &intent.volume)?;
+    if created.trim() != id {
+        return Err("seed helper acknowledgement differs from verified ID".into());
+    }
+    let tracker = CacheHelperTracker::new(context.registry, &intent.nonce);
+    tracker.register(&id).await?;
+    checked(
+        context,
+        vec!["start".into(), "--attach".into(), id],
+        deadline,
+        cancel,
+    )
+    .await?;
+    Ok(())
+}
+async fn checked(
+    context: &SeedContext<'_>,
+    args: Vec<String>,
+    deadline: &Deadline,
+    cancel: &CancellationToken,
+) -> Result<String, String> {
+    let options = bosn_engine::RunOptions::bounded(deadline.remaining(), 1024 * 1024);
+    let result = async_engine::cancellable(
+        cancel,
+        context.engine.with_args(args).capture_async(options),
+    )
+    .await
+    .map_err(|_| "seed cancelled".to_string())?
+    .map_err(|e| e.to_string())?;
+    result.require_complete().map_err(|e| e.to_string())?;
     if !result.ok() {
-        return Err("seed helper cleanup inspection failed".into());
+        return Err(format!(
+            "seed helper action failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        ));
     }
-    let inspected: Vec<HelperInspection> =
-        serde_json::from_slice(&result.stdout).map_err(|e| e.to_string())?;
-    let [helper] = inspected.as_slice() else {
-        return Err("ambiguous seed helper inspection".into());
-    };
-    if helper.id.is_empty()
-        || expected
-            .iter()
-            .any(|(k, v)| helper.config.labels.get(*k) != Some(v))
-    {
-        return Err("seed helper cleanup ownership mismatch".into());
-    }
-    action(
-        engine,
-        &[
-            "container".into(),
-            "rm".into(),
-            "--force".into(),
-            helper.id.clone(),
-        ],
-    )
-}
-
-fn helper_labels(
-    state: &std::path::Path,
-    target: &ManifestVolumeResource,
-) -> Result<bosn_core::ResourceLabels, String> {
-    let registry = bosn_registry::Registry::open_read_only(state.join("registry.sqlite3"))
-        .map_err(|e| e.to_string())?
-        .registry_id()
-        .map_err(|e| e.to_string())?;
-    bosn_core::ResourceLabels::new(
-        &registry,
-        bosn_core::ResourceKind::Container,
-        &target.stack,
-        &target.generation,
-        bosn_core::Scope::Spec,
-        &target.workspace,
-        &std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_secs_f64()
-            .to_string(),
-        Some(bosn_core::Retention::Warm),
-    )
-    .map_err(|e| format!("invalid seed helper labels: {e:?}"))
-}
-
-#[derive(serde::Deserialize)]
-struct HelperInspection {
-    #[serde(rename = "Id")]
-    id: String,
-    #[serde(rename = "Config")]
-    config: HelperConfig,
-}
-#[derive(serde::Deserialize)]
-struct HelperConfig {
-    #[serde(rename = "Labels")]
-    labels: std::collections::BTreeMap<String, String>,
+    String::from_utf8(result.stdout).map_err(|e| e.to_string())
 }

@@ -188,33 +188,44 @@ changed.
 
 ## Warm stack volumes across worktrees
 
-A newly created `scope = "stack"` volume can start with a full copy of the
-most recently used idle sibling volume in the same git clone, stack, and logical
-volume name. Linked worktrees share the canonical git common directory; separate
-clones and workspaces outside git do not share seeds. Existing volumes are never
-seeded or overwritten. A source must have no container attachments (including
-stopped containers), no recorded lease, and an available exclusive lease.
-
-The helper mounts the source read-only. Each worktree keeps its own independent
-volume; writes never flow back to the source. The destination records
-`com.zackees.bosn.seeded-from=<source volume>`. Seeded volumes follow ordinary
-stack-volume retention, including workspace-gone, family-cap, and branch-merged.
-
-Set `seed = false` on an individual volume to opt out:
+Seeding is **opt-in**, with a boolean `seed = true` on a stack-scoped volume.
+The default is `false`, including synthesized target volumes; `seed = true`
+on `spec` or `machine` scope is rejected by the typed manifest schema.
 
 ```toml
 [stack.cook.volumes.target]
 scope = "stack"
 destination = "/target"
-seed = false
+seed = true
 ```
 
-Seeding is best effort: unavailable or busy sources, a missing local helper image,
-or copy errors leave a cold volume and log the reason in `daemon.log`.
-This is a full `cp -a` copy with extra disk and startup cost; there is no
-copy-on-write/reflink or commit-ancestry selection yet. Compiler fingerprints
-still decide which copied artifacts can be reused. Fresh-worktree soldr timings
-remain to be measured; no performance improvement is claimed here.
+Only a newly created volume can be seeded from the most recently used idle
+sibling in the same canonical git-common-directory family, stack and logical
+volume name. Separate clones and non-git workspaces do not share seeds. The
+source must be unleased and have no container attachments, even stopped ones.
+The helper mounts it read-only and makes a full `cp -a` copy; there is no CoW.
+Each worktree gets independent storage. Set `seed = false` to opt out.
+
+Immutable `com.zackees.bosn.seeded-from` and `com.zackees.bosn.seed-nonce`
+labels identify the attempt; **registry completion**, not a file inside the
+volume, authorizes use. A `Copying` record protects both volumes without TTL.
+Only successful copy plus proven helper removal can commit `Complete`.
+Interrupted copies and orphan seed labels are reset to a cold volume before
+any workload can mount it. If ownership, helper teardown or destination removal
+cannot be proven (including an external attachment), ensure refuses with
+`SeedDestinationUncertain` and preserves the uncertain volume.
+
+Recovery uses the existing nonce-bound helper journal and its 630-second
+late-create window. Source and destination stay protected until recovery settles
+the helper, resets the destination and removes `Copying`. Complete volumes follow
+ordinary workspace-gone, family-cap and branch-merged retention.
+
+The copy budget is capped at 600 seconds and reserves at least 60 seconds for
+ordinary ensure, plus cleanup time within the copy budget. Insufficient budget,
+no eligible source, or an unavailable local pinned helper image leaves a cold
+create with a daemon diagnostic. Cancellation removes the verified helper by ID
+before reset. Fresh-worktree soldr timings remain to be measured; no performance
+improvement is claimed without measurement.
 
 ## Support and refusal matrix
 
@@ -230,6 +241,7 @@ remain to be measured; no performance improvement is claimed here.
 | `tmpfs` | Supported only as an array of normalized legacy strings: `/target`, `/target:ro`, `/target:rw`, with at most one each of `size=POSITIVE{b,k,m,g}`, `exec` or `noexec`, and `mode=OCTAL` (1-4 octal digits, at most `7777`), for example `/mount-probe:rw,exec,mode=1777`. The daemon parses those into typed target/readonly/size/exec/mode values before its engine seam, incorporates the declaration into the runtime generation (exec/mode only when declared), and emits only its own finite `--tmpfs` form. Repeated options and all other options (`uid`, `nosuid`, etc.) are refused rather than passed through. tmpfs is disposable container state; a generation rollover creates a new empty tmpfs. |
 | `[stack.NAME.mounts]` workspace bind mounts | Supported for existing paths that canonicalize beneath the selected workspace. Sources may be legacy absolute paths only when they resolve beneath that workspace; traversal, source symlinks, escapes, duplicate targets, reserved targets, and unrepresentable Docker paths are refused, and the refusal names the remedy (move the data under the workspace or declare a Bosn-managed volume). `mode = "rw"` (default) and `"ro"` (alias `readonly = true`) are supported; `mode = "overlay"` parses but is refused at ensure with `overlay mounts are not implemented yet (#666)` rather than bound read-write. |
 | Default build-output volume (#666) | A stack whose workspace-root bind (`source = '.'`) is at `D` gets a synthesized `scope = 'stack'`, `warm`, exclusive volume named `target` at `D/target`, part of the runtime generation like any declared volume. It is not added when the stack sets `default_target_volume = false`, declares a volume named `target`, or already mounts something at `D/target`; nor under a read-only bind unless `target/` already exists on the host (Docker cannot create the mount point in a read-only bind). |
+| `[stack.NAME.volumes] seed` | Optional boolean, default `false`. `true` is valid only with `scope = "stack"`; enables the completion-gated sibling copy described above. |
 | `[stack.NAME.volumes] mode` (#666) | `exclusive`/`shared` are parsed and carried in the plan; nothing enforces them yet. A mode other than the scope's default is part of the runtime generation. |
 | `[task.NAME] keep` (#666) | Parsed and carried in the plan; not yet acted on, and not part of the generation (it selects lifetime, not shape). |
 | `[stack.NAME.mounts]` host Docker socket | A mount whose `source` is exactly `/var/run/docker.sock` or `/run/docker.sock` is accepted as a typed host-Docker-socket bind (at most one per stack, Linux stacks only, and only when that host path is currently a Unix socket). This is the manifest author's explicit choice to let the container drive the host engine, for example to run `act`, whose job containers are siblings. **Everything created through the socket is outside Bosn supervision**: it carries no Bosn labels, is not in the registry, and is never garbage-collected or protected by Bosn. Bosn supervises only the stack's own container. No other host path is accepted. |

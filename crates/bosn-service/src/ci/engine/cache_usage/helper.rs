@@ -10,9 +10,9 @@ mod profile;
 use profile::Profile;
 pub(in crate::ci::engine) use profile::command_sha256;
 
-pub(in crate::ci::engine) struct Identity {
+pub(crate) struct Identity {
     pub name: String,
-    pub(in crate::ci::engine) nonce: String,
+    pub(crate) nonce: String,
     image: String,
     ownership: BTreeMap<String, String>,
     profile: Profile,
@@ -40,7 +40,7 @@ impl Identity {
         format!("{}={}", self.label_key(), self.nonce)
     }
 
-    pub(in crate::ci::engine) fn from_intent(
+    pub(crate) fn from_intent(
         intent: &bosn_registry::cache_helper::CacheHelperIntent,
     ) -> Result<Self, String> {
         intent.validate().map_err(|error| error.to_string())?;
@@ -68,7 +68,7 @@ impl Identity {
                 .collect(),
         })
     }
-    pub(in crate::ci::engine) fn track(
+    pub(crate) fn track(
         &mut self,
         owner: &str,
         volume: &str,
@@ -84,17 +84,13 @@ impl Identity {
         *self = Self::from_intent(&intent)?;
         Ok(intent)
     }
-    pub(in crate::ci::engine) fn ownership_args(&self) -> Vec<String> {
+    pub(crate) fn ownership_args(&self) -> Vec<String> {
         self.ownership
             .iter()
             .flat_map(|(key, value)| ["--label".into(), format!("{key}={value}")])
             .collect()
     }
-    pub(in crate::ci::engine) fn verify(
-        &self,
-        document: &str,
-        volume: &str,
-    ) -> Result<String, String> {
+    pub(crate) fn verify(&self, document: &str, volume: &str) -> Result<String, String> {
         if document.len() > 64 << 10 {
             return Err("helper inspection exceeds bound".into());
         }
@@ -121,7 +117,7 @@ impl Identity {
     }
 }
 
-pub(in crate::ci::engine) fn valid_id(value: &str) -> bool {
+pub(crate) fn valid_id(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
@@ -185,7 +181,7 @@ struct Mount {
 }
 
 impl DockerActBackend {
-    pub(in crate::ci::engine) async fn recover_measurement(
+    pub(crate) async fn recover_measurement(
         &self,
         identity: &Identity,
         volume: &str,
@@ -221,10 +217,7 @@ impl DockerActBackend {
         Ok(())
     }
 
-    pub(in crate::ci::engine) async fn confirm_measurement_absent(
-        &self,
-        id: &str,
-    ) -> Result<(), String> {
+    pub(crate) async fn confirm_measurement_absent(&self, id: &str) -> Result<(), String> {
         let result = self
             .run(owned(&["container", "inspect", id]), CONTROL_DEADLINE)
             .await
@@ -312,4 +305,4 @@ mod recovery_identity_tests;
 
 #[cfg(all(test, unix))]
 #[path = "recovery_cleanup_tests.rs"]
-pub(in crate::ci::engine) mod recovery_cleanup_tests;
+pub(crate) mod recovery_cleanup_tests;

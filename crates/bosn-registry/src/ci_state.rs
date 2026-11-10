@@ -100,6 +100,7 @@ fn helper(record: cache_helper::CacheHelperRecord, detail: &str) -> Snapshot {
     let role = record.intent.role.as_ref();
     let binding = role.and_then(CacheHelperRole::recovery_binding);
     let source = match role {
+        Some(CacheHelperRole::VolumeSeedV1 { source, .. }) => Some(source.clone()),
         Some(CacheHelperRole::ToolSourceFinalizationV1 { context, .. }) => {
             Some(context.recovery.source_volume.clone())
         }

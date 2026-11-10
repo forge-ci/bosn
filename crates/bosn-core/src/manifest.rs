@@ -88,7 +88,7 @@ pub struct Volume {
     pub retention: Retention,
     /// Defaults by scope; see [`VolumeMode::default_for`].
     pub mode: VolumeMode,
-    /// Seed newly created stack volumes from an idle sibling; defaults to true.
+    /// Opt into seeding a newly created stack volume; defaults to false.
     pub seed: bool,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -505,6 +505,9 @@ fn parse_volumes(
                 "machine" => Scope::Machine,
                 other => return err(format!("volume {name:?} has unknown scope {other:?}")),
             };
+            if optional_bool(t, "seed", "volume")? == Some(true) && scope != Scope::Stack {
+                return err("volume seed = true requires stack scope");
+            }
             let retention = match optional_string(t, "retention", "volume")?
                 .as_deref()
                 .unwrap_or("warm")
@@ -530,7 +533,7 @@ fn parse_volumes(
                 destination,
                 retention,
                 mode,
-                seed: optional_bool(t, "seed", "volume")?.unwrap_or(true),
+                seed: optional_bool(t, "seed", "volume")?.unwrap_or(false),
             })
         })
         .collect()

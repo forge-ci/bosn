@@ -5,6 +5,10 @@ use std::collections::BTreeMap;
 
 pub(super) enum Profile {
     Measurement,
+    VolumeSeed {
+        source: String,
+        destination: String,
+    },
     SourceFinalization {
         cache: String,
         source: String,
@@ -41,6 +45,13 @@ impl Profile {
     pub(super) fn from_intent(intent: &CacheHelperIntent) -> Result<Self, String> {
         match &intent.role {
             None => Ok(Self::Measurement),
+            Some(CacheHelperRole::VolumeSeedV1 {
+                source,
+                destination,
+            }) => Ok(Self::VolumeSeed {
+                source: source.clone(),
+                destination: destination.clone(),
+            }),
             Some(CacheHelperRole::MaintenanceV1) => Ok(Self::Maintenance),
             Some(CacheHelperRole::ToolSourceFinalizationV1 {
                 context,
@@ -83,6 +94,7 @@ impl Profile {
     pub(super) fn label_key(&self) -> &str {
         match self {
             Self::Measurement => "io.bosn.cache.measurement",
+            Self::VolumeSeed { .. } => "io.bosn.volume.seed",
             Self::SourceFinalization { .. } => "io.bosn.cache.source-finalization",
             Self::Maintenance => "io.bosn.cache.maintenance",
             Self::Recovery { .. } => "io.bosn.cache.recovery",
@@ -93,6 +105,7 @@ impl Profile {
     pub(super) fn component(&self) -> &str {
         match self {
             Self::Measurement => "ci-cache-measurement",
+            Self::VolumeSeed { .. } => "volume-seed",
             Self::SourceFinalization { .. } => "ci-source-finalization",
             Self::Maintenance => "ci-cache-maintenance",
             Self::Recovery { .. } => "ci-cache-recovery",
@@ -102,6 +115,10 @@ impl Profile {
     }
     pub(super) fn matches(&self, row: &Helper, volume: &str) -> bool {
         match self {
+            Self::VolumeSeed {
+                source,
+                destination,
+            } => volume_seed_matches(row, volume, source, destination),
             Self::SourceFinalization {
                 cache,
                 source,
@@ -227,4 +244,27 @@ fn exact_source_bind(mounts: &[Mount], source: &str) -> bool {
         })
         .count()
         == 1
+}
+
+fn volume_seed_matches(row: &Helper, volume: &str, source: &str, destination: &str) -> bool {
+    destination == volume
+        && !row.host_config.privileged
+        && row.mounts.len() == 2
+        && row
+            .mounts
+            .iter()
+            .any(|m| m.kind == "volume" && m.name == source && m.destination == "/source" && !m.rw)
+        && row.mounts.iter().any(|m| {
+            m.kind == "volume" && m.name == destination && m.destination == "/destination" && m.rw
+        })
+        && row.config.entrypoint.as_deref() == Some(&["/bin/sh".into()])
+        && row.config.arguments.as_deref()
+            == Some(&[
+                "-ec".into(),
+                bosn_registry::cache_helper::VOLUME_SEED_COMMAND.into(),
+            ])
+        && row
+            .host_config
+            .cpu_shares
+            .is_some_and(|s| format!("--cpu-shares={s}") == bosn_engine::LOW_CPU_PRIORITY_ARG)
 }
