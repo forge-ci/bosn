@@ -528,42 +528,7 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
     // configuration and volume-metadata verification. For a new container, create/reuse every exact
     // labelled volume before the container itself, leaving only recoverable
     // intent-backed volume state if an attempt is interrupted.
-    for volume in &derived.volumes {
-        let response = invoke(
-            engine,
-            SetupEnsureCommand::VolumeInspect {
-                volume_name: volume.name.clone(),
-            },
-            &deadline,
-            request,
-        )
-        .await?;
-        let SetupEnsureResponse::Command(result) = response else {
-            return Err(SetupEnsureError::EngineProtocol(
-                "volume inspection returned container response",
-            ));
-        };
-        if result.ok() {
-            let observed = crate::creation::bounded_json(&result.stdout)
-                .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
-            verify_volume_observation(volume, &observed, None)?;
-        } else if result.reports_missing() {
-            let response = invoke(
-                engine,
-                SetupEnsureCommand::VolumeCreate {
-                    volume: volume.clone(),
-                },
-                &deadline,
-                request,
-            )
-            .await?;
-            require_action_success("volume create", response)?;
-        } else {
-            return Err(SetupEnsureError::EngineProtocol(
-                "private volume inspect failed",
-            ));
-        }
-    }
+    ensure_named_volumes(engine, &derived.volumes, &deadline, request).await?;
 
     let response = invoke(engine, derived.create_command(), &deadline, request).await?;
     let created = require_action_success("container create", response)?;
@@ -603,6 +568,51 @@ async fn ensure_setup_app_once<E: SetupEnsureEngine>(
         started: true,
         running: true,
     })
+}
+
+async fn ensure_named_volumes<E: SetupEnsureEngine>(
+    engine: &E,
+    volumes: &[SetupEnsureVolume],
+    deadline: &Deadline,
+    request: &SetupEnsureRequest<'_>,
+) -> Result<(), SetupEnsureError> {
+    for volume in volumes {
+        let response = invoke(
+            engine,
+            SetupEnsureCommand::VolumeInspect {
+                volume_name: volume.name.clone(),
+            },
+            deadline,
+            request,
+        )
+        .await?;
+        let SetupEnsureResponse::Command(result) = response else {
+            return Err(SetupEnsureError::EngineProtocol(
+                "volume inspection returned container response",
+            ));
+        };
+        if result.ok() {
+            let observed = crate::creation::bounded_json(&result.stdout)
+                .map_err(|_| SetupEnsureError::OwnershipMismatch)?;
+            verify_volume_observation(volume, &observed, None)?;
+        } else if result.reports_missing() {
+            let response = invoke(
+                engine,
+                SetupEnsureCommand::VolumeCreate {
+                    volume: volume.clone(),
+                },
+                deadline,
+                request,
+            )
+            .await?;
+            require_action_success("volume create", response)?;
+        } else {
+            return Err(SetupEnsureError::EngineProtocol(
+                "private volume inspect failed",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Inspect and prove ownership of the deterministic setup app without changing
