@@ -70,7 +70,7 @@ impl Fixture {
             ],
         );
         let state = root.path().join("state");
-        std::fs::create_dir_all(&state).unwrap();
+        own_registry(&state);
         let stderr = std::fs::File::create(state.join("daemon.log")).unwrap();
         let mut daemon = DaemonChild {
             child: Command::new(env!("CARGO_BIN_EXE_bosn"))
@@ -86,7 +86,15 @@ impl Fixture {
             .enable_all()
             .build()
             .unwrap();
-        wait_for_client(&runtime, &mut daemon, &state);
+        if let Err(error) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            wait_for_client(&runtime, &mut daemon, &state)
+        })) {
+            eprintln!(
+                "{}",
+                std::fs::read_to_string(state.join("daemon.log")).unwrap()
+            );
+            std::panic::resume_unwind(error);
+        }
         Self {
             _root: root,
             clone,
