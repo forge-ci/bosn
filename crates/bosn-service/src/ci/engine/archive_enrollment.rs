@@ -147,6 +147,9 @@ impl DockerActBackend {
                 RunOptions::bounded(Duration::from_secs(150), 8192),
             )
             .await?;
+        result
+            .require_complete()
+            .map_err(|error| error.to_string())?;
         // The trusted migration wrapper refuses its nonblocking lease before
         // starting act. Application refusals carry typed JSON even on exit 1.
         if result.exit_code == 75 && result.stdout.is_empty() {

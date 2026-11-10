@@ -804,6 +804,23 @@ stubbed job.
   explicitly. Under an agent session it is `agent:<session>`, and otherwise
   `human`.
 
+### Concurrency budget
+
+CI admission defaults to `max(1, physical_cores / 4)` for each daemon. The
+separate task lane defaults to `logical_cpus * 2` slots. The shared CI engine
+has an 8-CPU default ceiling (or fewer when the Docker host has fewer logical
+CPUs); `[engine] cpus` overrides that ceiling.
+
+Runner slots are not a host CPU budget. Each admitted workflow can run several
+jobs, and each job can start parallel compilers or tests. Independent producers
+and state roots multiply that work. Budget overlapping producers together with
+their job fan-out and tool parallelism, using settings such as
+`CARGO_BUILD_JOBS` and `NEXTEST_TEST_THREADS`. For an 8-CPU engine, two overlapping
+jobs with four CPU-heavy compiler workers each already request its CPU capacity.
+Four runner slots do not provide a CPU budget for four unrestricted parallel builds.
+Include work outside Bosn when choosing the host's overall producer budget.
+
+
 ## Caches (machine-wide)
 
 The [CI cache and Docker footprint living spec](ci-cache-accounting-spec.md)

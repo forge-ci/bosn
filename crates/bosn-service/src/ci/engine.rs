@@ -392,7 +392,13 @@ impl DockerActBackend {
         let result = self.run(args, deadline).await?;
         if !result.ok() {
             return Err(format!(
-                "{what} failed: {}",
+                "{what} failed (exit status {}{}): {}",
+                result.exit_code,
+                if result.stderr_abandoned {
+                    " [stderr abandoned]"
+                } else {
+                    ""
+                },
                 String::from_utf8_lossy(&result.stderr).trim()
             ));
         }
@@ -929,6 +935,9 @@ impl ActEngineBackend for DockerActBackend {
             // Ending the docker client does not stop act inside the engine;
             // the caller removes the whole engine, which does.
             match result {
+                Ok(result) if result.exit_code == 0 && result.stderr_abandoned => {
+                    Err("act exited with status 0 [stderr abandoned]".into())
+                }
                 Ok(result) => Ok(ExecEnd::Exited(result.exit_code)),
                 Err(CommandError::Deadline { .. }) => Ok(ExecEnd::TimedOut),
                 Err(CommandError::Cancelled { .. }) => Ok(ExecEnd::Cancelled),
@@ -948,3 +957,6 @@ fn work_dirs_script() -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, unix))]
+mod cleanup_stderr_tests;

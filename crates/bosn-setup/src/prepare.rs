@@ -477,6 +477,7 @@ mod tests {
 
     fn result(stdout: impl Into<Vec<u8>>) -> Result<CommandResult, CommandError> {
         Ok(CommandResult {
+            stderr_abandoned: false,
             exit_code: 0,
             stdout: stdout.into(),
             stderr: Vec::new(),
@@ -811,6 +812,7 @@ mod tests {
     fn failed_private_image_command_does_not_expose_output() {
         let image = format!("registry.example/team/app@sha256:{HASH}");
         let engine = FakeEngine::with_results([Ok(CommandResult {
+            stderr_abandoned: false,
             exit_code: 7,
             stdout: Vec::new(),
             stderr: b"private-secret-canary".to_vec(),

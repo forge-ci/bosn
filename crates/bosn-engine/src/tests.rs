@@ -1,5 +1,6 @@
 use super::{
-    CommandError, CommandResult, DockerDoctorState, GuestScpCommand, GuestSshCommand, doctor_report,
+    CommandError, CommandResult, DockerDoctorState, GuestScpCommand, GuestSshCommand,
+    ProcessOutputCompletion, doctor_report, output_completion,
 };
 use std::path::PathBuf;
 
@@ -124,6 +125,7 @@ fn all_output_consumer_states_have_specific_display() {
 #[test]
 fn doctor_result_is_structured_and_never_retains_raw_output() {
     let ready = doctor_report(Ok(CommandResult {
+        stderr_abandoned: false,
         exit_code: 0,
         stdout: b"29.0.1|29.0.1\n".to_vec(),
         stderr: b"secret engine warning".to_vec(),
@@ -133,6 +135,7 @@ fn doctor_result_is_structured_and_never_retains_raw_output() {
     assert_eq!(ready.server_version.as_deref(), Some("29.0.1"));
 
     let invalid = doctor_report(Ok(CommandResult {
+        stderr_abandoned: false,
         exit_code: 0,
         stdout: b"version|value|extra".to_vec(),
         stderr: Vec::new(),
@@ -152,6 +155,7 @@ fn doctor_result_is_structured_and_never_retains_raw_output() {
 #[test]
 fn only_dockers_no_such_answer_reports_missing() {
     let result = |exit_code, stderr: &str| CommandResult {
+        stderr_abandoned: false,
         exit_code,
         stdout: Vec::new(),
         stderr: stderr.as_bytes().to_vec(),
@@ -179,12 +183,14 @@ fn only_dockers_no_such_answer_reports_missing() {
 #[test]
 fn a_failure_beside_a_missing_object_is_not_absence() {
     let result = CommandResult {
+        stderr_abandoned: false,
         exit_code: 1,
         stdout: b"[]".to_vec(),
         stderr: b"Error: No such object: a\nCannot connect to the Docker daemon\n".to_vec(),
     };
     assert!(!result.reports_missing());
     let only_missing = CommandResult {
+        stderr_abandoned: false,
         exit_code: 1,
         stdout: b"[{\"Id\":\"b\"}]".to_vec(),
         stderr: b"Error: No such object: a\nError: No such object: c\n".to_vec(),
@@ -194,4 +200,26 @@ fn a_failure_beside_a_missing_object_is_not_absence() {
         super::managed_reads::inspect_read(only_missing, "docker inspect").document(),
         Some("[{\"Id\":\"b\"}]")
     );
+}
+
+#[test]
+fn abandoned_stderr_is_neither_success_nor_proof_of_absence() {
+    let mut result = CommandResult {
+        exit_code: 0,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        stderr_abandoned: true,
+    };
+    assert!(!result.ok());
+    assert!(result.require_complete().is_err());
+    result.exit_code = 1;
+    result.stderr = b"Error: No such container: original".to_vec();
+    assert!(!result.reports_missing());
+}
+
+#[test]
+fn stderr_abandonment_is_distinct_from_incomplete_stdout() {
+    assert!(output_completion(ProcessOutputCompletion::StderrAbandoned, 1).unwrap());
+    assert!(!output_completion(ProcessOutputCompletion::StderrEof, 1).unwrap());
+    assert!(output_completion(ProcessOutputCompletion::StdoutAbandoned, 1).is_err());
 }

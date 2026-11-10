@@ -97,6 +97,7 @@ fn command_result(
     stderr: &[u8],
 ) -> Result<CommandResult, CommandError> {
     Ok(CommandResult {
+        stderr_abandoned: false,
         exit_code,
         stdout: stdout.into(),
         stderr: stderr.into(),
