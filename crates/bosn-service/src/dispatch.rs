@@ -181,6 +181,7 @@ pub(crate) async fn handle(mut s: AsyncStream, context: ConnectionContext) -> Re
                     code: 50,
                     job_id: job.id,
                     job_state: format!("{:?}", job.state),
+                    job_waiting_on: job.waiting_on,
                     job_error: job.error.unwrap_or_default(),
                     ..Default::default()
                 },
@@ -931,7 +932,11 @@ fn ping_reply(identity: &DaemonIdentity) -> ReplyWire {
 
 fn decode_task_request(payload: &[u8]) -> Result<Request, Error> {
     let request = Request::decode(payload).map_err(|_| Error::Protocol("request decode"))?;
-    if request.operation != 23 && (!request.task_args.is_empty() || request.task_clean.is_some()) {
+    if request.operation != 23
+        && (!request.task_args.is_empty()
+            || request.task_clean.is_some()
+            || request.task_wait.is_some())
+    {
         return Err(Error::Protocol(
             "task arguments require a manifest app task",
         ));
@@ -948,6 +953,7 @@ async fn submit_manifest_task(
     jobs.submit_manifest_app_task(
         ManifestAppTaskJobRequest {
             clean: CleanVolumes::from_wire(r.task_clean)?,
+            wait: r.task_wait.unwrap_or(false),
             workspace: PathBuf::from(r.workspace),
             manifest: r.setup_config,
             stack: r.stack,

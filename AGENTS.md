@@ -343,6 +343,13 @@ positional parameters. Arguments participate in job identity and appear in jobs.
 tag 32; protocol 2 remains accepted without arguments. Clients refuse non-empty
 arguments to daemons older than protocol 3, which would silently ignore the field.
 
+## Task container wait contract (#666)
+
+`bosn run --task NAME --wait` waits only for an exactly owned ephemeral container.
+Protocol 5 adds optional request tag 34; protocol 4 remains accepted without wait.
+Clients refuse wait against older daemons, which would silently ignore the flag.
+The blocked job keeps its owner cancellation and task deadline; status names its container.
+
 ## Async daemon waits (decided 2026-10-17)
 
 Daemon IPC, startup readiness, handoff, job following and CI following wait on

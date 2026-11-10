@@ -233,13 +233,16 @@ pub(crate) fn print_job_status(status: &JobStatus, json: bool) {
             "{}",
             json!({
                 "action": "job_status",
-                "job": {"id": status.id, "state": status.state, "error": status.error},
+                "job": {"id": status.id, "state": status.state, "error": status.error, "waiting_on": status.waiting_on},
             })
         );
     } else {
         println!("job status");
         println!("job_id: {}", status.id);
         println!("state: {}", status.state);
+        if let Some(name) = &status.waiting_on {
+            println!("waiting on container: {name}");
+        }
         if let Some(error) = &status.error {
             println!("error: {error}");
         }

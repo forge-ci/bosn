@@ -341,6 +341,7 @@ fn manifest_app_task_is_prompt_typed_and_clears_its_durable_session() {
             let client = wait_for_client(&state).await;
             let request = ManifestAppTaskJobRequest {
                 clean: Default::default(),
+                wait: false,
                 workspace,
                 manifest: "bosn.toml".into(),
                 stack: "app".into(),
@@ -417,6 +418,7 @@ fn a_followed_app_task_survives_heartbeat_silence() {
     let fake = Arc::new(CancellableManifestAppTaskExecutor { started });
     let request = |task: &str| ManifestAppTaskJobRequest {
         clean: Default::default(),
+        wait: false,
         workspace: workspace.clone(),
         manifest: "bosn.toml".into(),
         stack: "app".into(),
@@ -820,6 +822,7 @@ fn test_capacity(slots: usize, stall: Option<Duration>) -> capacity::RunnerCapac
 fn app_task(workspace: &str) -> ManifestAppTaskJobRequest {
     ManifestAppTaskJobRequest {
         clean: Default::default(),
+        wait: false,
         workspace: PathBuf::from(workspace),
         manifest: "bosn.toml".into(),
         stack: "act".into(),

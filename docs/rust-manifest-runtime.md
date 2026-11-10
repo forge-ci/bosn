@@ -18,7 +18,7 @@ the working tree.
 
 ```text
 bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR]
-         [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [--clean[=all]] [-- ARGS...]
+         [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [--clean[=all]] [--wait] [-- ARGS...]
 bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [...]
 ```
 
@@ -37,6 +37,14 @@ parameters, never parsed as shell text. Arguments appear in `bosn jobs` (also
 `--json`) and participate in deduplication. A manifest task can set `args = false`
 to refuse extras before submission; see [Task arguments](rust-manifest.md#task-arguments).
 A daemon older than protocol 3 is refused for non-empty arguments.
+
+`--wait` blocks the daemon job when this checkout’s named ephemeral task container
+is busy. Status and jobs name the container in `waiting_on`. Waiting consumes the
+task deadline; expiry reports the busy container and the seconds waited. Cancellation
+or owner death cancels the waiter without stopping the holder. Foreign or unlabelled
+containers refuse immediately. Daemons older than protocol 5 are refused before
+submission. Kept tasks retain their existing behavior. MCP/Python have explicit
+manifest methods rather than generic run flags; forwarding wait is follow-up.
 
 `--clean` resets the exact named stack/spec volumes computed for this checkout
 and the task's stack before running it. `--clean=all` also resets the plan's

@@ -849,6 +849,9 @@ impl Client {
                 .clean
                 .require_protocol(self.daemon_identity().await?.protocol)?;
         }
+        if request.wait {
+            crate::task_wait::require_protocol(true, self.daemon_identity().await?.protocol)?;
+        }
         validate_task_arguments(&request.args)?;
         let follow_lease_ms = lease.map_or(0, |lease| lease.as_millis() as u64);
         let workspace = request
@@ -877,6 +880,7 @@ impl Client {
                     setup_task_name: request.task_name,
                     task_args: request.args,
                     task_clean: request.clean.wire(),
+                    task_wait: request.wait.then_some(true),
                     setup_deadline_ms: deadline_ms,
                     setup_output_limit: output_limit,
                     follow_lease_ms,

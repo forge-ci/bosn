@@ -38,6 +38,7 @@ pub(super) fn set_switch(
     no_ensure: &mut bool,
     detach: &mut bool,
     clean: &mut bosn_service::CleanVolumes,
+    wait: &mut bool,
 ) -> Result<bool, String> {
     if flag.starts_with("--clean") {
         if *clean != bosn_service::CleanVolumes::None {
@@ -53,6 +54,7 @@ pub(super) fn set_switch(
     let switch = match flag {
         "--no-ensure" => no_ensure,
         "--detach" => detach,
+        "--wait" => wait,
         _ => return Ok(false),
     };
     if std::mem::replace(switch, true) {
@@ -112,4 +114,50 @@ mod clean_tests {
         assert!(parse(&["--task", "check", "--clean=bad"]).is_err());
         assert!(parse(&["--task", "check", "--clean", "--clean=all"]).is_err());
     }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    #[test]
+    fn wait_requires_a_task_and_cannot_repeat() {
+        let parse = |args: &[&str]| {
+            super::super::parse_arguments(args.iter().map(std::ffi::OsString::from))
+        };
+        assert!(parse(&["--task", "probe", "--wait"]).unwrap().wait);
+        assert!(parse(&["--stack", "app", "--wait"]).is_err());
+        assert!(parse(&["--task", "probe", "--wait", "--wait"]).is_err());
+    }
+}
+
+pub(super) fn report_wait(status: &bosn_service::JobStatus, reported: &mut Option<String>) {
+    if status.waiting_on != *reported {
+        if let Some(name) = &status.waiting_on {
+            eprintln!("bosn run: job {} is waiting on container {name}", status.id);
+        }
+        reported.clone_from(&status.waiting_on);
+    }
+}
+
+pub(super) fn flag_text(flag: std::ffi::OsString) -> Result<String, String> {
+    flag.into_string()
+        .map_err(|_| "arguments must be UTF-8".to_owned())
+}
+
+pub(super) fn next_value(
+    arguments: &mut impl Iterator<Item = std::ffi::OsString>,
+    flag: &str,
+) -> Result<std::ffi::OsString, String> {
+    arguments
+        .next()
+        .ok_or_else(|| format!("{flag} needs a value"))
+}
+
+pub(super) fn needs_task(
+    switches: [bool; 3],
+    args: &[String],
+    clean: bosn_service::CleanVolumes,
+) -> bool {
+    switches.into_iter().any(|flag| flag)
+        || !args.is_empty()
+        || clean != bosn_service::CleanVolumes::None
 }

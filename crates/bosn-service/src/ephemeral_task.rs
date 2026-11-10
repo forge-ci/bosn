@@ -4,10 +4,15 @@ use crate::*;
 use bosn_core::{ResourceKind, ResourceLabels, Scope};
 use serde::Deserialize;
 
+#[path = "ephemeral_task_wait.rs"]
+mod waiting;
+#[cfg(test)]
+use waiting::{WaitDecision, busy_after, wait_decision};
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TaskContainerError {
-    #[error("task container {0} is busy")]
-    TaskContainerBusy(String),
+    #[error("task container {0} is busy{suffix}", suffix = waiting::suffix(.1))]
+    TaskContainerBusy(String, Option<Duration>),
     #[error("task container {0} is foreign or lacks exact Bosn ownership labels")]
     TaskContainerForeign(String),
     #[error("{0}")]
@@ -124,18 +129,28 @@ async fn clear_leftover(
     name: &str,
     task: &str,
     labels: &ResourceLabels,
+    wait: bool,
 ) -> Result<(), TaskContainerError> {
     let Some(observed) = inspect(engine, name).await? else {
         return Ok(());
     };
     match leftover(observed.state.running, ours(&observed, labels, name, task)) {
-        Leftover::Busy => Err(TaskContainerError::TaskContainerBusy(name.into())),
+        Leftover::Busy => Err(TaskContainerError::TaskContainerBusy(name.into(), None)),
         Leftover::Refuse => Err(TaskContainerError::TaskContainerForeign(name.into())),
         Leftover::Remove => {
             let result =
                 control(engine, vec!["container".into(), "rm".into(), observed.id]).await?;
-            if result.ok() {
+            if result.ok() || result.reports_missing() {
                 Ok(())
+            } else if wait {
+                // The holder can remove its stopped container between our inspect and rm.
+                match inspect(engine, name).await? {
+                    None => Ok(()),
+                    Some(current) if ours(&current, labels, name, task) => {
+                        Err(TaskContainerError::TaskContainerBusy(name.into(), None))
+                    }
+                    Some(_) => Err(TaskContainerError::TaskContainerForeign(name.into())),
+                }
             } else {
                 Err("stopped task container removal failed".into())
             }
@@ -159,7 +174,63 @@ pub(crate) async fn prepare(
     remaining: Duration,
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
+    let started = Instant::now();
+    loop {
+        let result = prepare_once(
+            engine,
+            plan,
+            image,
+            request,
+            clean_context,
+            session,
+            cancellation,
+            events,
+            remaining.saturating_sub(started.elapsed()),
+            lifetime,
+        )
+        .await;
+        match result {
+            Err(TaskContainerError::TaskContainerBusy(name, _))
+                if request.wait && !clean_context.0 =>
+            {
+                if started.elapsed() >= remaining {
+                    return Err(waiting::busy_after(&name, started.elapsed()));
+                }
+                if cancellation.is_cancelled() {
+                    return Err("manifest task cancelled while waiting on container".into());
+                }
+                async_engine::sleep(
+                    Duration::from_millis(250).min(remaining.saturating_sub(started.elapsed())),
+                )
+                .await;
+            }
+            other => return other,
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "task boundary carries existing execution budgets and authority"
+)]
+async fn prepare_once(
+    engine: &DockerEngine,
+    plan: &SetupPlan,
+    image: &PreparedImage,
+    request: &ManifestAppTaskJobRequest,
+    clean_context: (bool, &Path, &[ManifestVolumeResource]),
+    session: &dyn ManifestAppTaskSessionRecorder,
+    cancellation: &async_engine::CancellationToken,
+    events: &async_engine::Sender<EngineEvent>,
+    remaining: Duration,
+    lifetime: &mut Option<TaskContainer>,
+) -> Result<SetupEnsureResult, TaskContainerError> {
     let (keep, state, volumes) = clean_context;
+    let remaining = if request.wait && !keep {
+        waiting::before_prepare(engine, plan, request, session, cancellation, remaining).await?
+    } else {
+        remaining
+    };
     if keep && request.clean != CleanVolumes::None {
         reset_kept_container(
             engine,
@@ -241,7 +312,7 @@ async fn prepare_container(
     let name = task_name(&request.task_name, &identity);
     let registry = session.registry_id().await?;
     let labels = task_labels(&registry, plan, request)?;
-    clear_leftover(engine, &name, &request.task_name, &labels).await?;
+    clear_leftover(engine, &name, &request.task_name, &labels, request.wait).await?;
     if cancellation.is_cancelled() {
         return Err("manifest task cancelled before container creation".into());
     }
@@ -331,7 +402,7 @@ async fn reset_kept_container(
         .await
         .map_err(|e| e.to_string())?;
     if observed.running {
-        return Err(TaskContainerError::TaskContainerBusy(name));
+        return Err(TaskContainerError::TaskContainerBusy(name, None));
     }
     crate::managed_retention::clean::remove_kept(engine, state, observed, &cancellation)
         .await
@@ -383,7 +454,7 @@ async fn create_failure(
 ) -> TaskContainerError {
     match inspect(engine, name).await {
         Ok(Some(observed)) if ours(&observed, labels, name, task) => {
-            TaskContainerError::TaskContainerBusy(name.into())
+            TaskContainerError::TaskContainerBusy(name.into(), None)
         }
         Ok(Some(_)) => TaskContainerError::TaskContainerForeign(name.into()),
         _ => format!("task container {name} creation failed").into(),
@@ -493,5 +564,22 @@ mod tests {
         }
         observed.config.labels = None;
         assert!(!ours(&observed, &expected, "task-checkout", "task"));
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+    #[test]
+    fn wait_decision_respects_ownership_and_deadline() {
+        assert_eq!(wait_decision(true, true, false), WaitDecision::Wait);
+        assert_eq!(wait_decision(true, false, false), WaitDecision::Refuse);
+        assert_eq!(wait_decision(true, true, true), WaitDecision::Expired);
+        assert_eq!(wait_decision(false, true, false), WaitDecision::Ready);
+        assert!(
+            busy_after("probe", Duration::from_secs(3))
+                .to_string()
+                .contains("waited 3s")
+        );
     }
 }

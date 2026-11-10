@@ -492,6 +492,7 @@ pub(crate) async fn job_actor(
                     let _ = jobs.log(id, bounded_log_line(&line));
                 }
             }
+            JobCommand::WaitingOn { id, name } => jobs.waiting_on(id, name),
             JobCommand::Unfinished(reply) => {
                 let _ = reply.send(jobs.load().values().map(|(q, r)| q + r).sum());
             }
@@ -697,6 +698,7 @@ pub(crate) fn launch_started_setup_jobs(
             _ => None,
         };
         let manifest_session_recorder = ActorManifestAppTaskSessionRecorder {
+            jobs: sender.clone(),
             actor: registry.clone(),
             job_id: id,
             run,

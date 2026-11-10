@@ -119,6 +119,7 @@ pub struct ManifestAppTaskJobRequest {
     pub task_name: String,
     pub args: Vec<String>,
     pub clean: crate::CleanVolumes,
+    pub wait: bool,
     pub deadline: Duration,
     pub output_limit: usize,
 }
@@ -232,6 +233,14 @@ pub trait ManifestAppTaskExecutor: Send + Sync {
 /// Durable, conservative ownership evidence for a manifest app task. The
 /// identity is the registry-matching deterministic managed container name.
 pub trait ManifestAppTaskSessionRecorder: Send + Sync {
+    /// A blocked runner still owns its job and cancellation token, but no container.
+    fn waiting_on(
+        &self,
+        _name: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+
     /// Persist the exact volume contract before creation, then consume the intents after proof.
     fn task_volumes<'a>(
         &'a self,

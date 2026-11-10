@@ -35,6 +35,7 @@ fn a_dead_owners_jobs_are_cancelled_and_a_live_owners_are_not() {
     let fake = Arc::new(BlockingTask { started });
     let request = |task: &str| ManifestAppTaskJobRequest {
         clean: Default::default(),
+        wait: false,
         workspace: workspace.clone(),
         manifest: "bosn.toml".into(),
         stack: "app".into(),

@@ -626,6 +626,7 @@ impl Client {
                 &state_dir,
                 ManifestAppTaskJobRequest {
                     clean: Default::default(),
+                    wait: false,
                     args: Vec::new(),
                     workspace,
                     manifest,

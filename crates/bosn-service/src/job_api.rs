@@ -93,6 +93,10 @@ pub(crate) enum JobCommand {
         id: u64,
         lines: Vec<String>,
     },
+    WaitingOn {
+        id: u64,
+        name: Option<String>,
+    },
     Completed {
         id: u64,
         kind: SetupJobKind,
@@ -396,6 +400,7 @@ pub(crate) fn jobs_view(jobs: &Jobs, runners: Option<&runners::Runners>) -> serd
                 "workspace": job.workspace,
                 "key": job.stack,
                 "args": job.args,
+                "waiting_on": job.waiting_on,
                 "submitted_ms": epoch_ms(Some(job.submitted_at)),
                 "started_ms": epoch_ms(job.started_at),
                 "finished_ms": epoch_ms(job.finished_at),

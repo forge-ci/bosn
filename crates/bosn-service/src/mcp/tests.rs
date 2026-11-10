@@ -210,6 +210,7 @@ impl Backend for FakeBackend {
     fn job_status(&mut self, id: u64) -> Result<JobStatus, Error> {
         self.daemon_reads += 1;
         Ok(JobStatus {
+            waiting_on: None,
             id,
             state: "Running".into(),
             error: None,
