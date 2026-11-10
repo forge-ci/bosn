@@ -1,8 +1,8 @@
 //! `bosn run`: the ergonomic front door for a workspace `bosn.toml`.
 //!
 //! It composes existing daemon-owned operations and adds no new authority:
-//! `bosn run --task NAME` is exactly `manifest ensure` of the task's stack
-//! followed by `manifest app-task`, with the workspace taken from the
+//! `bosn run --task NAME` submits one `manifest app-task`, whose preparation
+//! and execution share a volume lease, with the workspace taken from the
 //! manifest's directory, the daemon started on demand, and the job logs
 //! streamed until the job ends. The process exits with the task's exit code.
 
@@ -322,7 +322,7 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
     let client = crate::daemon_client(&state_dir).map_err(|_| "invalid state directory")?;
     ensure_daemon(&runtime, &client, &state_dir)?;
 
-    if !arguments.no_ensure && arguments.clean == bosn_service::CleanVolumes::None {
+    if arguments.task.is_none() && !arguments.no_ensure {
         eprintln!(
             "bosn run: ensuring stack {stack} for {}",
             workspace.display()

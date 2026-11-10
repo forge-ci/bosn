@@ -68,6 +68,7 @@ pub(crate) struct SeedContext<'a> {
 impl SeedContext<'_> {
     pub async fn execute(
         &self,
+        modes: &std::collections::BTreeMap<String, bosn_core::manifest::VolumeMode>,
         pipeline: &SetupEnsurePipeline<'_>,
         cancellation: &async_engine::CancellationToken,
         events: &async_engine::Sender<EngineEvent>,
@@ -76,10 +77,22 @@ impl SeedContext<'_> {
         let _locks = locks::destinations(
             self.state_dir,
             self.volumes,
+            modes,
             pipeline.deadline,
             cancellation,
+            "manifest ensure/seed",
         )
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
+        self.seed(pipeline.deadline, cancellation).await?;
+        self.guarded_pipeline(pipeline, cancellation, events, logs)
+            .await
+    }
+    pub(crate) async fn seed(
+        &self,
+        deadline: &async_engine::Deadline,
+        cancellation: &async_engine::CancellationToken,
+    ) -> Result<(), String> {
         for target in self.volumes {
             // The gate runs even when seed=false: opt-out never bypasses an unfinished copy.
             if gate::ensure_safe(self, target)
@@ -88,7 +101,7 @@ impl SeedContext<'_> {
             {
                 continue;
             }
-            let Some(query_budget) = budget(pipeline.deadline.remaining()) else {
+            let Some(query_budget) = budget(deadline.remaining()) else {
                 if target.seed_name.is_some() {
                     crate::daemon_log!(
                         "bosn volume seed: {}: cold create: ensure floor reserved",
@@ -127,7 +140,7 @@ impl SeedContext<'_> {
                         self,
                         target,
                         source,
-                        match budget(pipeline.deadline.remaining()) {
+                        match budget(deadline.remaining()) {
                             Some(budget) => budget,
                             None => {
                                 crate::daemon_log!(
@@ -148,8 +161,7 @@ impl SeedContext<'_> {
                 }
             }
         }
-        self.guarded_pipeline(pipeline, cancellation, events, logs)
-            .await
+        Ok(())
     }
     async fn guarded_pipeline(
         &self,

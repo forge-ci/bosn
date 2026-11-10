@@ -39,6 +39,7 @@ pub(crate) async fn execute(
     volumes: &[ManifestVolumeResource],
     mode: CleanVolumes,
     cancellation: &async_engine::CancellationToken,
+    lease: &crate::volume_seed::locks::VolumeLease,
 ) -> Result<(), CleanError> {
     if mode == CleanVolumes::None {
         return Ok(());
@@ -48,18 +49,25 @@ pub(crate) async fn execute(
         .filter(|v| mode.selects(v.scope))
         .cloned()
         .collect();
+    let leased: std::collections::BTreeSet<_> = targets
+        .iter()
+        .filter(|v| lease.holds(&v.name))
+        .map(|v| v.name.clone())
+        .collect();
     let engine = engine.clone();
     let state = state.to_owned();
     let cancellation = cancellation.clone();
     async_engine::launch_blocking(move || {
         let mut locks = Vec::new();
         for target in &targets {
-            let lock = crate::volume_seed::locks::try_lock(
-                &crate::runners::cache_lock_dir(),
-                &target.name,
-            )?
-            .ok_or_else(|| held(&target.name, format!("exclusive lock {}", target.name)))?;
-            locks.push(lock);
+            if !leased.contains(&target.name) {
+                let lock = crate::volume_seed::locks::try_lock(
+                    &crate::runners::cache_lock_dir(),
+                    &target.name,
+                )?
+                .ok_or_else(|| held(&target.name, format!("exclusive lock {}", target.name)))?;
+                locks.push(lock);
+            }
             check(&engine, &state, target)?;
         }
         for target in targets {

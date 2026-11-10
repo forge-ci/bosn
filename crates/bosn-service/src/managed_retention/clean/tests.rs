@@ -154,3 +154,43 @@ fn cold_task_recording_preserves_a_pin_on_an_unselected_machine_volume() {
         Retention::Pinned
     );
 }
+
+#[test]
+fn clean_against_a_held_run_volume_refuses_before_docker_observation() {
+    let root = tempfile::tempdir().unwrap();
+    let mut target = target();
+    target.name = format!("held-{}", root.path().to_string_lossy().replace('/', "-"));
+    let modes = [(
+        target.name.clone(),
+        bosn_core::manifest::VolumeMode::Exclusive,
+    )]
+    .into();
+    async_engine::RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(async {
+            let cancellation = async_engine::CancellationSource::new();
+            let _run = crate::volume_seed::locks::destinations(
+                root.path(),
+                &[target.clone()],
+                &modes,
+                &async_engine::Deadline::after(Duration::from_secs(5)),
+                &cancellation.token(),
+                "task holder",
+            )
+            .await
+            .unwrap();
+            let error = execute(
+                &DockerEngine::docker(),
+                root.path(),
+                &[target.clone()],
+                CleanVolumes::Checkout,
+                &cancellation.token(),
+                &Default::default(),
+            )
+            .await
+            .unwrap_err();
+            assert!(matches!(error, CleanError::Held { volume, .. } if volume == target.name));
+        });
+}

@@ -41,6 +41,10 @@ pub(crate) struct ActorManifestAppTaskSessionRecorder {
     pub(crate) run: Option<RunContext>,
 }
 impl ManifestAppTaskSessionRecorder for ActorManifestAppTaskSessionRecorder {
+    fn registry_authority(&self) -> Result<(&RegistryActor, u64), String> {
+        Ok((&self.actor, self.job_id))
+    }
+
     fn waiting_on(
         &self,
         name: Option<String>,
@@ -330,7 +334,7 @@ pub(crate) fn clients_gone(jobs: &mut Jobs, sweep: bool) -> Vec<(u64, String)> {
 
 pub(crate) fn manifest_task_key(request: &ManifestAppTaskJobRequest) -> String {
     if request.args.is_empty() {
-        format!("manifest-app-task:{}", request.stack)
+        format!("manifest-app-task:{}:{}", request.stack, request.task_name)
     } else {
         format!(
             "manifest-app-task:{}:{}:{}",

@@ -308,7 +308,10 @@ fn live_docker_a_retired_generation_keeps_running_until_its_last_task_ends() {
         ("probe", "echo probed"),
     ];
     let unique = test_unique_suffix();
-    let mut stack = StackWorkspace::new(&stack_manifest(&format!("{unique}-one"), &tasks));
+    let mut stack = StackWorkspace::new(
+        &stack_manifest(&format!("{unique}-one"), &tasks)
+            .replace("scope = 'stack'", "scope = 'stack', mode = 'shared'"),
+    );
     stack.run_task("probe");
     let retired = stack.containers();
     assert_eq!(
@@ -331,7 +334,10 @@ fn live_docker_a_retired_generation_keeps_running_until_its_last_task_ends() {
     // The rollover happens while `hold` runs. The daemon may queue `probe`
     // behind it; either way `hold` must finish on its own and stop its
     // container itself.
-    stack.write_manifest(&stack_manifest(&format!("{unique}-two"), &tasks));
+    stack.write_manifest(
+        &stack_manifest(&format!("{unique}-two"), &tasks)
+            .replace("scope = 'stack'", "scope = 'stack', mode = 'shared'"),
+    );
     let probed = stack.run_task("probe");
     let held = StackWorkspace::output_of("hold", hold.wait_with_output().expect("hold task"));
     assert!(

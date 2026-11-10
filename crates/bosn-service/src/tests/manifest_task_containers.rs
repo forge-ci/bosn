@@ -141,7 +141,7 @@ fn an_overlay_mount_is_refused_until_implemented() {
     let fixture = fixture();
     let overlay = "[stack.app.mounts.src]\nsource = '.'\ndestination = '/src'\nmode = 'overlay'\n";
     let error = plan(&fixture, overlay, None).unwrap_err();
-    assert_eq!(error, "overlay mounts are not implemented yet (#666)");
+    assert_eq!(error, "overlay mounts are not implemented yet (#888)");
 }
 
 #[test]
