@@ -91,7 +91,7 @@ fn interrupted_backfill_is_gated_and_resumes_without_replacing_newest_authority(
     let mut registry = Registry::open_writer(&path).unwrap();
     assert_eq!(
         registry.meta("schema_version").unwrap().as_deref(),
-        Some("6")
+        Some("7")
     );
     assert!(matches!(
         registry.begin_immediate(),

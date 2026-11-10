@@ -789,9 +789,9 @@ pub(crate) async fn registry_actor(
                     }
                 }
             }
-            DbCommand::PutManifestVolumeIntents { volumes, reply } => {
+            DbCommand::ManifestVolumes { command, reply } => {
                 let worker = async_engine::launch_blocking(move || {
-                    let result = put_manifest_volume_intents(&mut registry, &volumes);
+                    let result = manifest_volume_registry::execute(&mut registry, command);
                     (registry, result)
                 });
                 match worker.await {

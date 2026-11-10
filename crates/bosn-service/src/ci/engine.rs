@@ -21,6 +21,9 @@ use kernal_api::async_engine::{self, CancellationToken};
 use crate::{RegistryActor, act_engine};
 
 mod cache_usage;
+pub(crate) use cache_usage::{
+    helper::Identity as CacheHelperIdentity, journal::Tracker as CacheHelperTracker,
+};
 mod control;
 mod evidence;
 mod observation;

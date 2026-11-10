@@ -114,9 +114,14 @@ impl ManifestEnsureExecutor for DockerManifestEnsureExecutor {
             logs.send("[manifest] preparing immutable application image".into())
                 .await
                 .map_err(|_| "manifest log consumer closed".to_owned())?;
-            let result =
-                execute_setup_ensure_pipeline(&self.engine, &pipeline, cancellation, &events, logs)
-                    .await;
+            let result = crate::volume_seed::SeedContext {
+                state_dir: &self.state_dir,
+                engine: &self.engine,
+                registry,
+                volumes: &volumes,
+            }
+            .execute(&pipeline, cancellation, &events, logs)
+            .await;
             drop(events);
             forwarder
                 .await

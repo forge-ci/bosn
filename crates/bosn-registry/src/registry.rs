@@ -24,6 +24,9 @@ impl Registry {
         if meta(&connection, "schema_version")?.as_deref() == Some("5") {
             ci_state::migration::prepare(&mut connection)?;
         }
+        if meta(&connection, "schema_version")?.as_deref() == Some("6") {
+            crate::volume_seed::upgrade_v6(&mut connection)?;
+        }
         Self::finish_writer(connection, writer, path, identity)
     }
     /// Opens the one deliberately offline writer permitted to inspect and
@@ -42,16 +45,19 @@ impl Registry {
         let identity = fs::path_identity(path)?;
         let writer = acquire_writer_lock(path)?;
         verify_database_identity(path, identity)?;
-        let connection =
+        let mut connection =
             Connection::open_with_busy_timeout(path, std::time::Duration::from_secs(5))?;
         Self::validate_for_reconciliation(&connection, path)?;
         if meta(&connection, RECONCILIATION_REQUIRED)?.as_deref() != Some("true") {
             return Err(Error::ReconciliationNotRequired);
         }
         verify_database_identity(path, identity)?;
+        if meta(&connection, "schema_version")?.as_deref() == Some("6") {
+            crate::volume_seed::upgrade_v6(&mut connection)?;
+        }
         Self::finish_writer(connection, writer, path, identity)
     }
-    /// Atomically reserves a new database path, initializes v6, and retains
+    /// Atomically reserves a new database path, initializes v7, and retains
     /// writer exclusion. The caller supplies the secure UUID because the
     /// kernel random facade is async and this synchronous registry must not
     /// invent an executor.
@@ -77,6 +83,7 @@ impl Registry {
             transaction.execute(statement, &[])?;
         }
         ci_state::initialize(&mut transaction)?;
+        crate::volume_seed::initialize(&mut transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES (?, ?), (?, ?)",
             &[
@@ -189,7 +196,12 @@ impl Registry {
         connection: &Connection,
         path: &Path,
     ) -> Result<(), Error> {
-        Self::validate_inner(connection, path, true, false)
+        Self::validate_inner(
+            connection,
+            path,
+            true,
+            meta(connection, "schema_version")?.as_deref() == Some("6"),
+        )
     }
     fn validate_for_upgrade(connection: &Connection, path: &Path) -> Result<(), Error> {
         Self::validate_inner(connection, path, false, true)
@@ -206,14 +218,14 @@ impl Registry {
         let version: u32 = version
             .parse()
             .map_err(|_| Error::BadRow("schema_version"))?;
-        if version < SCHEMA_VERSION && !(allow_upgrade && version == 5) {
+        if version < SCHEMA_VERSION && !(allow_upgrade && matches!(version, 5 | 6)) {
             return Err(Error::LegacyImportRequired(version));
         }
         if version > SCHEMA_VERSION {
             return Err(Error::UnsupportedSchema(version));
         }
         if version == SCHEMA_VERSION {
-            ci_state::validate(connection)?;
+            registry_schema::validate_current(connection)?;
         }
         if !allow_upgrade && meta(connection, "ci.migration.cursor")?.is_some() {
             return Err(Error::MigrationInProgress);

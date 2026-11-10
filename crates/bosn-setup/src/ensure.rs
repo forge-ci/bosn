@@ -22,6 +22,7 @@ use kernal_api::{
 use crate::{PreparedImage, PreparedImageKind, SetupPlan, SetupPlanAppSource};
 mod checks;
 mod derive;
+mod seed_labels;
 use checks::*;
 use derive::*;
 pub use derive::{setup_container_name, verify_setup_observation};

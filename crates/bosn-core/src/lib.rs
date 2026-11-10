@@ -46,6 +46,9 @@ pub use unmanaged::{
 };
 
 pub const NAMESPACE: &str = "com.zackees.bosn";
+pub const LABEL_SEED_REGISTRY: &str = "com.zackees.bosn.seed-registry";
+pub const LABEL_SEEDED_FROM: &str = "com.zackees.bosn.seeded-from";
+pub const LABEL_SEED_NONCE: &str = "com.zackees.bosn.seed-nonce";
 pub const LABEL_REGISTRY: &str = "com.zackees.bosn.registry";
 pub const LABEL_KIND: &str = "com.zackees.bosn.kind";
 /// Explicit task identity; absent on legacy setup images.

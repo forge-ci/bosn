@@ -32,7 +32,7 @@ impl Drop for ActiveHelper<'_> {
     }
 }
 
-pub(in crate::ci::engine) struct Tracker<'a> {
+pub(crate) struct Tracker<'a> {
     registry: &'a RegistryActor,
     nonce: &'a str,
 }

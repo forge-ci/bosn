@@ -175,14 +175,13 @@ impl Runners {
             (now_ms() as u32) ^ std::process::id().rotate_left(16)
         );
         let proxy_dir = capacity.docker_proxy.then(|| proxy_dir(state_dir));
-        let uid = kernal_api::platform::ipc::current_user_id().unwrap_or_else(|_| "0".into());
         Self {
             capacity,
             daemon,
             instance,
             ledger: state_dir.join(LEDGER_DIR).join(LEDGER_FILE),
             proxy_dir,
-            lock_dir: PathBuf::from(format!("/tmp/bosn-{uid}")).join("cache-locks"),
+            lock_dir: cache_lock_dir(),
             api: DockerApi::from_environment(),
             inner: Mutex::default(),
         }
@@ -713,6 +712,12 @@ pub fn ensure_proxy_dir(dir: &Path) -> io::Result<()> {
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     }
     Ok(())
+}
+
+/// Machine/user-wide lease directory, shared by cache users and volume seeding.
+pub(crate) fn cache_lock_dir() -> PathBuf {
+    let uid = kernal_api::platform::ipc::current_user_id().unwrap_or_else(|_| "0".into());
+    PathBuf::from(format!("/tmp/bosn-{uid}")).join("cache-locks")
 }
 
 /// Release an exclusive lease's OS lock explicitly. A `flock` belongs to the

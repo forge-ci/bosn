@@ -17,14 +17,16 @@ pub(crate) async fn manifest_stack_setup_plan_at(
     request: &ManifestEnsureJobRequest,
     state_dir: Option<&Path>,
 ) -> Result<ManifestRuntimePlan, String> {
-    manifest_stack_plan(
+    let mut plan = manifest_stack_plan(
         &request.workspace,
         &request.manifest,
         &request.stack,
         None,
         state_dir,
     )
-    .await
+    .await?;
+    crate::volume_seed::authorize_plan(state_dir, &mut plan.plan).await?;
+    Ok(plan)
 }
 
 #[cfg(test)]
@@ -57,6 +59,7 @@ pub(crate) async fn manifest_stack_task_setup_plan_at(
         state_dir,
     )
     .await?;
+    crate::volume_seed::authorize_plan(state_dir, &mut plan.plan).await?;
     if let Some(task) = &mut plan.guest_task
         && !request.args.is_empty()
     {

@@ -988,7 +988,7 @@ mod image_facts;
 mod images;
 mod merged_branches;
 mod pressure;
-mod registered;
+pub(crate) mod registered;
 mod running;
 mod sizes;
 mod workspaces;

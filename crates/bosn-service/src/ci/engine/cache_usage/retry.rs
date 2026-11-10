@@ -37,6 +37,13 @@ impl DockerActBackend {
                 if record.intent.registry_id != owner {
                     return Err("cache helper registry owner mismatch".into());
                 }
+                // Stack-volume seeding has its own destination lock and startup recovery.
+                if matches!(
+                    record.intent.role,
+                    Some(bosn_registry::cache_helper::CacheHelperRole::VolumeSeedV1 { .. })
+                ) {
+                    continue;
+                }
                 if self
                     .active_helpers
                     .lock()
@@ -66,7 +73,7 @@ impl DockerActBackend {
         })
     }
 
-    async fn reconcile_measurement(
+    pub(crate) async fn reconcile_measurement(
         &self,
         registry: &RegistryActor,
         record: &CacheHelperRecord,

@@ -27,8 +27,10 @@ mod gc_query;
 mod immediate;
 mod read_only;
 mod registry;
+mod registry_schema;
 mod rows;
 mod storage;
+pub mod volume_seed;
 use gc_query::*;
 pub use immediate::*;
 pub use read_only::*;
@@ -36,7 +38,7 @@ use registry::*;
 use rows::*;
 pub use storage::*;
 
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 pub const DEFAULT_PAGE_SIZE: usize = 100;
 pub const MAX_PAGE_SIZE: usize = 1_000;
 

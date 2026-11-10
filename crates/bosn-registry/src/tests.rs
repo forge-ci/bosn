@@ -10,7 +10,7 @@ fn reconciliation_preview_rechecks_gate_and_schema_after_writer_race() {
             true,
         ),
         (
-            "UPDATE meta SET value='7' WHERE key='schema_version'",
+            "UPDATE meta SET value='8' WHERE key='schema_version'",
             false,
         ),
     ] {
@@ -38,7 +38,7 @@ fn reconciliation_preview_rechecks_gate_and_schema_after_writer_race() {
         if gate_changed {
             assert!(matches!(result, Err(Error::ReconciliationNotRequired)));
         } else {
-            assert!(matches!(result, Err(Error::UnsupportedSchema(7))));
+            assert!(matches!(result, Err(Error::UnsupportedSchema(8))));
         }
         acquire_writer_lock(&path).unwrap();
     }

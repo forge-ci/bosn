@@ -18,6 +18,7 @@ pub(crate) fn prepare(connection: &mut Connection) -> Result<(), Error> {
     }
     let mut transaction = connection.begin_immediate()?;
     initialize(&mut transaction)?;
+    crate::volume_seed::initialize(&mut transaction)?;
     transaction.execute("INSERT INTO meta(key,value) SELECT ?,CAST(COALESCE(MAX(id),0)+1 AS TEXT) FROM events WHERE 1 ON CONFLICT(key) DO NOTHING", &[Value::Text(CURSOR.into())])?;
     // Fence older writers before the first resumable page commits.
     transaction.execute(

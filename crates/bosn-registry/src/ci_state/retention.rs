@@ -92,6 +92,20 @@ pub(super) fn admit(
 }
 
 fn referenced(transaction: &mut Transaction<'_>, snapshot: &Snapshot) -> Result<bool, Error> {
+    if snapshot.family == HELPER
+        && !transaction
+            .query(
+                "SELECT nonce FROM volume_seeds WHERE nonce=? AND state='copying'",
+                &[Value::Text(snapshot.id.clone())],
+                QueryLimits {
+                    max_rows: 1,
+                    max_bytes: 1024,
+                },
+            )?
+            .is_empty()
+    {
+        return Ok(true);
+    }
     let (sql, key) = if snapshot.family == ENGINE {
         (
             "SELECT id FROM ci_current WHERE family=2 AND pending=1 AND engine_run=? LIMIT 1",
