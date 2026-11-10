@@ -12,6 +12,7 @@ use kernal_api::async_engine::{self, CancellationToken};
 use super::{
     super::{
         engine::{ActEngineBackend, ActInvocation, ExecEnd, RunLimits, RunScope},
+        report::{observe_exit, observe_failure},
         shared_engine::{Lease, SharedEngine},
         spare::SparePlan,
         storage::{self, StoragePeak},
@@ -271,9 +272,9 @@ async fn execute(
         (None, None) => {}
     }
     match end {
-        Ok(ExecEnd::Exited(code)) => ExecutionEnd::Exited(code),
+        Ok(ExecEnd::Exited(code)) => observe_exit(backend, lease, plan, code).await,
         Ok(ExecEnd::TimedOut) => ExecutionEnd::TimedOut,
         Ok(ExecEnd::Cancelled) => ExecutionEnd::Cancelled,
-        Err(error) => ExecutionEnd::EngineFailed(error),
+        Err(error) => observe_failure(backend, lease, plan, error).await,
     }
 }

@@ -123,7 +123,13 @@ impl SharedEngine {
         let mut actual = want.with_generation(binding)?;
         actual.intent.run_id = crate::ci::wire::new_uuid().await.map_err(|e| e.message)?;
         actual.intent.created_at = crate::ci::lifecycle::now_seconds();
-        spare::retire(&self.registry, self.backend.as_ref(), &engine).await?;
+        spare::retire(
+            &self.registry,
+            self.backend.as_ref(),
+            &engine,
+            super::super::engine::RemovalReason::Spare,
+        )
+        .await?;
         if self
             .machine()?
             .inspect(&engine.intent.engine_name())

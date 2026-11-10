@@ -73,13 +73,23 @@ impl CiRuntime {
                     return Err("cleanup retry registry owner mismatch".into());
                 }
                 let budget = crate::act_engine::CLEANUP_BUDGET;
-                let result = async_engine::timeout(
-                    budget,
-                    self.backend.retire(&self.registry, owner, &record, budget),
-                )
-                .await
-                .map_err(|_| "cleanup retry deadline exceeded".to_string())
-                .and_then(|r| r);
+                let retirement = async {
+                    let name = record.intent.engine_name();
+                    super::super::engine::log_removal(
+                        self.backend.as_ref(),
+                        record.engine_id.as_deref().unwrap_or(&name),
+                        &name,
+                        super::super::engine::RemovalReason::Recovery,
+                    )
+                    .await;
+                    self.backend
+                        .retire(&self.registry, owner, &record, budget)
+                        .await
+                };
+                let result = async_engine::timeout(budget, retirement)
+                    .await
+                    .map_err(|_| "cleanup retry deadline exceeded".to_string())
+                    .and_then(|r| r);
                 let retired = result.is_ok().then(|| record.intent.run_id.clone());
                 if retired.is_some() {
                     self.update(tracked_run, |slot| {

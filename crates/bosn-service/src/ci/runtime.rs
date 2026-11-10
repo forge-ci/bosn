@@ -952,6 +952,7 @@ fn record_engine_report(record: &mut RunRecord, report: &EngineReport) {
     record.engine_id = report.engine_id.clone();
     record.act_exit_code = match report.execution {
         ExecutionEnd::Exited(code) => Some(code),
+        ExecutionEnd::EngineLost { exit_code, .. } => exit_code,
         _ => None,
     };
     record.cleanup = Some(match &report.cleanup {

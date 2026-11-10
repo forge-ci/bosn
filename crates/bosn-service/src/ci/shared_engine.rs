@@ -33,7 +33,7 @@ use std::{
 use kernal_api::async_engine::{self, CancellationToken};
 
 use super::{
-    engine::{ActEngineBackend, EngineObservation},
+    engine::{ActEngineBackend, EngineObservation, RemovalReason},
     lifecycle::Claim,
     machine::{Daemon, EngineIdentity, Holder, Leased, MachineEngine},
     spare::{Spare, SparePlan},
@@ -335,7 +335,7 @@ impl SharedEngine {
                  changed); waiting for its runs to finish"
             ));
         }
-        self.retire_owned(current).await;
+        self.retire_owned(current, RemovalReason::Replacement).await;
         None
     }
 

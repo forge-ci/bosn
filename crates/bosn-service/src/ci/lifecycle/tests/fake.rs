@@ -235,6 +235,7 @@ impl ActEngineBackend for FakeBackend {
                     oom_killed: false,
                     finished_at: "2026-11-09T00:00:00Z".into(),
                     status: "exited".into(),
+                    error: None,
                 })
             }
         })

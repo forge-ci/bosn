@@ -1,5 +1,5 @@
 //! Typed Docker state: uncertainty must never authorize engine removal.
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct EngineState {
     pub running: bool,
@@ -8,9 +8,11 @@ pub struct EngineState {
     pub oom_killed: bool,
     pub finished_at: String,
     pub status: String,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum EngineObservation {
     Running,
     Stopped(EngineState),
