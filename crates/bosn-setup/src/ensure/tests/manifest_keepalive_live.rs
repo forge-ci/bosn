@@ -15,6 +15,7 @@ struct Cleanup {
     hash: String,
     image_id: Option<String>,
     container: Option<(String, String)>,
+    volume: Option<String>,
 }
 impl Drop for Cleanup {
     fn drop(&mut self) {
@@ -39,6 +40,20 @@ impl Drop for Cleanup {
                         .args(["container", "rm", "-f", id])
                         .output();
                 }
+            }
+        }
+        if let Some(volume) = &self.volume {
+            let inspect = docker(&[
+                "volume",
+                "inspect",
+                "--format",
+                "{{index .Labels \"com.zackees.bosn.setup-content-sha256\"}}",
+                volume,
+            ]);
+            if inspect.status.success()
+                && String::from_utf8_lossy(&inspect.stdout).trim() == self.hash
+            {
+                let _ = docker(&["volume", "rm", volume]);
             }
         }
         if let Some(image_id) = &self.image_id {
@@ -85,6 +100,7 @@ fn live_low_level_entrypoints_are_never_invoked() {
             hash: hash.clone(),
             image_id: None,
             container: None,
+            volume: None,
         };
         let image_id = build_image(&workspace, &tag, &hash, forwarding, &mut cleanup);
         let mut p = plan(workspace.path());
@@ -180,4 +196,92 @@ fn build_image(
         String::from_utf8_lossy(&build.stderr)
     );
     cleanup.image_id.clone().expect("inspect test image")
+}
+
+#[test]
+#[ignore = "creates exact test-owned Docker images, containers and volumes"]
+fn live_stopped_keepalive_with_named_volume_can_be_adopted_and_restarted() {
+    let workspace = tempfile::tempdir().unwrap();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let hash = format!("{stamp:064x}");
+    let tag = format!("bosn-666-test:{hash}");
+    let mut cleanup = Cleanup {
+        hash: hash.clone(),
+        image_id: None,
+        container: None,
+        volume: None,
+    };
+    let image_id = build_image(&workspace, &tag, &hash, false, &mut cleanup);
+    let mut p = plan(workspace.path());
+    p.content_sha256 = hash.clone();
+    p.app.mounts.clear();
+    p.app.workdir = None;
+    p.app.command = Some(crate::MANIFEST_LINUX_IDLE_COMMAND.into());
+    p.manifest_keepalive = true;
+    let reference = format!("example.test/bosn-666@sha256:{hash}");
+    p.app.source = bosn_core::SetupSource::PinnedImage(reference.clone());
+    p.app_source = crate::SetupPlanAppSource::PinnedImage {
+        image: reference.clone(),
+    };
+    let volume_name = format!("bosn-v-test-666-{hash}");
+    cleanup.volume = Some(volume_name.clone());
+    p.named_volumes.push(crate::SetupNamedVolume {
+        name: volume_name.clone(),
+        target: "/data".into(),
+        labels: BTreeMap::from([
+            (LABEL_MANAGED.into(), MANAGED_VALUE.into()),
+            (LABEL_CONTENT_SHA256.into(), hash.clone()),
+            (LABEL_CONTAINER_NAME.into(), volume_name.clone()),
+        ]),
+    });
+    let receipt = crate::PreparedImage {
+        setup_content_sha256: hash,
+        kind: crate::PreparedImageKind::PinnedImage {
+            image: reference.clone(),
+        },
+        reference,
+        observed_identity: image_id,
+    };
+    let cancellation = CancellationSource::new();
+    let token = cancellation.token();
+    let (events, _receiver) = channel(256);
+    let request = || SetupEnsureRequest {
+        plan: &p,
+        workspace_root: workspace.path().to_path_buf(),
+        prepared_image: &receipt,
+        options: RunOptions::streaming(Duration::from_secs(30), 8192),
+        cancellation: &token,
+        events: &events,
+    };
+    let engine = DockerEngine::docker();
+    let first = runtime().run(ensure_setup_app(&engine, request())).unwrap();
+    assert!(first.created);
+    cleanup.container = Some((first.container_name.clone(), first.container_id.clone()));
+    assert!(
+        docker(&["stop", "--time", "1", &first.container_id])
+            .status
+            .success()
+    );
+    let adopted = runtime().run(adopt_setup_app(&engine, request())).unwrap();
+    assert!(!adopted.running);
+    let restarted = runtime().run(ensure_setup_app(&engine, request())).unwrap();
+    assert!(!restarted.created);
+    assert!(restarted.started);
+    assert!(restarted.running);
+    assert_eq!(restarted.container_id, first.container_id);
+    assert!(
+        runtime()
+            .run(adopt_setup_app(&engine, request()))
+            .unwrap()
+            .running
+    );
+    drop(cleanup);
+    assert!(
+        !docker(&["volume", "inspect", &volume_name])
+            .status
+            .success()
+    );
 }
