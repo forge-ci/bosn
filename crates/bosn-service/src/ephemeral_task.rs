@@ -129,6 +129,7 @@ async fn clear_leftover(
     name: &str,
     task: &str,
     labels: &ResourceLabels,
+    wait: bool,
 ) -> Result<(), TaskContainerError> {
     let Some(observed) = inspect(engine, name).await? else {
         return Ok(());
@@ -139,8 +140,17 @@ async fn clear_leftover(
         Leftover::Remove => {
             let result =
                 control(engine, vec!["container".into(), "rm".into(), observed.id]).await?;
-            if result.ok() {
+            if result.ok() || result.reports_missing() {
                 Ok(())
+            } else if wait {
+                // The holder can remove its stopped container between our inspect and rm.
+                match inspect(engine, name).await? {
+                    None => Ok(()),
+                    Some(current) if ours(&current, labels, name, task) => {
+                        Err(TaskContainerError::TaskContainerBusy(name.into(), None))
+                    }
+                    Some(_) => Err(TaskContainerError::TaskContainerForeign(name.into())),
+                }
             } else {
                 Err("stopped task container removal failed".into())
             }
@@ -189,6 +199,10 @@ pub(crate) async fn prepare(
                 if cancellation.is_cancelled() {
                     return Err("manifest task cancelled while waiting on container".into());
                 }
+                async_engine::sleep(
+                    Duration::from_millis(250).min(remaining.saturating_sub(started.elapsed())),
+                )
+                .await;
             }
             other => return other,
         }
@@ -298,7 +312,7 @@ async fn prepare_container(
     let name = task_name(&request.task_name, &identity);
     let registry = session.registry_id().await?;
     let labels = task_labels(&registry, plan, request)?;
-    clear_leftover(engine, &name, &request.task_name, &labels).await?;
+    clear_leftover(engine, &name, &request.task_name, &labels, request.wait).await?;
     if cancellation.is_cancelled() {
         return Err("manifest task cancelled before container creation".into());
     }
