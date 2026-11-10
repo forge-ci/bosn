@@ -61,6 +61,13 @@ pub(super) fn set_switch(
     Ok(true)
 }
 
+pub(super) fn utf8_value(flag: &str, value: &std::ffi::OsStr) -> Result<String, String> {
+    value
+        .to_os_string()
+        .into_string()
+        .map_err(|_| format!("{flag} value must be UTF-8"))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -105,11 +112,4 @@ mod clean_tests {
         assert!(parse(&["--task", "check", "--clean=bad"]).is_err());
         assert!(parse(&["--task", "check", "--clean", "--clean=all"]).is_err());
     }
-}
-
-pub(super) fn utf8_value(flag: &str, value: &std::ffi::OsStr) -> Result<String, String> {
-    value
-        .to_os_string()
-        .into_string()
-        .map_err(|_| format!("{flag} value must be UTF-8"))
 }
