@@ -167,7 +167,17 @@ process table and the registry immediately before the stop:
 - its `Config.Cmd` is exactly the keepalive launcher, not a declared command;
 - no lease, execution session or creation intent names it, and it has no `pinned` label;
 - both its age and the registry's idle time are past the container gate (6 h);
-- `docker top` shows exactly the keepalive shell and its `sleep`.
+- a bounded read of `/proc/1/cmdline` proves PID 1's NUL-separated argv is exactly
+  Bosn's fixed keepalive argv, and `docker top` shows only its shell and `sleep`;
+- container ID and `StartedAt` still match the observation, and the live argv and
+  process-list proof pass again immediately before stopping.
+
+This includes legacy image entrypoints that forwarded with `exec "$@"`. Configured
+commands or process names alone never prove forwarding. This proof supports Linux
+task hosts only; Windows hosts, missing `/proc`, malformed output, read deadlines
+or inaccessible evidence keep the container. `bosn gc owned --json` running-container
+diagnostics report `keepalive` candidates and `idle: false` when live proof fails;
+retention pass failures and stops appear in `<state>/daemon.log`.
 
 At most 16 are stopped per pass, with a 10 s grace for the keepalive's `TERM` trap. The same
 pass then reclaims the stopped container and, in later passes, the volumes it no longer pins,
