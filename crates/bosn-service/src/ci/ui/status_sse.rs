@@ -1,4 +1,4 @@
-//! Pull-driven replay of persisted per-run status changes.
+//! Pull-driven replay of persisted per-run status and raw log events.
 
 use std::{collections::VecDeque, io, time::Duration};
 
@@ -7,7 +7,7 @@ use kernal_api::{async_engine, http_server};
 
 use crate::ci::{
     CiRuntime,
-    status::{self, StatusSnapshot},
+    cursor::{self, Event},
     store::Store,
     wire::RunState,
 };
@@ -16,9 +16,10 @@ struct Tail {
     store: Store,
     run: String,
     cursor: u64,
-    offset: u64,
-    pending: VecDeque<StatusSnapshot>,
+    offsets: [u64; 2],
+    pending: VecDeque<Event>,
     done: bool,
+    terminal_checked: bool,
 }
 
 pub(super) fn response(ci: &CiRuntime, run: &str, from_seq: u64) -> http_server::Response {
@@ -29,9 +30,10 @@ pub(super) fn response(ci: &CiRuntime, run: &str, from_seq: u64) -> http_server:
         store: ci.status_store(),
         run: run.into(),
         cursor: from_seq,
-        offset: 0,
+        offsets: [0; 2],
         pending: VecDeque::new(),
         done: false,
+        terminal_checked: false,
     };
     let runtime = ci.clone();
     let events = stream::unfold(state, move |mut tail| {
@@ -43,37 +45,46 @@ pub(super) fn response(ci: &CiRuntime, run: &str, from_seq: u64) -> http_server:
                 }
                 if let Some(snapshot) = tail.pending.pop_front() {
                     tail.cursor = snapshot.seq;
-                    tail.done = snapshot.state == RunState::Done;
+                    tail.done = snapshot.terminal;
                     let event = http_server::SseEvent {
                         id: Some(snapshot.seq.to_string()),
-                        event: Some("status".into()),
-                        data: serde_json::to_string(&snapshot).unwrap_or_default(),
+                        event: Some(snapshot.kind),
+                        data: snapshot.data,
                     };
                     return Some((Ok(event), tail));
                 }
-                let (store, run, cursor, offset) = (
+                let (store, run, cursor, mut offsets) = (
                     tail.store.clone(),
                     tail.run.clone(),
                     tail.cursor,
-                    tail.offset,
+                    tail.offsets,
                 );
                 let page = async_engine::launch_blocking(move || {
-                    status::read_since_offset(&store, &run, cursor, 64, offset)
+                    cursor::replay(&store, &run, cursor, &mut offsets)
+                        .map(|records| (records, offsets))
                 })
                 .await;
                 match page {
-                    Ok(Ok(page)) => {
-                        tail.offset = page.next_offset;
-                        if !page.records.is_empty() {
-                            tail.pending = page.records.into();
+                    Ok(Ok((records, offsets))) => {
+                        tail.offsets = offsets;
+                        if !records.is_empty() {
+                            tail.pending = records.into();
                             continue;
+                        }
+                        if tail.terminal_checked {
+                            return None;
                         }
                         if let Ok(record) = runtime.record(&tail.run)
                             && record.state == RunState::Done
                         {
                             match runtime.reconcile_status(record.id).await {
+                                // Re-read after reconciliation even when another writer
+                                // appended terminal status after our last empty page.
+                                Ok((_, RunState::Done)) => {
+                                    tail.terminal_checked = true;
+                                    continue;
+                                }
                                 Ok((true, _)) => continue,
-                                Ok((false, RunState::Done)) => return None,
                                 Ok((false, _)) => {
                                     async_engine::sleep(Duration::from_millis(250)).await;
                                 }

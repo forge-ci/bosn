@@ -19,6 +19,7 @@ use super::{
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct StatusSnapshot {
+    /// SSE id: unified per-run cursor across status and raw log events.
     pub seq: u64,
     pub run: String,
     pub state: RunState,
@@ -96,15 +97,21 @@ pub fn repair_and_last(store: &Store, run: &str) -> io::Result<Option<StatusSnap
 }
 
 pub fn append(store: &Store, record: &RunRecord, seq: u64) -> io::Result<()> {
-    let mut bytes =
-        serde_json::to_vec(&StatusSnapshot::of(record, seq)).map_err(io::Error::other)?;
-    bytes.push(b'\n');
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path(store, &record.id))?;
-    file.write_all(&bytes)?;
-    file.sync_data()
+    super::cursor::append(store, &record.id, |event_seq| {
+        let snapshot = StatusSnapshot::of(record, seq);
+        let mut bytes = serde_json::to_vec(&super::cursor::Stored {
+            event_seq,
+            record: snapshot,
+        })
+        .map_err(io::Error::other)?;
+        bytes.push(b'\n');
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path(store, &record.id))?;
+        file.write_all(&bytes)?;
+        file.sync_data()
+    })
 }
 
 /// Bounded replay after a cursor. An unfinished tail is ignored until fixed.

@@ -205,12 +205,20 @@ The live feed (`/v1/events`, server-sent events) is lossy: a reader that falls
 behind is sent `resync` and refetches. A slow browser never delays the daemon
 or other readers.
 
-`GET /v1/runs/{id}/events` replays saved status snapshots for one run and
-then follows new ones. Its SSE `id`, `Last-Event-ID`, and optional `from_seq`
-query use a per-run status cursor. Each event's `log_records` field points to
-the corresponding position in the separate log cursor. Status changes that
-are superseded before persistence may be coalesced; the terminal state is
-reconciled from the saved run record.
+`GET /v1/runs/{id}/events` replays saved `status` and raw `stdout`/`stderr`
+log rows (plus `bosn` notes), interleaved in one per-run order, then follows live.
+SSE `id`, payload `seq`, `Last-Event-ID`, and optional `from_seq` use the same
+unified cursor, starting above 2^40 (exact integers in JavaScript). Reconnect
+returns only events greater than that cursor. Order is the host's append order,
+not a guarantee about simultaneous writes to separate pipes. A cursor below
+2^40 retains its legacy status-only meaning: every later status is replayed,
+with available new log rows. Old files are not rewritten. The existing JSONL
+records gain `event_seq`; their original counters retain log pagination and
+legacy status resume. No registry migration or daemon protocol bump is needed.
+Status changes superseded before persistence may be coalesced; terminal status
+is still reconciled from the saved run record. The selected dashboard uses one
+subscription for both status and log updates. Generic task byte streaming and
+stdcopy framing (#306) are separate from these CI log rows.
 
 ## Schema
 
