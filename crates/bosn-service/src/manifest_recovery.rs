@@ -133,7 +133,7 @@ pub(crate) fn classify_manifest_recovery_observation(
     clippy::too_many_lines,
     reason = "baseline, ci.yml#229"
 )]
-pub(crate) async fn recover_manifest_startup(
+async fn recover_manifest_startup_inner(
     actor: &RegistryActor,
     state_dir: &Path,
     executor: &dyn ManifestRecoveryExecutor,
@@ -314,4 +314,13 @@ pub(crate) async fn recover_manifest_startup(
         }
     }
     actor.append_manifest_recovery_events(events).await
+}
+
+/// Startup recovery boundary shared by volume seeding and manifest autostart.
+pub(crate) async fn recover_manifest_startup(
+    actor: &RegistryActor,
+    state_dir: &Path,
+    executor: &dyn ManifestRecoveryExecutor,
+) -> Result<(), Error> {
+    recover_manifest_startup_inner(actor, state_dir, executor).await
 }
