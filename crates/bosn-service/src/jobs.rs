@@ -86,6 +86,7 @@ pub struct Job {
     pub args: Vec<String>,
     pub state: JobState,
     pub error: Option<String>,
+    pub waiting_on: Option<String>,
     pub log_start: u64,
     pub class: JobClass,
     /// Runner slot index while running (runner jobs only).
@@ -112,6 +113,7 @@ impl Job {
             args: self.args.clone(),
             state: self.state,
             error: self.error.clone(),
+            waiting_on: self.waiting_on.clone(),
             log_start: self.log_start,
             class: self.class,
             slot: self.slot,
@@ -259,6 +261,7 @@ impl Jobs {
                 args: Vec::new(),
                 state,
                 error: None,
+                waiting_on: None,
                 log_start: 0,
                 class,
                 slot: None,
@@ -520,6 +523,7 @@ impl Jobs {
         );
         let j = self.jobs.get_mut(&id).unwrap();
         j.state = state;
+        j.waiting_on = None;
         j.error = error;
         j.finished_at = Some(SystemTime::now());
         let class = j.class;
@@ -570,6 +574,13 @@ impl Jobs {
     }
     /// Unfinished jobs plus up to `recent` most recently finished ones, for
     /// the `bosn jobs` accounting view.
+    pub(crate) fn waiting_on(&mut self, id: u64, name: Option<String>) {
+        if let Some(job) = self.jobs.get_mut(&id).filter(|job| !job.state.terminal()) {
+            job.waiting_on = name;
+            job.last_progress = Some(Instant::now());
+        }
+    }
+
     pub(crate) fn set_args(&mut self, id: u64, args: Vec<String>) {
         if let Some(job) = self.jobs.get_mut(&id) {
             job.args = args;

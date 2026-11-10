@@ -299,6 +299,7 @@ pub(crate) fn run_manifest_app_task(mut arguments: impl Iterator<Item = std::ffi
     }
     let request = ManifestAppTaskJobRequest {
         clean: Default::default(),
+        wait: false,
         workspace: PathBuf::from(workspace.unwrap_or_else(|| usage())),
         manifest: manifest.unwrap_or_else(|| usage()),
         stack: stack.unwrap_or_else(|| usage()),

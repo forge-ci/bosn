@@ -35,11 +35,27 @@ impl SetupAppTaskSessionRecorder for ActorSetupAppTaskSessionRecorder {
 
 #[derive(Clone)]
 pub(crate) struct ActorManifestAppTaskSessionRecorder {
+    pub(crate) jobs: async_engine::Sender<JobCommand>,
     pub(crate) actor: RegistryActor,
     pub(crate) job_id: u64,
     pub(crate) run: Option<RunContext>,
 }
 impl ManifestAppTaskSessionRecorder for ActorManifestAppTaskSessionRecorder {
+    fn waiting_on(
+        &self,
+        name: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(async move {
+            self.jobs
+                .send(JobCommand::WaitingOn {
+                    id: self.job_id,
+                    name,
+                })
+                .await
+                .map_err(|_| "job actor stopped while waiting on task container".into())
+        })
+    }
+
     fn task_volumes<'a>(
         &'a self,
         volumes: &'a [ManifestVolumeResource],
@@ -286,6 +302,9 @@ pub(crate) fn manifest_app_task_digest(request: &ManifestAppTaskJobRequest) -> S
     if let Some(mode) = request.clean.wire() {
         material.extend_from_slice(b"\0clean\0");
         material.extend_from_slice(&mode.to_le_bytes());
+    }
+    if request.wait {
+        material.extend_from_slice(b"\0wait\0");
     }
     for arg in &request.args {
         material.extend_from_slice(&(arg.len() as u64).to_le_bytes());

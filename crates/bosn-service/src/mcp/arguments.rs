@@ -237,6 +237,7 @@ pub(crate) fn manifest_app_task_request(
     let task_name = required_setup_task_name(arguments)?;
     Ok(ManifestAppTaskJobRequest {
         clean: Default::default(),
+        wait: false,
         args: Vec::new(),
         workspace: base.workspace,
         manifest: base.manifest,

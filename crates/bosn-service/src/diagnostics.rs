@@ -13,6 +13,7 @@ pub struct Status {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobStatus {
+    pub waiting_on: Option<String>,
     pub id: u64,
     pub state: String,
     pub error: Option<String>,

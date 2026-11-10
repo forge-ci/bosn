@@ -50,6 +50,7 @@ pub struct RunArguments {
     pub task: Option<String>,
     pub args: Vec<String>,
     pub clean: bosn_service::CleanVolumes,
+    pub wait: bool,
     pub stack: Option<String>,
     /// `None` means the nearest `bosn.toml` in the current directory or an
     /// ancestor, as the Python CLI resolved it.
@@ -76,7 +77,7 @@ pub fn run(arguments: impl Iterator<Item = OsString>) {
     std::process::exit(code)
 }
 
-pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [--clean[=all]] [-- ARGS...]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
+pub const USAGE: &str = "usage: bosn run --task NAME [--stack NAME] [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864] [--no-ensure] [--detach] [--clean[=all]] [--wait] [-- ARGS...]\n   or: bosn run --stack NAME [--manifest PATH] [--state-dir STATE_DIR] [--deadline-ms 1..=14400000] [--output-limit 1..=67108864]";
 
 pub fn parse_arguments(
     mut arguments: impl Iterator<Item = OsString>,
@@ -90,6 +91,7 @@ pub fn parse_arguments(
     let mut output_limit = None;
     let mut no_ensure = false;
     let mut detach = false;
+    let mut wait = false;
     let mut clean = bosn_service::CleanVolumes::None;
     while let Some(flag) = arguments.next() {
         let flag = flag
@@ -99,7 +101,7 @@ pub fn parse_arguments(
             task_args = task_args::collect_args(arguments)?;
             break;
         }
-        if task_args::set_switch(&flag, &mut no_ensure, &mut detach, &mut clean)? {
+        if task_args::set_switch(&flag, &mut no_ensure, &mut detach, &mut clean, &mut wait)? {
             continue;
         }
         let value = arguments
@@ -164,12 +166,17 @@ pub fn parse_arguments(
     require_target(
         task.is_some(),
         stack.is_some(),
-        no_ensure || detach || !task_args.is_empty() || clean != bosn_service::CleanVolumes::None,
+        no_ensure
+            || detach
+            || wait
+            || !task_args.is_empty()
+            || clean != bosn_service::CleanVolumes::None,
     )?;
     Ok(RunArguments {
         task,
         args: task_args,
         clean,
+        wait,
         stack,
         manifest,
         state_dir,
@@ -363,6 +370,7 @@ fn execute(arguments: RunArguments) -> Result<i32, String> {
         task_name: task.clone(),
         args: arguments.args,
         clean: arguments.clean,
+        wait: arguments.wait,
         deadline: arguments.deadline.unwrap_or(DEFAULT_TASK_DEADLINE),
         output_limit: arguments.output_limit,
     };
@@ -664,12 +672,14 @@ fn follow_job(
     let mut after = 0;
     let mut cancel_sent = false;
     let mut queued_reported = false;
+    let mut waiting_reported = None;
     let stdout = std::io::stdout();
     let stderr = std::io::stderr();
     loop {
         let status = runtime
             .run(client.job_status(job))
             .map_err(|error| format!("lost contact with the bosn daemon: {error}"))?;
+        task_args::report_wait(&status, &mut waiting_reported);
         if status.state == "Queued" && !queued_reported {
             eprintln!("{}", queued_notice(job, state_dir));
             queued_reported = true;

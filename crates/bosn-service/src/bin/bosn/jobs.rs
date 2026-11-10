@@ -203,13 +203,17 @@ fn format_table(view: &Value, ci: Option<&RunnersReply>) -> String {
             job["workspace"].as_str().unwrap_or(""),
         );
         match serde_json::from_value::<JobArguments>(job.clone()) {
-            Ok(task) if !task.args.is_empty() => {
-                let _ = writeln!(out, "       args: {:?}", task.args);
+            Ok(task) => {
+                if let Some(name) = task.waiting_on {
+                    let _ = writeln!(out, "       waiting on container: {name}");
+                }
+                if !task.args.is_empty() {
+                    let _ = writeln!(out, "       args: {:?}", task.args);
+                }
             }
             Err(error) => {
                 let _ = writeln!(out, "       invalid task arguments: {error}");
             }
-            _ => {}
         }
         if let Some(run) = job.get("run") {
             let containers = run["containers"]
@@ -269,6 +273,8 @@ fn truncate(value: &str, width: usize) -> String {
 
 #[derive(serde::Deserialize)]
 struct JobArguments {
+    #[serde(default)]
+    waiting_on: Option<String>,
     #[serde(default)]
     args: Vec<String>,
 }

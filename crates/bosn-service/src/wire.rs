@@ -4,6 +4,8 @@ use super::*;
 
 #[derive(Message)]
 pub(crate) struct ReplyWire {
+    #[prost(string, optional, tag = "74")]
+    pub(crate) job_waiting_on: Option<String>,
     #[prost(message, optional, tag = "72")]
     pub(crate) daemon_build: Option<crate::BuildIdentity>,
     #[prost(uint32, tag = "1")]
@@ -510,6 +512,7 @@ pub(crate) fn decode_reply(v: ReplyWire) -> Result<Reply, Error> {
         crate::handoff::CODE_BUSY => Ok(Reply::Busy(v.job_error)),
         40 => Ok(Reply::Job(v.job_id)),
         50 => Ok(Reply::JobStatus(JobStatus {
+            waiting_on: v.job_waiting_on,
             id: v.job_id,
             state: v.job_state,
             error: (!v.job_error.is_empty()).then_some(v.job_error),
@@ -705,6 +708,8 @@ pub(crate) struct Request {
     pub(crate) task_args: Vec<String>,
     #[prost(uint32, optional, tag = "33")]
     pub(crate) task_clean: Option<u32>,
+    #[prost(bool, optional, tag = "34")]
+    pub(crate) task_wait: Option<bool>,
 }
 impl Request {
     pub(crate) fn operation(operation: u32) -> Self {
@@ -742,6 +747,7 @@ impl Request {
             owner_created: Vec::new(),
             task_args: Vec::new(),
             task_clean: None,
+            task_wait: None,
         }
     }
     /// Stamp the owner of the work this request submits.

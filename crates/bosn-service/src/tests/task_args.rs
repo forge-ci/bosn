@@ -3,6 +3,7 @@ use super::*;
 fn request(args: &[&str]) -> ManifestAppTaskJobRequest {
     ManifestAppTaskJobRequest {
         clean: Default::default(),
+        wait: false,
         workspace: PathBuf::from("/workspace"),
         manifest: "bosn.toml".into(),
         stack: "app".into(),
@@ -165,4 +166,85 @@ fn old_daemon_refuses_clean_before_any_job_submission() {
             read_frame(&mut stream).await.unwrap();
             stopped(server).await;
         });
+}
+
+#[test]
+fn wait_tag_round_trip_and_old_peer_refusal() {
+    use prost::Message;
+    let mut request = Request::operation(23);
+    request.task_wait = Some(true);
+    let decoded = Request::decode(request.encode_to_vec().as_slice()).unwrap();
+    assert_eq!(decoded.task_wait, Some(true));
+    for protocol in 0..5 {
+        assert!(crate::task_wait::require_protocol(true, protocol).is_err());
+        assert!(crate::task_wait::require_protocol(false, protocol).is_ok());
+    }
+    assert!(crate::task_wait::require_protocol(true, 5).is_ok());
+}
+
+#[test]
+fn old_daemon_refuses_wait_before_any_job_submission() {
+    let temporary = kernal_api::platform::fs::TemporaryDirectory::new().unwrap();
+    let state = temporary.path().join("state");
+    RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .run(async {
+            let server = async_engine::launch(
+                Service::new(state.clone())
+                    .with_protocol_window(3, 4)
+                    .serve(),
+            );
+            let client = wait_for_client(&state).await;
+            let error = client
+                .submit_manifest_app_task({
+                    let mut r = request(&[]);
+                    r.wait = true;
+                    r
+                })
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("--wait requires daemon protocol 5"),
+                "{error}"
+            );
+            let stop = Request {
+                client_protocol: 4,
+                ..Request::operation(3)
+            };
+            let mut stream = AsyncStream::connect(&endpoint(&state).unwrap())
+                .await
+                .unwrap();
+            write_frame(
+                &mut stream,
+                DaemonFrame::request(PAYLOAD_PROTOCOL, stop.encode_to_vec()),
+            )
+            .await
+            .unwrap();
+            read_frame(&mut stream).await.unwrap();
+            stopped(server).await;
+        });
+}
+
+#[test]
+fn wait_participates_in_job_identity_and_blocked_status_clears_on_cancel() {
+    let mut first = request(&["a"]);
+    let original = manifest_app_task_digest(&first);
+    first.wait = true;
+    assert_ne!(original, manifest_app_task_digest(&first));
+    let mut jobs = Jobs::new(2);
+    let Submission::Started(id) = jobs.submit("/workspace", "task", "digest").unwrap() else {
+        panic!("started")
+    };
+    jobs.waiting_on(id, Some("probe-checkout".into()));
+    assert_eq!(
+        jobs.job(id).unwrap().waiting_on.as_deref(),
+        Some("probe-checkout")
+    );
+    jobs.cancel(id).unwrap();
+    jobs.settle(id, false).unwrap();
+    assert!(jobs.job(id).unwrap().waiting_on.is_none());
 }

@@ -31,13 +31,13 @@ pub(crate) fn retire_stale_socket(ep: &Endpoint) -> Result<(), Error> {
 /// rather than by exact release. Bump it on any change to the request/reply
 /// wire or the JSON documents it carries; `protocol_surface_is_pinned` fails
 /// until the bump and its fingerprint are recorded together.
-pub const DAEMON_PROTOCOL: u32 = 4;
+pub const DAEMON_PROTOCOL: u32 = 5;
 
 /// The oldest client protocol this daemon still serves (#509 phase 3). The
 /// daemon serves the window `[DAEMON_PROTOCOL_MIN, DAEMON_PROTOCOL]`: a bump of
 /// [`DAEMON_PROTOCOL`] keeps the previous protocol's decoders, so this trails it
 /// by one (N-1) and never by more.
-pub const DAEMON_PROTOCOL_MIN: u32 = 3;
+pub const DAEMON_PROTOCOL_MIN: u32 = 4;
 
 /// What a daemon says about itself on a ping reply.
 #[derive(Clone, Debug, PartialEq, Eq)]

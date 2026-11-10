@@ -39,6 +39,7 @@ fn plan(fixture: &Fixture, body: &str, task: Option<&str>) -> Result<ManifestRun
         })),
         Some(task) => runtime.run(manifest_stack_task_setup_plan(&ManifestAppTaskJobRequest {
             clean: Default::default(),
+            wait: false,
             workspace: fixture.workspace.clone(),
             manifest: "bosn.toml".into(),
             stack: "app".into(),

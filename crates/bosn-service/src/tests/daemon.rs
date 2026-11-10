@@ -954,15 +954,15 @@ const PROTOCOL_SURFACE: [&str; 7] = [
 // #780 adds optional defaulted stage observations to run records and reports.
 // Older clients ignore them and newer clients read older records as empty,
 // so the daemon protocol remains 2.
-// #784 error parsing and #777 reply codec extraction change no wire fields.
 // #767 adds the optional `engine_capacity_error` to two replies; older clients
 // ignore it, so the daemon protocol is unchanged.
 // #833/#671 diagnostics and #777 advisory reply tag 73 (default false) are additive, no bump.
 // #724: protocol 3 adds request tag 32 (task args). Protocol 2 requests omit it;
-// non-empty args require protocol 3. #666 adds optional tag 33 (clean), requiring protocol 4.
+// non-empty args require protocol 3. #885 adds optional tag 33 (clean), requiring protocol 4.
+// #666: protocol 5 adds guarded tag 34 (wait), keeps protocol 4, and names blockers in reply tag 74.
 const PROTOCOL_FINGERPRINT: (u32, &str) = (
     DAEMON_PROTOCOL,
-    "a4f79d87ab39923541a3c6380d738b0755fe9f8caf769f6878a87c27cc4f180e",
+    "7bc7b8c983be31f5827187b2fda3941ce05401bd821baaf11e7cfeaab17ec440",
 );
 
 #[test]
