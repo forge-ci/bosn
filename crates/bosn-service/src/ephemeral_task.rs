@@ -169,13 +169,17 @@ pub(crate) async fn prepare(
     }
     let result = prepare_container(
         engine,
-        plan,
-        image,
+        CoreSetupEnsureRequest {
+            plan,
+            workspace_root: request.workspace.clone(),
+            prepared_image: image,
+            options: RunOptions::streaming(remaining, 8 * 1024 * 1024),
+            cancellation,
+            events,
+        },
         request,
         keep,
         session,
-        cancellation,
-        events,
         remaining,
         lifetime,
     )
@@ -186,18 +190,22 @@ pub(crate) async fn prepare(
     Ok(result)
 }
 
-pub(crate) async fn prepare_container(
+async fn prepare_container(
     engine: &DockerEngine,
-    plan: &SetupPlan,
-    image: &PreparedImage,
+    setup: CoreSetupEnsureRequest<'_>,
     request: &ManifestAppTaskJobRequest,
     keep: bool,
     session: &dyn ManifestAppTaskSessionRecorder,
-    cancellation: &async_engine::CancellationToken,
-    events: &async_engine::Sender<EngineEvent>,
     remaining: Duration,
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
+    let CoreSetupEnsureRequest {
+        plan,
+        prepared_image: image,
+        cancellation,
+        events,
+        ..
+    } = setup;
     if keep {
         return adopt_running(
             engine,
