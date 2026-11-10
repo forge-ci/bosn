@@ -57,6 +57,7 @@ pub struct FakeBackend {
     pub engines: Mutex<BTreeMap<String, ActEngineObservation>>,
     pub faults: Mutex<Faults>,
     pub executions: Mutex<u32>,
+    pub inspections: Mutex<usize>,
     /// Whether the cache volume exists.
     pub cache: Mutex<bool>,
     /// What sampling the engine's storage reports; `None` fails the sample.
@@ -216,9 +217,26 @@ impl ActEngineBackend for FakeBackend {
     fn machine(&self) -> Option<&dyn crate::ci::machine::MachineEngine> {
         Some(self)
     }
-    fn engine_running<'a>(&'a self, engine_id: &'a str) -> crate::ci::engine::BoxFuture<'a, bool> {
+    fn engine_observation<'a>(
+        &'a self,
+        engine_id: &'a str,
+    ) -> crate::ci::engine::BoxFuture<'a, crate::ci::engine::EngineObservation> {
+        use crate::ci::engine::{EngineObservation, EngineState};
         Box::pin(async move {
-            self.live_id(engine_id) && !self.stopped.lock().unwrap().contains(engine_id)
+            *self.inspections.lock().unwrap() += 1;
+            if self.faults().inspect {
+                EngineObservation::Unknown("docker inspect deadline exceeded".into())
+            } else if self.live_id(engine_id) && !self.stopped.lock().unwrap().contains(engine_id) {
+                EngineObservation::Running
+            } else {
+                EngineObservation::Stopped(EngineState {
+                    running: false,
+                    exit_code: 137,
+                    oom_killed: false,
+                    finished_at: "2026-11-09T00:00:00Z".into(),
+                    status: "exited".into(),
+                })
+            }
         })
     }
     fn ensure_engine_image(&self) -> crate::ci::engine::BoxFuture<'_, Result<(), String>> {

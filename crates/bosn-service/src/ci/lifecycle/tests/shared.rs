@@ -558,3 +558,54 @@ fn interrupted_preparation_keeps_claim_until_engine_removal() {
         assert!(backend.machine.claim.lock().unwrap().is_none());
     });
 }
+
+#[test]
+fn unknown_inspect_keeps_engine_with_a_held_slot() {
+    with_registry(|registry, dir| async move {
+        let backend = Arc::new(FakeBackend::default());
+        let shared = SharedEngine::new(registry, backend.clone());
+        let leased = lease(&shared, 1, want(1, &dir, 8)).await.unwrap();
+        backend.faults.lock().unwrap().inspect = true;
+        let before = *backend.inspections.lock().unwrap();
+        assert!(!shared.retire_idle(Duration::ZERO).await);
+        assert_eq!(backend.live(), 1);
+        assert!(backend.machine.claim.lock().unwrap().is_some());
+        assert!(
+            waits(&shared, 2, other_pins(2, &dir))
+                .await
+                .iter()
+                .any(|n| n.contains("waiting"))
+        );
+        assert_eq!(backend.live(), 1);
+        assert_eq!(
+            *backend.inspections.lock().unwrap() - before,
+            2,
+            "one inspect per pass, with no immediate retry on unknown"
+        );
+        backend.faults.lock().unwrap().inspect = false;
+        shared.release(leased).await;
+        assert!(shared.retire_idle(Duration::ZERO).await);
+    });
+}
+
+#[test]
+fn stopped_engine_is_removed_with_or_without_a_held_slot() {
+    for held in [true, false] {
+        with_registry(|registry, dir| async move {
+            let backend = Arc::new(FakeBackend::default());
+            let shared = SharedEngine::new(registry, backend.clone());
+            let leased = lease(&shared, 1, want(1, &dir, 8)).await.unwrap();
+            backend
+                .stopped
+                .lock()
+                .unwrap()
+                .insert(leased.engine_id.clone());
+            if !held {
+                shared.release(leased).await;
+            }
+            shared.retire_idle(Duration::ZERO).await;
+            assert_eq!(backend.live(), 0);
+            assert!(backend.machine.claim.lock().unwrap().is_none());
+        });
+    }
+}
