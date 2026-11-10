@@ -81,7 +81,10 @@ pub fn conclude(
             tree.cancel_unfinished();
             (Conclusion::Cancelled, None)
         }
-        ExecutionEnd::EngineFailed(error) => {
+        ExecutionEnd::EngineFailed(error)
+        | ExecutionEnd::EngineLost {
+            evidence: error, ..
+        } => {
             tree.cancel_unfinished();
             (Conclusion::Error, Some(error.clone()))
         }
@@ -100,6 +103,75 @@ pub fn conclude(
         reason = Some(joined(reason, format!("engine cleanup failed: {error}")));
     }
     (conclusion, reason)
+}
+
+/// Capture before act2 close removes run-* cgroups. Keep act's original code.
+pub(super) async fn observe_exit(
+    backend: &dyn super::engine::ActEngineBackend,
+    lease: &super::shared_engine::Lease,
+    plan: &super::lifecycle::EnginePlan,
+    code: i32,
+) -> ExecutionEnd {
+    observe_end(
+        backend,
+        &lease.engine_id,
+        &plan.intent.run_id,
+        ExecutionEnd::Exited(code),
+    )
+    .await
+}
+
+pub(super) async fn observe_failure(
+    backend: &dyn super::engine::ActEngineBackend,
+    lease: &super::shared_engine::Lease,
+    plan: &super::lifecycle::EnginePlan,
+    error: String,
+) -> ExecutionEnd {
+    observe_end(
+        backend,
+        &lease.engine_id,
+        &plan.intent.run_id,
+        ExecutionEnd::EngineFailed(error),
+    )
+    .await
+}
+
+async fn observe_end(
+    backend: &dyn super::engine::ActEngineBackend,
+    engine: &str,
+    run: &str,
+    end: ExecutionEnd,
+) -> ExecutionEnd {
+    let evidence = backend.engine_evidence(engine).await;
+    daemon_log!(
+        "bosn ci: engine {engine} run {run} execution evidence: {}",
+        evidence.json()
+    );
+    classify_engine_end(end, &evidence)
+}
+
+fn classify_engine_end(
+    end: ExecutionEnd,
+    evidence: &super::engine::EngineEvidence,
+) -> ExecutionEnd {
+    use super::engine::EngineObservation;
+    let stopped = matches!(evidence.observation, EngineObservation::Stopped(_)) || evidence.missing;
+    let lost = stopped
+        || (matches!(end, ExecutionEnd::Exited(137))
+            && !matches!(evidence.observation, EngineObservation::Running));
+    if !lost {
+        return end;
+    }
+    let (exit_code, original) = match end {
+        ExecutionEnd::Exited(code) => (Some(code), None),
+        ExecutionEnd::EngineFailed(error) => (None, Some(error)),
+        other => return other,
+    };
+    let reason = format!("engine lost: {}", evidence.summary());
+    ExecutionEnd::EngineLost {
+        exit_code,
+        evidence: original.map_or_else(|| reason.clone(), |error| format!("{reason}; {error}")),
+    }
 }
 
 /// What the execution itself did: act's exit, the jobs that failed, or both.
@@ -306,5 +378,78 @@ mod tests {
             }]
         );
         assert!(report.jobs.unsupported.is_empty() && report.coverage_complete);
+    }
+    fn exit_137(
+        observation: super::super::engine::EngineObservation,
+    ) -> (Conclusion, Option<String>) {
+        let evidence =
+            super::super::engine::EngineEvidence::observed("original-engine", observation);
+        let execution = classify_engine_end(ExecutionEnd::Exited(137), &evidence);
+        let report = EngineReport {
+            execution,
+            cleanup: CleanupEnd::Removed,
+            engine_id: Some("original-engine".into()),
+            storage: None,
+        };
+        conclude(
+            &Ok(report),
+            &mut RunTree::declared(&[]),
+            &Declared::default(),
+        )
+    }
+
+    #[test]
+    fn exit_137_with_a_stopped_engine_is_an_engine_loss_error() {
+        use super::super::engine::{EngineObservation, EngineState};
+        let (conclusion, reason) = exit_137(EngineObservation::Stopped(EngineState {
+            running: false,
+            exit_code: 137,
+            oom_killed: true,
+            finished_at: "2026-11-10T00:00:00Z".into(),
+            status: "exited".into(),
+            error: Some(String::new()),
+        }));
+        assert_eq!(conclusion, Conclusion::Error);
+        let reason = reason.unwrap();
+        assert!(reason.contains("engine lost:"));
+        assert!(reason.contains("OOMKilled=true"));
+    }
+
+    #[test]
+    fn exit_137_with_a_running_engine_keeps_the_failure() {
+        let (conclusion, reason) = exit_137(super::super::engine::EngineObservation::Running);
+        assert_eq!(conclusion, Conclusion::Failure);
+        assert_eq!(reason.as_deref(), Some("act exit 137"));
+    }
+
+    #[test]
+    fn engine_loss_keeps_the_actual_exit_code() {
+        let evidence = super::super::engine::EngineEvidence::observed(
+            "original",
+            super::super::engine::EngineObservation::Unknown("inspect deadline".into()),
+        );
+        assert!(matches!(
+            classify_engine_end(ExecutionEnd::Exited(137), &evidence),
+            ExecutionEnd::EngineLost {
+                exit_code: Some(137),
+                ..
+            }
+        ));
+        assert_eq!(
+            classify_engine_end(ExecutionEnd::Exited(0), &evidence),
+            ExecutionEnd::Exited(0),
+            "an uncertain read alone does not turn a normal exit into proven engine loss"
+        );
+    }
+    #[test]
+    fn proven_absence_reports_engine_loss_for_an_execution_error() {
+        let mut evidence = super::super::engine::EngineEvidence::observed(
+            "original",
+            super::super::engine::EngineObservation::Unknown("No such container".into()),
+        );
+        evidence.missing = true;
+        assert!(
+            matches!(classify_engine_end(ExecutionEnd::EngineFailed("exec connection lost".into()), &evidence), ExecutionEnd::EngineLost { exit_code: None, evidence } if evidence.contains("engine lost:"))
+        );
     }
 }

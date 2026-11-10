@@ -22,8 +22,10 @@ use crate::{RegistryActor, act_engine};
 
 mod cache_usage;
 mod control;
+mod evidence;
 mod observation;
 pub use cache_usage::HelperCleanupRetry;
+pub use evidence::{EngineEvidence, RemovalReason, log_removal};
 pub use observation::{EngineObservation, EngineState};
 #[cfg(all(test, unix))]
 mod cache_usage_transport_tests;
@@ -189,6 +191,13 @@ pub trait ActEngineBackend: Send + Sync {
     /// behind the daemon's back (a host Docker restart, its inner dockerd exiting), and a stopped
     /// one must never be handed to a run (#556). An uncertain read never authorizes removal.
     fn engine_observation<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, EngineObservation>;
+    /// Read-only forensic data; unavailable reads never invent a terminal state.
+    fn engine_evidence<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, EngineEvidence> {
+        Box::pin(async move {
+            EngineEvidence::observed(engine_id, self.engine_observation(engine_id).await)
+        })
+    }
+
     /// Commit `intent`, then create, verify, register and start its engine.
     /// A failure after the intent commits leaves the record for cleanup.
     fn create<'a>(
@@ -502,6 +511,10 @@ impl ActEngineBackend for DockerActBackend {
                 Err(error) => EngineObservation::Unknown(error),
             }
         })
+    }
+
+    fn engine_evidence<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, EngineEvidence> {
+        Box::pin(evidence::collect(self, engine_id))
     }
 
     fn ensure_engine_image(&self) -> BoxFuture<'_, Result<(), String>> {

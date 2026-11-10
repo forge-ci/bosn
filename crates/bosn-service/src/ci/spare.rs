@@ -12,7 +12,7 @@ use bosn_registry::act::{ActEngineIntent, ActEngineObservation, ActRunOutcome};
 use kernal_api::async_engine::{self, CancellationToken};
 
 use super::{
-    engine::{ActArtifact, ActEngineBackend, CacheVolume},
+    engine::{ActArtifact, ActEngineBackend, CacheVolume, RemovalReason, log_removal},
     lifecycle::{self, Claim, Clock},
 };
 use crate::RegistryActor;
@@ -137,6 +137,13 @@ pub(super) async fn prepare(
             token: state.token.unwrap_or_default(),
         }),
         Err(error) => {
+            log_removal(
+                backend,
+                &plan.intent.engine_name(),
+                &plan.intent.engine_name(),
+                RemovalReason::Preparation,
+            )
+            .await;
             let removed = lifecycle::cleanup(
                 registry,
                 backend,
@@ -290,8 +297,16 @@ pub(super) async fn retire(
     registry: &RegistryActor,
     backend: &dyn ActEngineBackend,
     spare: &Spare,
+    reason: RemovalReason,
 ) -> Result<(), String> {
     let owner = lifecycle::registry_owner(registry).await?;
+    log_removal(
+        backend,
+        &spare.observed.engine_id,
+        &spare.observed.name,
+        reason,
+    )
+    .await;
     lifecycle::cleanup(
         registry,
         backend,

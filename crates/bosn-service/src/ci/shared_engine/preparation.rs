@@ -8,7 +8,7 @@ use kernal_api::async_engine;
 use crate::{
     RegistryActor,
     ci::{
-        engine::ActEngineBackend,
+        engine::{ActEngineBackend, RemovalReason, log_removal},
         lifecycle::{self, Clock},
     },
 };
@@ -74,6 +74,12 @@ async fn retire_preparation(
     let token = record
         .as_ref()
         .and_then(|record| record.execution_claim.as_deref());
+    let name = intent.engine_name();
+    let target = record
+        .as_ref()
+        .and_then(|r| r.engine_id.as_deref())
+        .unwrap_or(&name);
+    log_removal(backend, target, &name, RemovalReason::Preparation).await;
     let cleaned = lifecycle::cleanup(
         registry,
         backend,

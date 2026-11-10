@@ -58,6 +58,11 @@ pub enum ExecutionEnd {
     Cancelled,
     /// The engine could not be created, observed, registered or prepared.
     EngineFailed(String),
+    /// Execution lost its original engine; preserve the actual exit when known.
+    EngineLost {
+        exit_code: Option<i32>,
+        evidence: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

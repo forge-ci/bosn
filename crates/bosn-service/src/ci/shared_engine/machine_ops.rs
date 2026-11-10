@@ -8,7 +8,7 @@ use kernal_api::async_engine::CancellationToken;
 
 use super::{
     super::{
-        engine::{EngineObservation, RunLimits, RunScope},
+        engine::{EngineObservation, RemovalReason, RunLimits, RunScope, log_removal},
         limits::{reserved_engine_memory, room_for_engine},
         machine::{
             CLAIM_PREPARE_LIMIT, Daemon, EngineClaim, EngineIdentity, Foreign, LEGACY_GRACE,
@@ -148,7 +148,13 @@ impl SharedEngine {
         }
         // Runs of other daemons wait until now: the engine is prepared.
         if let Err(error) = machine.mark_ready(&engine.observed.engine_id).await {
-            let _ = spare::retire(&self.registry, self.backend.as_ref(), &engine).await;
+            let _ = spare::retire(
+                &self.registry,
+                self.backend.as_ref(),
+                &engine,
+                RemovalReason::Preparation,
+            )
+            .await;
             return Err(format!("shared engine not opened to runs: {error}"));
         }
         let profile = engine
@@ -259,6 +265,13 @@ impl SharedEngine {
         engine: Option<&Foreign>,
     ) -> Result<(), String> {
         if let Some(engine) = engine {
+            log_removal(
+                self.backend.as_ref(),
+                &engine.id,
+                &engine.name,
+                RemovalReason::Takeover,
+            )
+            .await;
             machine.remove_engine(engine).await?;
         }
         machine.remove_claim(&claim.id).await?;
@@ -289,7 +302,7 @@ impl SharedEngine {
             if let Some(current) = held.take()
                 && matches!(current.kind, Kind::Owned { .. })
             {
-                self.retire_owned(current).await;
+                self.retire_owned(current, RemovalReason::Stopped).await;
             }
             return false;
         }
@@ -309,7 +322,7 @@ impl SharedEngine {
             return false;
         }
         if let Some(current) = held.take() {
-            self.retire_owned(current).await;
+            self.retire_owned(current, RemovalReason::Idle).await;
         }
         true
     }
@@ -386,11 +399,13 @@ impl SharedEngine {
         true
     }
 
-    pub(super) async fn retire_owned(&self, current: Held) {
+    pub(super) async fn retire_owned(&self, current: Held, reason: RemovalReason) {
         let Kind::Owned { engine, claim } = current.kind else {
             return;
         };
-        if let Err(error) = spare::retire(&self.registry, self.backend.as_ref(), &engine).await {
+        if let Err(error) =
+            spare::retire(&self.registry, self.backend.as_ref(), &engine, reason).await
+        {
             daemon_log!(
                 "bosn ci: shared engine {} not removed: {error}",
                 current.name
@@ -512,6 +527,13 @@ impl SharedEngine {
                 busy.push(engine.name);
                 continue;
             }
+            log_removal(
+                self.backend.as_ref(),
+                &engine.id,
+                &engine.name,
+                RemovalReason::Legacy,
+            )
+            .await;
             match machine.remove_engine(&engine).await {
                 Ok(()) => daemon_log!(
                     "bosn ci: retired idle legacy engine {} (registry {})",
