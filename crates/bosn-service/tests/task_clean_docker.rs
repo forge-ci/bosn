@@ -4,7 +4,7 @@ use crate::support::setup_docker::*;
 
 struct OwnedStack(Option<StackWorkspace>);
 impl OwnedStack {
-    fn new(keep: bool) -> Self {
+    fn new() -> Self {
         let marker = test_unique_suffix();
         let manifest = stack_manifest(&marker, &[("probe", concat!(
             "if test -e /state/file; then echo stack-warm; else echo stack-cold; fi; ",
@@ -12,15 +12,7 @@ impl OwnedStack {
             "touch /state/file /machine/file"))])
             .replace("[stack.live]", &format!("[stack.live]\nfamily = '{marker}'"))
             .replace("[stack.live.env]", "machine = { scope = 'machine', destination = '/machine' }\n[stack.live.env]")
-            .replace("keep = true", &format!("keep = {keep}"));
-        let manifest = if keep {
-            manifest.replace(
-                "dockerfile = 'live.Dockerfile'",
-                &format!("image = '{PINNED_ALPINE}'"),
-            )
-        } else {
-            manifest
-        };
+            .replace("keep = true", "keep = false");
         Self(Some(StackWorkspace::new(&manifest)))
     }
     fn stack(&self) -> &StackWorkspace {
@@ -60,8 +52,8 @@ impl Drop for OwnedStack {
 #[test]
 #[ignore = "requires a local Docker daemon and the pinned Alpine image"]
 fn live_docker_clean_recreates_checkout_volumes_and_all_resets_machine_volumes() {
-    let first = OwnedStack::new(false);
-    let other = OwnedStack::new(false);
+    let first = OwnedStack::new();
+    let other = OwnedStack::new();
     assert!(first.stack().run_task("probe").contains("stack-cold"));
     other.stack().run_task("probe");
     let refused = first
@@ -92,30 +84,8 @@ fn live_docker_clean_recreates_checkout_volumes_and_all_resets_machine_volumes()
 
 #[test]
 #[ignore = "requires a local Docker daemon and the pinned Alpine image"]
-fn live_docker_clean_kept_task_refuses_running_holder_then_resets_stopped_container() {
-    let stack = OwnedStack::new(true);
-    stack.stack().run_task("probe");
-    let refused = stack
-        .stack()
-        .bosn_run("probe")
-        .arg("--clean")
-        .output()
-        .unwrap();
-    assert!(!refused.status.success());
-    let error = String::from_utf8_lossy(&refused.stderr);
-    assert!(error.contains("held by container"), "{error}");
-    stack.stop_preparation();
-    let output = stack.clean("--clean");
-    assert!(
-        output.contains("stack-cold") && output.contains("machine-warm"),
-        "{output}"
-    );
-}
-
-#[test]
-#[ignore = "requires a local Docker daemon and the pinned Alpine image"]
 fn live_docker_clean_first_persists_ownership_for_repeated_clean_runs() {
-    let stack = OwnedStack::new(false);
+    let stack = OwnedStack::new();
     let output = stack.clean("--clean");
     assert!(
         output.contains("stack-cold") && output.contains("machine-cold"),

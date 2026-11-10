@@ -10,7 +10,20 @@ pub enum CleanVolumes {
     All,
 }
 
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub(crate) enum TaskCleanError {
+    #[error("--clean is not supported for kept tasks yet; follow-up")]
+    KeptTaskUnsupported,
+}
+
 impl CleanVolumes {
+    pub(crate) fn validate_task(self, keep: bool) -> Result<(), TaskCleanError> {
+        if keep && self != Self::None {
+            return Err(TaskCleanError::KeptTaskUnsupported);
+        }
+        Ok(())
+    }
+
     pub fn selects(self, scope: Scope) -> bool {
         match self {
             Self::None => false,
@@ -60,6 +73,20 @@ mod tests {
             );
             assert!(CleanVolumes::All.selects(scope));
         }
+    }
+
+    #[test]
+    fn kept_tasks_refuse_clean_before_any_actions() {
+        for mode in [CleanVolumes::Checkout, CleanVolumes::All] {
+            let error = mode.validate_task(true).unwrap_err();
+            assert_eq!(error, TaskCleanError::KeptTaskUnsupported);
+            assert_eq!(
+                error.to_string(),
+                "--clean is not supported for kept tasks yet; follow-up"
+            );
+            assert!(mode.validate_task(false).is_ok());
+        }
+        assert!(CleanVolumes::None.validate_task(true).is_ok());
     }
 
     #[test]

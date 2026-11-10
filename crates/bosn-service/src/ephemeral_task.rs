@@ -160,6 +160,10 @@ pub(crate) async fn prepare(
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
     let (keep, state, volumes) = clean_context;
+    request
+        .clean
+        .validate_task(keep)
+        .map_err(|e| e.to_string())?;
     crate::managed_retention::clean::execute(engine, state, volumes, request.clean, cancellation)
         .await
         .map_err(|e| TaskContainerError::Operation(e.to_string()))?;
@@ -200,13 +204,7 @@ async fn prepare_container(
     lifetime: &mut Option<TaskContainer>,
 ) -> Result<SetupEnsureResult, TaskContainerError> {
     if keep {
-        return if request.clean == CleanVolumes::None {
-            adopt_running(engine, setup).await
-        } else {
-            ensure_setup_app(engine, setup)
-                .await
-                .map_err(|e| e.to_string().into())
-        };
+        return adopt_running(engine, setup).await;
     }
     let CoreSetupEnsureRequest {
         plan,

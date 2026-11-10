@@ -43,10 +43,14 @@ pub(crate) async fn manifest_stack_task_setup_plan_at(
     let validation = request.clone();
     async_engine::launch_blocking(move || {
         let (_, manifest) = load_native_manifest(&validation.workspace, &validation.manifest)?;
-        manifest
+        let task = manifest
             .task(&validation.task_name)
-            .map_err(|e| e.to_string())?
-            .validate_args(&validation.args)
+            .map_err(|e| e.to_string())?;
+        validation
+            .clean
+            .validate_task(task.keep)
+            .map_err(|e| e.to_string())?;
+        task.validate_args(&validation.args)
             .map_err(|e| e.to_string())
     })
     .await

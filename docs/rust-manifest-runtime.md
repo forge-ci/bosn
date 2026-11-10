@@ -45,8 +45,9 @@ volumes are untouched. This explicitly waives retention age, never ownership,
 liveness or pins. A mounted running container, lease, exclusive lock, pin or
 foreign ownership refuses immediately with the holder; there is no wait.
 Stopped containers from this checkout may be removed through the same ownership
-and retention gates to release their mounts. For `keep = true`, a running kept
-container is refused; a stopped owned container follows the same reset path.
+and retention gates to release their mounts. For `keep = true`, both clean modes are refused before any volume or container
+action: `--clean is not supported for kept tasks yet; follow-up`. Kept-task
+cleaning and its stopped-container adoption proof remain follow-up work.
 
 Clean runs skip the preliminary stack ensure, avoiding a new preparation container
 mounting the volumes before reset. A preparation container left by an earlier
