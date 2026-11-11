@@ -56,14 +56,28 @@ leave an untracked container or externally reachable proxy.
 
 ## UI framework assessment
 
-The existing webview boundary already separates the desktop from the headless
-daemon and ships the same pages in browser and widget. A Qt/egui migration needs
-a kernal-api backend and corresponding native packaging, accessibility, Wayland
-placement, tray and cross-platform coverage. It is not a Cargo feature switch
-in the pinned dependency. First align the existing views' typography, spacing,
-palette, focus states and navigation. Reassess a native frontend against those
-same acceptance criteria once a supported backend is available; retain the
-daemon API boundary whichever frontend is chosen.
+Bosn currently pins kernal-api 0.1.31. Current upstream and the published crate
+are 0.1.41, which **does provide `gfx-egui`** through the backend-neutral
+`kernal_api::gfx` API. There is no corresponding Qt backend. Egui is therefore
+the preferred candidate for a native Bosn shell; absence from the pinned
+version must not be mistaken for absence upstream.
+
+The [upstream facade contract](https://github.com/forge-ci/kernal-api/blob/9d5e8e592b8e8e2a11c96ba9861d43e99c10d20e/docs/gfx-backend.md)
+provides labels, buttons, lists, scrolling, text/secret fields, themes and
+windowless snapshots. It currently owns one window/event loop per `gfx::run`
+and deliberately excludes multiple windows, menus/tray, foreign-surface
+embedding and canvas/image/texture rendering. `system-tray` and `webview` are
+separate capabilities. A native activity popup is feasible, but the current
+facade cannot directly render a VNC framebuffer or embed the existing viewer.
+
+A complete native migration needs a pinned kernel upgrade and its boundary
+checks, coordination of the tray/popup/dashboard and a separate VNC webview,
+plus parity for logs, keyboard access, clipboard and platform packaging. That
+is a separate implementation from enabling one Cargo feature. This console
+delivery retains the shared webview boundary and improves its visual design;
+the assessed native direction is egui through `kernal_api::gfx`. It does not
+claim that an egui migration has already happened. The daemon API remains the
+boundary for either frontend.
 
 ## Using the console
 
