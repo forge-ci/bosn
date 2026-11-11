@@ -36,6 +36,10 @@ pub(crate) async fn busy_reason(
     ci: &ci::CiRuntime,
 ) -> Result<Option<String>, Error> {
     let mut busy = Vec::new();
+    let consoles = ci.active_consoles();
+    if consoles > 0 {
+        busy.push(format!("{consoles} open console(s)"));
+    }
     let unfinished = jobs.unfinished().await?;
     if unfinished > 0 {
         busy.push(format!("{unfinished} unfinished job(s)"));

@@ -9,20 +9,29 @@ use crate::ci::{CiRequest, RunnerAction, widget::WidgetCommand, wire::RunState};
 
 #[derive(Debug, PartialEq)]
 pub enum Route {
+    Console(super::consoles::ConsoleRoute),
     /// The dashboard page (`GET /`, and deep links under `/ci/`).
     Page,
     /// Redeem a single-use grant for a session cookie (`GET /auth?token=`).
-    Redeem { token: String, next: String },
+    Redeem {
+        token: String,
+        next: String,
+    },
     /// The host's status and sampled history (`GET /v1/system`).
     System {
         range: super::system::history::Range,
     },
     /// One listed container's labels and stats (`GET /v1/system/containers/{id}`).
-    ContainerDetail { id: String },
+    ContainerDetail {
+        id: String,
+    },
     /// The live feed (`GET /v1/events`, server-sent events).
     Events,
     /// One run's durable status feed (`GET /v1/runs/{id}/events`).
-    RunEvents { run: String, from_seq: Option<u64> },
+    RunEvents {
+        run: String,
+        from_seq: Option<u64>,
+    },
     /// One typed CI operation.
     Api(Box<CiRequest>),
 }
@@ -41,6 +50,12 @@ impl Route {
 
     /// Writes need a same-origin `Origin` header.
     pub fn is_write(&self) -> bool {
+        if matches!(
+            self,
+            Self::Console(super::consoles::ConsoleRoute::Socket { .. })
+        ) {
+            return true;
+        }
         let Self::Api(request) = self else {
             return false;
         };
@@ -74,7 +89,7 @@ impl Route {
             (
                 [""]
                 | ["app.js"]
-                | ["app.css"]
+                | ["app.css" | "theme.css"]
                 | ["favicon.svg"]
                 | ["shared.js"]
                 | ["system"]
@@ -173,7 +188,7 @@ impl Route {
             (
                 [""]
                 | ["app.js"]
-                | ["app.css"]
+                | ["app.css" | "theme.css"]
                 | ["shared.js"]
                 | ["system" | "system.js" | "system.css"]
                 | ["v1", "system"]
@@ -194,7 +209,7 @@ impl Route {
                 _,
                 _,
             ) => return Err(RouteError::MethodNotAllowed),
-            _ => return Err(RouteError::NotFound),
+            _ => return super::consoles::route(method, path),
         };
         Ok(route)
     }

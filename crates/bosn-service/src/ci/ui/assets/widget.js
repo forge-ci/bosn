@@ -1,3 +1,4 @@
+let lastConsoleRefresh = 0;
 // The widget's bubble and panel. Clicks never call native code: they POST to
 // the daemon, which forwards a command to the widget process (no page IPC).
 // Helpers (icons, `el`, `request`, `confirmButton`) come from /shared.js.
@@ -169,6 +170,7 @@ function empty(list, shown) {
 }
 
 async function renderPanel() {
+  renderConsoles();
   try {
     view.list = await api("/v1/runs?limit=50");
     view.online = true;
@@ -215,6 +217,7 @@ function wirePanel() {
   const hide = () => api("/v1/widget/toggle", {}).catch(() => {});
   $("hide").addEventListener("click", hide);
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hide(); });
+  $("open-system").addEventListener("click", () => act(api("/v1/widget/open", { path: "/system" })));
   $("open-full").addEventListener("click", () => act(api("/v1/widget/open", { path: "/" })));
   for (const button of document.querySelectorAll("[data-filter]")) {
     button.addEventListener("click", () => setFilter(button.dataset.filter));
@@ -261,3 +264,21 @@ function connect() {
 }
 render().catch(() => {});
 connect();
+
+// Server configuration is independent of the live CI activity feed.
+async function renderConsoles() {
+  const box = $("servers");
+  if (!box || Date.now() - lastConsoleRefresh < 10000) return;
+  lastConsoleRefresh = Date.now();
+  try {
+    const servers = await api("/v1/consoles");
+    box.replaceChildren(...servers.map((server) => el("button", {
+      type: "button", class: "server-open",
+      onclick: () => act(api("/v1/widget/open", { path: `/console/${server.id}` })),
+    }, el("span", {}, server.name), el("span", { class: "server-action" }, "Open console ↗"))));
+    if (!servers.length) box.append(el("span", { class: "server-empty" }, "No servers configured. Add targets in servers.toml."));
+  } catch (error) {
+    box.replaceChildren(el("span", { class: "server-empty" }, error.message));
+  }
+}
+renderConsoles();

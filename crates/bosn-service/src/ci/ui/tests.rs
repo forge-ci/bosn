@@ -847,3 +847,6 @@ fn unified_cursor_keeps_legacy_statuses_and_orders_across_pages_and_restart() {
 
 #[path = "dashboard_tests.rs"]
 mod dashboard_tests;
+
+#[path = "console_tests.rs"]
+mod console_tests;

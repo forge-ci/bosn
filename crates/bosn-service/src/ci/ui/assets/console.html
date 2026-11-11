@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bosn · Server console</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/console/console.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="/">Bosn</a>
+  <div><h1 id="name">Server console</h1><span id="status" role="status" aria-live="polite">Ready to connect</span></div>
+  <div class="actions">
+    <button id="connect" type="button">Connect</button>
+    <button id="disconnect" type="button" disabled>Disconnect</button>
+    <button id="keys" type="button" disabled>Ctrl+Alt+Del</button>
+  </div>
+</header>
+<div id="notice" role="alert" hidden></div>
+<form id="credentials" hidden>
+  <label for="password">VNC password</label>
+  <input id="password" type="password" maxlength="8" autocomplete="off" required>
+  <button type="submit">Unlock console</button>
+  <span>Use the iDRAC VNC password.</span>
+</form>
+<main id="screen" aria-label="Remote server screen"></main>
+<footer><span>Encrypted iDRAC connection · keyboard and mouse enabled while connected</span><a href="/console/LICENSE.txt">noVNC notices</a></footer>
+<script type="module" src="/console/console.js"></script>
+</body>
+</html>
