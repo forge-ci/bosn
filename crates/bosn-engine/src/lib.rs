@@ -447,6 +447,17 @@ impl DockerEngine {
                 stderr: output.stderr,
             })
     }
+    /// An interactive Docker transport with bounded bidirectional pipes.
+    /// The caller owns container teardown as well as this local client session.
+    pub async fn duplex_session(
+        &self,
+        options: ProcessSessionOptions,
+    ) -> io::Result<kernal_api::ProcessSession> {
+        self.spec()
+            .stdin(StreamMode::Piped)
+            .spawn_session(options)
+            .await
+    }
     /// Stream tagged stdout/stderr until the direct Docker client exits.
     ///
     /// Cancellation/deadline kill and reap only that client. In particular,

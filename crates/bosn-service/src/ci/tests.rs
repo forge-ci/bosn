@@ -798,7 +798,9 @@ fn fifty_concurrent_submissions_with_ten_keys_make_ten_executions() {
             .map(|i| {
                 let runtime = runtime.clone();
                 let key = char::from_digit(i % 10, 10).unwrap();
-                async_engine::launch(async move { (key, submit(&runtime, key).await.run) })
+                async_engine::launch(async move {
+                    (key, submit_with_timeout(&runtime, key, 30).await.run)
+                })
             })
             .collect();
         let mut by_key =
@@ -823,10 +825,9 @@ fn fifty_concurrent_submissions_with_ten_keys_make_ten_executions() {
             let run = runs.iter().next().unwrap();
             // Ten runs share the registry actor and blocking record writer;
             // the full parallel suite also loads the container's CPU and disk.
-            let record = wait_done_with_budget(&runtime, run, Duration::from_secs(30)).await;
+            let record = wait_done_with_budget(&runtime, run, Duration::from_secs(60)).await;
             assert_eq!(record.conclusion, Some(Conclusion::Success), "{record:?}");
             assert_eq!(record.submitters, 5, "five submitters joined {run}");
-            assert_eq!(record.conclusion, Some(Conclusion::Success));
         }
         assert_eq!(*backend.executions.lock().unwrap(), 10);
         assert!(backend.live() <= 1, "only the shared engine is left");

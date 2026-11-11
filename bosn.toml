@@ -26,6 +26,10 @@ cmd = ". ci/dev_profile.sh && soldr toolchain ensure --json && uv sync --frozen 
 stack = "test"
 cmd = "soldr toolchain ensure --json && PYO3_PYTHON=$(command -v python3) soldr cargo test --workspace --locked --features bosn-python/embedded-python-tests"
 
+[task.console-test]
+stack = "test"
+cmd = "soldr toolchain ensure --json && soldr cargo test -p bosn-service --lib ci::ui --locked && uv run --no-project --with pytest pytest -q -p no:cacheprovider tests/test_console_bridge.py"
+
 [task.rust-lint]
 stack = "test"
 cmd = "soldr toolchain ensure --json && python ci/local_gate.py --lane rust"

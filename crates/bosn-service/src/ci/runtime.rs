@@ -33,6 +33,7 @@ mod admission;
 mod cancel;
 mod capacity;
 mod cleanup;
+mod consoles;
 mod dispatch;
 mod github;
 mod observer;

@@ -15,6 +15,12 @@ const HTML: &str = asset!("index.html");
 const SCRIPT: &str = asset!("app.js");
 const SHARED_SCRIPT: &str = asset!("shared.js");
 const STYLE: &str = asset!("app.css");
+const THEME: &str = asset!("theme.css");
+const CONSOLE: &str = asset!("console.html");
+const CONSOLE_SCRIPT: &str = asset!("console.js");
+const CONSOLE_STYLE: &str = asset!("console.css");
+const VNC_VIEWER: &str = asset!("novnc.js");
+const VNC_LICENSE: &str = asset!("novnc.LICENSE.txt");
 const SYSTEM_HTML: &str = asset!("system.html");
 const SYSTEM_SCRIPT: &str = asset!("system.js");
 const SYSTEM_STYLE: &str = asset!("system.css");
@@ -26,9 +32,15 @@ const WIDGET_STYLE: &str = asset!("widget.css");
 
 pub fn response(path: &str) -> Response {
     let (body, kind) = match path {
+        "/console/" => (CONSOLE, "text/html; charset=utf-8"),
+        "/console/console.js" => (CONSOLE_SCRIPT, "text/javascript; charset=utf-8"),
+        "/console/console.css" => (CONSOLE_STYLE, "text/css; charset=utf-8"),
+        "/console/novnc.js" => (VNC_VIEWER, "text/javascript; charset=utf-8"),
+        "/console/LICENSE.txt" => (VNC_LICENSE, "text/plain; charset=utf-8"),
         "/app.js" => (SCRIPT, "text/javascript; charset=utf-8"),
         "/shared.js" => (SHARED_SCRIPT, "text/javascript; charset=utf-8"),
         "/app.css" => (STYLE, "text/css; charset=utf-8"),
+        "/theme.css" => (THEME, "text/css; charset=utf-8"),
         "/favicon.svg" => (FAVICON, "image/svg+xml"),
         "/system" => (SYSTEM_HTML, "text/html; charset=utf-8"),
         "/system.js" => (SYSTEM_SCRIPT, "text/javascript; charset=utf-8"),

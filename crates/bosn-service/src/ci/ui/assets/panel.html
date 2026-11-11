@@ -11,14 +11,20 @@
 <header class="top">
   <div class="brand">
     <span class="mark" aria-hidden="true"></span>
-    <strong>Bosn CI</strong>
+    <strong>Bosn</strong><span class="section-label">Activity</span>
     <span id="link" class="link" role="status" aria-live="polite" title="Connected to the daemon"></span>
   </div>
   <div class="top-actions">
+    <button id="open-system" type="button" class="ghost" title="Inspect this computer">System</button>
     <button id="open-full" type="button" class="ghost" title="Open the full dashboard">Dashboard ↗</button>
     <button id="hide" type="button" class="icon" aria-label="Hide panel (Esc)" title="Hide (Esc)">✕</button>
   </div>
 </header>
+
+<section class="servers" aria-labelledby="servers-title">
+  <h2 id="servers-title">Servers</h2>
+  <div id="servers"><span class="server-empty">Loading servers…</span></div>
+</section>
 
 <section class="stats" aria-label="Runner status">
   <button type="button" class="stat running" data-filter="active"><b id="stat-running">0</b><span>running</span></button>

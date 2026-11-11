@@ -4,6 +4,7 @@
 //! for the closed route set (snapshot and control routes are typed requests).
 
 pub mod auth;
+pub(crate) mod consoles;
 mod page;
 pub mod routes;
 mod status_sse;
@@ -30,6 +31,7 @@ use super::{CiError, CiRuntime, events::RunEvent, reply::JsonReply};
 pub struct UiHandle {
     pub origin: String,
     pub auth: Arc<Auth>,
+    pub(crate) console_activity: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// A running listener; dropping it stops serving.
@@ -76,6 +78,7 @@ pub async fn start(config: UiConfig, ci: CiRuntime) -> io::Result<Option<UiServe
     let handle = Arc::new(UiHandle {
         origin: auth.origin(),
         auth: auth.clone(),
+        console_activity: Arc::default(),
     });
     let monitor = SystemMonitor::open(ci.state_dir().to_path_buf()).await;
     let sampler_stop = async_engine::CancellationSource::new();
@@ -154,6 +157,7 @@ async fn respond(
         return text(403, "cross-origin write refused");
     }
     match route {
+        Route::Console(route) => consoles::respond(ci, route, request).await,
         Route::Page => page::response(request.path()),
         Route::Redeem { token, next } => match auth.redeem(&token).await {
             None => text(

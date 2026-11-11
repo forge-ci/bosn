@@ -1,0 +1,36 @@
+/* Shared desktop palette. Keep layout in each view's own stylesheet. */
+:root {
+  color-scheme: light dark;
+  --bg: #f3f5f9; --panel: #ffffff; --card: var(--panel);
+  --fg: #18243b; --muted: #586780; --faint: #79869b;
+  --line: #dce3ee; --head: #edf1f7; --hover: #e9eff8;
+  --accent: #275ed5; --run: var(--accent); --select: #dde8ff;
+  --ok: #157348; --fail: #bc303e; --warn: #8c6100; --fail-row: #ffebed;
+  --s1: #158568; --s2: #376bd3; --grid: #e3e9f2;
+  --radius: 12px;
+  --shadow: 0 2px 8px rgb(24 36 59 / 5%);
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101722; --panel: #192333; --fg: #e8eef8;
+    --muted: #adbad0; --faint: #8291aa; --line: #303d52;
+    --head: #202e42; --hover: #25364e; --accent: #87adff;
+    --select: #2b436c; --ok: #6ad7a3; --fail: #ff929b;
+    --warn: #efc46a; --fail-row: #452630;
+    --s1: #6ad7b8; --s2: #87adff; --grid: #303d52;
+    --shadow: 0 2px 8px rgb(0 0 0 / 15%);
+  }
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+[hidden] { display: none !important; }
+button, input, summary, a { -webkit-tap-highlight-color: transparent; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.section-label { color: var(--muted); font-size: 12px; font-weight: 500; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
