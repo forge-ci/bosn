@@ -66,6 +66,8 @@ def test_transport_checks_certificate_before_forwarding_rfb(certificate, correct
                         connection.sendall(data)
             except (ConnectionResetError, BrokenPipeError):
                 pass  # A pin refusal closes before any RFB bytes are accepted.
+            except KeyboardInterrupt:
+                raise
             except Exception as error:
                 errors.append(error)
 
@@ -83,6 +85,8 @@ def test_transport_checks_certificate_before_forwarding_rfb(certificate, correct
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        assert process.stdin is not None
+        assert process.stdout is not None
         try:
             if correct_pin:
                 assert select.select([process.stdout], [], [], 15)[0]

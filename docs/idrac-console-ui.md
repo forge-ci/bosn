@@ -138,8 +138,16 @@ mount, host port, privileged mode or persistent console volume is used.
 - The first full local gate found a console-asset include base that violates
   the publishing guard. Console assets now use the existing page asset loader,
   and the same include-base guard passes.
-- Shift press/release was transmitted through the live bridge, but its immediate
-  framebuffer capture remained blank, so this is not counted as visible input
-  proof. No text, power or boot changes were sent.
-- Pending: updated full local gate, live daemon/browser/input integration,
-  review follow-up, PR and merge.
+- Live keyboard proof: an independently captured full-frame Redfish image
+  showed an empty NixOS login prompt. Enter press/release through the new
+  create/attach TLS bridge produced a second prompt, verified by another
+  full-frame Redfish screenshot. No text, power or boot changes were sent. The
+  single-update VNC capture helper can return partial images, so a blank helper
+  capture is not evidence that the actual server screen is blank.
+- The one primary pre-push reviewer confirmed the fixes and returned clean.
+- The full Rust lane (format, boundary checks, clippy and workspace tests)
+  passed on `d92c946a`. The Linux lane found optional-pipe annotations and the
+  KeyboardInterrupt lint in the new TLS test fixture; both are fixed and the
+  focused pyright/interrupt checks pass. The full gate must pass the final tree.
+- Pending: updated full local gate, live daemon/browser integration, PR and
+  merge. The installed protocol-2 daemon is still serving other work.
