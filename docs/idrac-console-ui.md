@@ -163,5 +163,17 @@ mount, host port, privileged mode or persistent console volume is used.
   passed on `d92c946a`. The Linux lane found optional-pipe annotations and the
   KeyboardInterrupt lint in the new TLS test fixture; both are fixed and the
   focused pyright/interrupt checks pass. The full gate must pass the final tree.
-- Pending: updated full local gate, live daemon/browser integration, PR and
-  merge. The installed protocol-2 daemon is still serving other work.
+- The shipped browser viewer also authenticated to the actual Dell through
+  the same pinned-TLS create/attach container, served by a temporary
+  authenticated verification host. It rendered the complete framebuffer,
+  transmitted three pointer events and Enter down/up, and visibly added a
+  login prompt. No browser JS errors occurred; the container was removed.
+  This validates the viewer/bridge path without replacing the running daemon;
+  it is not a claim that the old installed daemon serves the new endpoints.
+- The full Rust lane passed again on `6f2a3108`. Linux reached the unit suite
+  and exposed a platform-specific `SSLEOFError` when a deliberately rejected
+  certificate abruptly closes TLS. The fixture now accepts that EOF only for
+  the negative-pin case and additionally asserts that neither the server
+  greeting nor a queued client probe crosses the rejected connection.
+- Pending: final-tree local gate, installed daemon/browser integration, PR
+  and merge. The installed protocol-2 daemon is still serving other work.

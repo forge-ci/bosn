@@ -64,8 +64,9 @@ def test_transport_checks_certificate_before_forwarding_rfb(certificate, correct
                     received.append(data)
                     if data:
                         connection.sendall(data)
-            except (ConnectionResetError, BrokenPipeError):
-                pass  # A pin refusal closes before any RFB bytes are accepted.
+            except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError) as error:
+                if correct_pin:
+                    errors.append(error)  # Only a pin refusal may abort TLS here.
             except KeyboardInterrupt:
                 raise
             except Exception as error:
@@ -96,7 +97,10 @@ def test_transport_checks_certificate_before_forwarding_rfb(certificate, correct
                 process.stdin.flush()
                 assert select.select([process.stdout], [], [], 15)[0]
                 assert process.stdout.read(len(payload)) == payload
-            _, stderr = process.communicate(timeout=15)
+            stdout, stderr = process.communicate(
+                input=None if correct_pin else b"must-not-cross-untrusted-TLS", timeout=15
+            )
+            assert stdout == b"", "A rejected certificate must not forward the RFB greeting"
             assert process.returncode == (0 if correct_pin else 2)
             assert stderr == (b"" if correct_pin else b"certificate_changed\n")
         finally:
