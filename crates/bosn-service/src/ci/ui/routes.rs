@@ -1,6 +1,6 @@
-//! The UI listener's routes, parsed eagerly into a closed `Route`. Every API
-//! snapshot and control routes are typed [`CiRequest`]s. The two SSE routes
-//! expose the same run state, under the same session and Host checks.
+//! The UI listener's routes, parsed eagerly into a closed `Route`. CI snapshots
+//! and controls are typed [`CiRequest`]s; console routes have their own closed
+//! vocabulary. Every route uses the same session and Host checks.
 
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Map, Value};

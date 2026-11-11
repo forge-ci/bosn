@@ -5,13 +5,14 @@ const id = location.pathname.split("/").pop();
 let rfb = null;
 let channel = null;
 let transportError = false;
+let generation = 0;
 const errors = {
   certificate_changed: "The iDRAC certificate changed. Verify the server identity and update its trusted fingerprint before reconnecting.",
   console_unreachable: "Cannot reach the encrypted iDRAC VNC service. Check the server connection, VNC setting and console license.",
   console_closed: "The console connection ended. Check the VNC password and server availability, then reconnect.",
   console_connection_lost: "The console connection was lost or reached its time limit. You can reconnect.",
   docker_unavailable: "Docker is unavailable. Start the container engine, then reconnect.",
-  console_start_failed: "Bosn could not start the console session. Try connecting again.",
+  console_start_failed: "Docker could not prepare the console runtime. Check the engine and image download, then reconnect.",
 };
 
 function notice(message) {
@@ -27,6 +28,7 @@ function state(message, connected = false, pending = false) {
 }
 
 function disconnect() {
+  generation += 1;
   if (rfb) rfb.disconnect();
   if (channel) channel.close();
   rfb = channel = null;
@@ -37,6 +39,8 @@ function disconnect() {
 
 function connect() {
   disconnect();
+  const current = ++generation;
+  const active = () => current === generation;
   notice("");
   transportError = false;
   state("Starting encrypted console…", false, true);
@@ -46,6 +50,7 @@ function connect() {
   // Control diagnostics are distinct from binary RFB bytes. Consume these
   // before noVNC's listener so an error can never be mistaken for a framebuffer.
   channel.addEventListener("message", (event) => {
+    if (!active()) return;
     if (typeof event.data !== "string") return;
     event.stopImmediatePropagation();
     try {
@@ -59,17 +64,22 @@ function connect() {
   rfb = new RFB($("screen"), channel, { shared: true });
   rfb.scaleViewport = true;
   rfb.resizeSession = false;
-  rfb.addEventListener("connect", () => state("Connected · encrypted iDRAC VNC", true));
+  rfb.addEventListener("connect", () => {
+    if (active()) state("Connected · encrypted iDRAC VNC", true);
+  });
   rfb.addEventListener("credentialsrequired", () => {
+    if (!active()) return;
     $("credentials").hidden = false;
     $("password").focus();
     state("VNC password required", false, true);
   });
   rfb.addEventListener("securityfailure", () => {
+    if (!active()) return;
     transportError = true;
     notice("The server refused VNC authentication. Check the separate iDRAC VNC password.");
   });
   rfb.addEventListener("disconnect", (event) => {
+    if (!active()) return;
     $("credentials").hidden = true;
     $("password").value = "";
     state("Disconnected");

@@ -12,16 +12,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-macro_rules! asset {
-    ($name:literal) => {
-        include_str!(concat!("../assets/", $name))
-    };
-}
-const HTML: &str = asset!("console.html");
-const SCRIPT: &str = asset!("console.js");
-const STYLE: &str = asset!("console.css");
-const VIEWER: &str = asset!("novnc.js");
-const LICENSE: &str = asset!("novnc.LICENSE.txt");
 pub struct SessionLease(Arc<AtomicUsize>);
 impl SessionLease {
     fn acquire(activity: Arc<AtomicUsize>) -> Option<Self> {
@@ -71,24 +61,17 @@ pub fn route(method: &str, path: &str) -> Result<Route, RouteError> {
     Ok(Route::Console(console))
 }
 
-fn asset_response(text: &str, content_type: &str) -> http_server::Response {
-    http_server::Response::new(200, text.as_bytes().to_vec())
-        .and_then(|r| r.with_header("content-type", content_type))
-        .and_then(|r| r.with_header("cache-control", "no-store"))
-        .unwrap_or_else(|_| super::text(500, "asset unavailable"))
-}
-
 pub async fn respond(
     ci: &CiRuntime,
     route: ConsoleRoute,
     request: http_server::Request,
 ) -> http_server::Response {
     match route {
-        ConsoleRoute::Page => return asset_response(HTML, "text/html; charset=utf-8"),
-        ConsoleRoute::Script => return asset_response(SCRIPT, "text/javascript; charset=utf-8"),
-        ConsoleRoute::Style => return asset_response(STYLE, "text/css; charset=utf-8"),
-        ConsoleRoute::Viewer => return asset_response(VIEWER, "text/javascript; charset=utf-8"),
-        ConsoleRoute::License => return asset_response(LICENSE, "text/plain; charset=utf-8"),
+        ConsoleRoute::Page => return super::page::response("/console/"),
+        ConsoleRoute::Script => return super::page::response("/console/console.js"),
+        ConsoleRoute::Style => return super::page::response("/console/console.css"),
+        ConsoleRoute::Viewer => return super::page::response("/console/novnc.js"),
+        ConsoleRoute::License => return super::page::response("/console/LICENSE.txt"),
         _ => {}
     }
     let state = ci.state_dir().to_owned();

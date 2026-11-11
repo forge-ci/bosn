@@ -1,4 +1,4 @@
-let lastConsoleRefresh = 0;
+let consoleRefreshPending = false;
 // The widget's bubble and panel. Clicks never call native code: they POST to
 // the daemon, which forwards a command to the widget process (no page IPC).
 // Helpers (icons, `el`, `request`, `confirmButton`) come from /shared.js.
@@ -170,7 +170,6 @@ function empty(list, shown) {
 }
 
 async function renderPanel() {
-  renderConsoles();
   try {
     view.list = await api("/v1/runs?limit=50");
     view.online = true;
@@ -268,8 +267,8 @@ connect();
 // Server configuration is independent of the live CI activity feed.
 async function renderConsoles() {
   const box = $("servers");
-  if (!box || Date.now() - lastConsoleRefresh < 10000) return;
-  lastConsoleRefresh = Date.now();
+  if (!box || consoleRefreshPending) return;
+  consoleRefreshPending = true;
   try {
     const servers = await api("/v1/consoles");
     box.replaceChildren(...servers.map((server) => el("button", {
@@ -279,6 +278,9 @@ async function renderConsoles() {
     if (!servers.length) box.append(el("span", { class: "server-empty" }, "No servers configured. Add targets in servers.toml."));
   } catch (error) {
     box.replaceChildren(el("span", { class: "server-empty" }, error.message));
+  } finally {
+    consoleRefreshPending = false;
   }
 }
 renderConsoles();
+if ($("servers")) setInterval(renderConsoles, 10000);

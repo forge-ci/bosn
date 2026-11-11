@@ -18,10 +18,10 @@ const SESSION_LABEL: &str = "com.zackees.bosn.console-session";
 const IDLE: Duration = Duration::from_secs(600);
 const LIFETIME: Duration = Duration::from_secs(43200);
 
-fn run_args(target: &Target, registry: &str, name: &str, workspace: &str) -> Vec<String> {
+fn create_args(target: &Target, registry: &str, name: &str, workspace: &str) -> Vec<String> {
     let generation = kernal_api::hash::sha256_bytes(BRIDGE.as_bytes()).to_hex();
     let mut args = vec![
-        "run".into(),
+        "create".into(),
         "--rm".into(),
         "--interactive".into(),
         "--name".into(),
@@ -97,19 +97,37 @@ pub async fn serve(
     };
     let name = format!("bosn-console-{random}");
     let engine = DockerEngine::docker();
+    // Finish creation before attaching. A lost creation reply can leave only
+    // a stopped, labeled object for ordinary retention, never a late-running viewer.
+    let created = engine
+        .with_args(create_args(&target, &registry, &name, &workspace))
+        .capture_async(RunOptions::bounded(Duration::from_secs(180), 65536))
+        .await;
+    let Some(id) = created
+        .ok()
+        .filter(|reply| reply.exit_code == 0)
+        .and_then(|reply| String::from_utf8(reply.stdout).ok())
+        .map(|id| id.trim().to_owned())
+        .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    else {
+        error(&mut socket, "console_start_failed").await;
+        cleanup(&engine, &name, &registry).await;
+        return;
+    };
     let options = ProcessSessionOptions {
         max_queued_chunks: 16,
         max_chunk_bytes: 65536,
         ..Default::default()
     };
     let child = match engine
-        .with_args(run_args(&target, &registry, &name, &workspace))
+        .with_args(["start", "--attach", "--interactive", id.as_str()])
         .duplex_session(options)
         .await
     {
         Ok(child) => child,
         Err(_) => {
             error(&mut socket, "docker_unavailable").await;
+            cleanup(&engine, &name, &registry).await;
             return;
         }
     };
@@ -250,7 +268,7 @@ mod tests {
             port: 5901,
             certificate_sha256: "ab".repeat(32),
         };
-        let args = run_args(&target, "registry", "session", "/state");
+        let args = create_args(&target, "registry", "session", "/state");
         assert!(args.iter().any(|a| a == bosn_engine::LOW_CPU_PRIORITY_ARG));
         assert!(args.iter().any(|a| a == "--read-only"));
         assert!(!args.iter().any(|a| a.starts_with("--publish")

@@ -97,7 +97,8 @@ The container connects over TLS 1.2 or newer, checks the configured certificate
 pin, and only then forwards RFB. The daemon carries binary traffic through
 bounded Docker pipes and an authenticated same-origin WebSocket. Four consoles
 per daemon are allowed. Idle sessions expire after ten minutes, and every session
-has a twelve-hour ceiling. Active consoles prevent idle daemon handoff. Closing
+has a twelve-hour ceiling. Active consoles prevent idle daemon handoff. Creation finishes before the viewer attaches by immutable container ID; an
+interrupted creation cannot launch a viewer from a lost creation reply. Closing
 the page or clicking Disconnect closes stdin and removes the exactly labeled
 container by immutable Docker ID. Containers also exit on stdin EOF and have an
 in-container lifetime timer for abrupt daemon loss. No bind mounts, Docker socket
@@ -131,5 +132,14 @@ mount, host port, privileged mode or persistent console volume is used.
   digest-pinned, read-only, low-priority TLS bridge container and returned a
   1024×768 framebuffer. No input was sent. EOF exited the container with status
   0, and Docker inspection proved it was removed.
-- Pending: full local gate, live daemon/browser/input integration, review, PR
-  and merge.
+- Review found stale reconnect-event handling and an absent idle refresh timer.
+  Both regressions reproduce on commit `9756e64f` and pass with current source
+  in `ci/test_console_controls.js`. The pytest wrapper includes them in CI.
+- The first full local gate found a console-asset include base that violates
+  the publishing guard. Console assets now use the existing page asset loader,
+  and the same include-base guard passes.
+- Shift press/release was transmitted through the live bridge, but its immediate
+  framebuffer capture remained blank, so this is not counted as visible input
+  proof. No text, power or boot changes were sent.
+- Pending: updated full local gate, live daemon/browser/input integration,
+  review follow-up, PR and merge.
