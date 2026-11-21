@@ -98,7 +98,12 @@ def test_required_status_names_remain() -> None:
     # skipped required check passes. A main push skips it too -- the merge
     # queue proved the tree (forge-ci/ci.yml#432) -- and its remote cache save
     # moved to the push-only cache-writer job.
-    assert jobs["rust"]["if"] == "needs.verify.outputs.skip_rust != 'true'"
+    # !cancelled() lets it run hosted when the forge pool selector is skipped
+    # (routing off) or failed; verify must still pass.
+    assert jobs["rust"]["if"] == (
+        "${{ !cancelled() && needs.verify.result == 'success'"
+        " && needs.verify.outputs.skip_rust != 'true' }}"
+    )
 
 
 def test_native_backend_and_compiler_fixtures_have_provisioned_tools() -> None:
@@ -164,8 +169,15 @@ def test_manual_and_main_tiers() -> None:
 
 
 def test_every_job_checks_out_exact_candidate() -> None:
-    # A reusable-workflow call (ci-pre) has no steps of its own.
-    for job in (job for job in CI["jobs"].values() if "uses" not in job):
+    # A reusable-workflow call (ci-pre) has no steps of its own. The forge pool
+    # selector reads only the signal API and never checks out source, so it
+    # has no candidate to pin.
+    assert not any(
+        "actions/checkout@" in step.get("uses", "") for step in CI["jobs"]["pool"]["steps"]
+    )
+    for name, job in CI["jobs"].items():
+        if "uses" in job or name == "pool":
+            continue
         checkout = next(
             step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
         )
