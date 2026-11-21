@@ -13,6 +13,7 @@ from ci_queue_timing import fetch_run
 
 REQUIRED = (
     "CI policy (hosted macOS: release smoke only)",
+    "Lint (rustfmt, Clippy, Python, policy)",
     "Rust workspace (locked tests)",
     "Linux (lint + unit + docker)",
     "Native wheel (ubuntu-latest)",

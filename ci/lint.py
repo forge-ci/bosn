@@ -8,13 +8,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# rustfmt: the workspace, and every crate it excludes (tests/test_rustfmt_coverage.py).
+# `--no-rust` drops these: the host lint lane runs them through `soldr lint`.
+RUST_FMT_CHECKS: list[list[str]] = [
+    ["soldr", "cargo", "fmt", "--all", "--check"],
+    ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
+]
+
 CHECKS: list[list[str]] = [
     ["ruff", "format", "--check", "."],
     ["ruff", "check", "."],
     ["pyright"],
-    # rustfmt: the workspace, and every crate it excludes (tests/test_rustfmt_coverage.py).
-    ["soldr", "cargo", "fmt", "--all", "--check"],
-    ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
+    *RUST_FMT_CHECKS,
     # Full resolution is essential: --no-deps accepts a stale widget lockfile.
     [
         "soldr",
@@ -47,8 +52,12 @@ def run(cmd: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    checks = CHECKS
+    if "--no-rust" in argv:
+        argv.remove("--no-rust")
+        checks = [check for check in CHECKS if check not in RUST_FMT_CHECKS]
     failed: list[str] = []
-    for check in CHECKS:
+    for check in checks:
         cmd = check + argv if argv else check
         if run(cmd) != 0:
             failed.append(" ".join(Path(part).name for part in cmd[:2]))

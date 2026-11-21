@@ -15,6 +15,31 @@ GATE = tomllib.loads((ROOT / "local-gate.toml").read_text(encoding="utf-8"))["ga
 WORKFLOW = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
 
 
+LINT_WORDS = ("clippy", "cargo fmt", "dylint", "ruff", "pyright", "soldr lint", "./lint", "ci/lint.py")
+
+
+def test_lint_never_runs_under_bosn() -> None:
+    """Lint never runs under bosn; soldr lint only.
+
+    The host `lint` lane is the only lint lane. No bosn task lints, and no
+    workflow job a bosn lane replays holds a lint step.
+    """
+    assert "lint" not in GATE["lanes"]
+    assert not any(ref.split(":", 1)[1].startswith("lint") for ref in GATE["trust"]["skip"])
+    bosn = tomllib.loads((ROOT / "bosn.toml").read_text(encoding="utf-8"))
+    for name, task in bosn["task"].items():
+        assert "lint" not in name, name
+        assert not any(word in task["cmd"] for word in LINT_WORDS), name
+    replayed = {item["job"] for item in GATE["replay"]["selections"]}
+    for job in replayed:
+        for step in WORKFLOW["jobs"][job]["steps"]:
+            run = step.get("run", "")
+            assert not any(word in run for word in LINT_WORDS), (job, step.get("name"))
+    for name, lane in GATE["lanes"].items():
+        if lane["run"][0] == "bosn":
+            assert lane["run"][lane["run"].index("--job") + 1] in replayed, name
+
+
 def test_every_declared_lane_runs_a_source_bound_isolated_replay() -> None:
     lanes = GATE["lanes"]
     assert set(lanes) == {"rust", "tests"}
@@ -44,14 +69,15 @@ def test_every_declared_lane_runs_a_source_bound_isolated_replay() -> None:
     }
 
 
-def test_python_guards_and_policy_validation_remain_in_the_test_lane() -> None:
-    linux = WORKFLOW["jobs"]["linux"]
-    commands = [step.get("run", "") for step in linux["steps"]]
-    assert "./lint" in commands and "./test" in commands
-    assert any("ci-lint local-gate lint" in command for command in commands)
+def test_python_guards_and_policy_validation_are_the_remote_lint_job() -> None:
+    lint = WORKFLOW["jobs"]["lint"]
+    commands = "\n".join(step.get("run", "") for step in lint["steps"])
+    assert "ci/lint.py" in commands and "clippy" in commands
+    assert "ci-lint local-gate lint" in commands
+    linux = [step.get("run", "") for step in WORKFLOW["jobs"]["linux"]["steps"]]
+    assert "./test" in linux
     definition = yaml.safe_load((ROOT / "ci-attestations.yml").read_text(encoding="utf-8"))
-    assert definition["gates"]["python/all/static"]["lane"] == "tests"
-    assert definition["gates"]["general/all/ci-policy"]["lane"] == "tests"
+    assert set(definition["gates"]) == {"rust/all/boundary", "rust/x86_64-unknown-linux-gnu/test", "python/x86_64-unknown-linux-gnu/test"}
 
 
 def test_the_isolation_guards_refuse_a_bare_host_and_the_image_lifts_them() -> None:
@@ -114,5 +140,5 @@ def test_ci_verifies_with_the_ci_lint_the_gate_runs() -> None:
     assert pin in (ROOT / "local-gate.toml").read_text(encoding="utf-8")
     assert any(
         pin in step.get("run", "") and "ci-lint local-gate lint" in step.get("run", "")
-        for step in WORKFLOW["jobs"]["linux"]["steps"]
+        for step in WORKFLOW["jobs"]["lint"]["steps"]
     )

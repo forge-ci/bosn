@@ -2,7 +2,8 @@
 
 `cargo fmt --all` only reaches the root workspace's members, so a crate the
 workspace excludes (the desktop widget) needs its own `--manifest-path` check
-in both the local gate's `rust` lane and `./lint`.
+in both the local gate's host `lint` lane (`soldr lint` plus its Cargo.toml
+`extra` commands) and `./lint`.
 """
 
 from __future__ import annotations
@@ -72,8 +73,20 @@ def _assert_all_covered(commands: list[list[str]], where: str) -> None:
     assert not missing, f"{where} has no rustfmt check for: {missing}"
 
 
-def test_local_gate_rust_lane_formats_every_manifest() -> None:
-    _assert_all_covered(local_gate.LANES["rust"], "ci/local_gate.py rust lane")
+def soldr_lint_fmt_commands(commands: list[list[str]]) -> list[list[str]]:
+    """`soldr lint rust` formats the workspace (`--all`) and runs the extras."""
+    if not any(c[:3] == ["soldr", "lint", "rust"] for c in commands):
+        return commands
+    root = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    config = root["workspace"]["metadata"]["soldr"]["lint"]
+    assert "fmt" in config["steps"]
+    return [*commands, ["soldr", "cargo", "fmt", "--all", "--check"], *config.get("extra", [])]
+
+
+def test_local_gate_lint_lane_formats_every_manifest() -> None:
+    _assert_all_covered(
+        soldr_lint_fmt_commands(local_gate.LANES["lint"]), "ci/local_gate.py lint lane"
+    )
 
 
 def test_lint_formats_every_manifest() -> None:

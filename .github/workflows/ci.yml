@@ -148,7 +148,7 @@ jobs:
   # single remote savers of the base zccache family and the linux-gate suffix
   # (validation lanes never save remotely): build-only, no gate signal, never
   # a required check. The base family warms
-  # the rust lane's clippy-wrapped test compile; the suffix family warms the
+  # the rust lane's test compile and the lint job's Clippy; the suffix family warms the
   # dev-profile PyO3 wheel `./install` builds. Content-keyed zccache needs the
   # compile, not the lint verdict or the test execution.
   cache-writer:
@@ -183,15 +183,13 @@ jobs:
           cargo-registry-cache: false
           prebuild-deps: none
           solo-toolchain-cache: "false"
-      # The rust lane's exact clippy-wrapped test build, compiled not run:
-      # warms the rustc and clippy-driver zccache entries every PR restores.
+      # The rust lane's exact test build, compiled not run, and the lint
+      # job's exact Clippy: warms the rustc and clippy-driver zccache entries
+      # every PR restores.
       - name: Compile the workspace without running tests
         run: |
-          sysroot="$(soldr rustc --print sysroot | tail -n 1)"
-          export RUSTC_WORKSPACE_WRAPPER="$sysroot/bin/clippy-driver"
-          export CLIPPY_ARGS="-D__CLIPPY_HACKERY__warnings__CLIPPY_HACKERY__"
-          test -x "$RUSTC_WORKSPACE_WRAPPER"
           PYO3_PYTHON="$(command -v python)" soldr cargo test --workspace --all-targets --locked --features bosn-python/embedded-python-tests --no-run
+          PYO3_PYTHON="$(command -v python)" soldr cargo clippy --workspace --all-targets --locked --features bosn-python/embedded-python-tests -- -D warnings
 
   cache-writer-linux:
     name: Cache writer (linux-gate suffix)
@@ -309,11 +307,6 @@ jobs:
       # No apt-get (#600): pkg-config and libssl-dev ship in both GitHub's
       # ubuntu-latest image and bosn's pinned act runner image.
 
-      - name: Rust format
-        run: |
-          soldr cargo fmt --all --check
-          soldr cargo fmt --check --manifest-path crates/bosn-widget/Cargo.toml
-
       - name: Verify kernal-api boundary and locked resolution
         run: |
           python3 ci/verify_kernel_boundary.py
@@ -334,25 +327,71 @@ jobs:
       # bosn-python links the selected CPython and its tests run in the same
       # build as the rest of the workspace (#503).
       #
-      # Clippy runs inside the test build (#503): `cargo clippy` is cargo with
-      # clippy-driver as RUSTC_WORKSPACE_WRAPPER and its `-- <args>` passed in
-      # CLIPPY_ARGS. Wrapping this build the same way lints every workspace
-      # target that `clippy --all-targets` checks (lib, lib tests, bins,
-      # integration tests, examples) while compiling each crate once, instead
-      # of a separate check build followed by a full rebuild. Doctests reuse
-      # the same wrapped library units.
-      - name: Clippy and test Rust workspace
+      # No Clippy here: the local gate replays this job in bosn, and lint
+      # never runs under bosn (soldr lint only). The `lint` job lints.
+      - name: Test Rust workspace
         run: |
-          sysroot="$(soldr rustc --print sysroot | tail -n 1)"
-          export RUSTC_WORKSPACE_WRAPPER="$sysroot/bin/clippy-driver"
-          export CLIPPY_ARGS="-D__CLIPPY_HACKERY__warnings__CLIPPY_HACKERY__"
-          test -x "$RUSTC_WORKSPACE_WRAPPER"
           # nextest runs every test binary in parallel (#600); it cannot run
           # doctests, so they run separately and nothing is dropped. Half the
           # test time is timer waits, so run two tests per CPU (#758).
           export NEXTEST_TEST_THREADS="$(( $(nproc) * 2 ))"
           PYO3_PYTHON="$(command -v python)" soldr cargo nextest run --workspace --all-targets --locked --features bosn-python/embedded-python-tests
           PYO3_PYTHON="$(command -v python)" soldr cargo test --workspace --doc --locked --features bosn-python/embedded-python-tests
+
+  # Every lint step, in one job the local gate never replays: lint never runs
+  # under bosn (a bosn/act container breaks the host's lint caching), and the
+  # shared bosn replay contract admits no host lane, so this job always runs.
+  # On the host, `python ci/local_gate.py --lane lint` (`soldr lint`) runs it.
+  lint:
+    name: Lint (rustfmt, Clippy, Python, policy)
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python for PyO3
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Soldr
+        uses: forge-ci/setup-soldr@v0
+        with:
+          verdicts: "off"
+          version: "0.9.45"
+          cache: true
+          job-status: ${{ job.status }}
+          save-cache: auto
+          save-cache-remote: "false"
+          target-cache: false
+          cargo-registry-cache: false
+          prebuild-deps: none
+          # A restored solo snapshot can lack the on-demand Clippy binary.
+          solo-toolchain-cache: "false"
+
+      # ruff, pyright, rustfmt (both scopes), the widget lockfile and the
+      # repository guards (ci/lint.py), without building bosn itself.
+      - name: Lint
+        run: |
+          uv sync --frozen --all-groups --no-install-project
+          . ci/dev_profile.sh
+          uv run --no-sync python ci/lint.py
+
+      - name: Clippy
+        run: >-
+          PYO3_PYTHON="$(command -v python)" soldr cargo clippy --workspace --all-targets
+          --locked --features bosn-python/embedded-python-tests -- -D warnings
+
+      - name: Validate shared local-gate policy
+        run: uvx --from git+https://github.com/forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e --with pyyaml==6.0.2 ci-lint local-gate lint
 
   linux:
     name: Linux (lint + unit + docker)
@@ -426,14 +465,6 @@ jobs:
         # No apt-get (#600): pkg-config and libssl-dev ship in both runner
         # images, and patchelf comes from the wheel's build requirements.
         run: ./install
-
-      - name: Lint
-        if: needs.select-tier.outputs.test == 'true'
-        run: ./lint
-
-      - name: Validate shared local-gate policy
-        if: needs.select-tier.outputs.test == 'true'
-        run: uvx --from git+https://github.com/forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e --with pyyaml==6.0.2 ci-lint local-gate lint
 
       - name: Test (unit + docker)
         if: needs.select-tier.outputs.test == 'true'
@@ -687,7 +718,7 @@ jobs:
   full-coverage:
     name: Full CI coverage (exact candidate SHA)
     if: ${{ !cancelled() && needs.select-tier.outputs.full == 'true' }}
-    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget]
+    needs: [select-tier, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -717,7 +748,7 @@ jobs:
   ci-queue-timing:
     name: CI queue timing
     if: ${{ !cancelled() }}
-    needs: [select-tier, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage]
+    needs: [select-tier, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -745,7 +776,7 @@ jobs:
   ci-summary:
     name: CI summary
     if: ${{ always() }}
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -773,7 +804,7 @@ jobs:
   # non-cancelling `cache-janitor` group, so one sweep runs at a time.
   queue-cache-janitor:
     name: End-of-queue cache janitor
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
     if: always() && github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -55,6 +55,7 @@ def test_exempt_list_is_narrow_and_matches_real_jobs() -> None:
         "widget",
         "full-coverage",
         "lint-no-macos-runners",
+        "lint",
         "verify",
         # Every lane needs it: a failed selector skips them all, and skipped passes.
         "select-tier",

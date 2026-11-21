@@ -30,13 +30,8 @@ cmd = "soldr toolchain ensure --json && PYO3_PYTHON=$(command -v python3) soldr 
 stack = "test"
 cmd = "soldr toolchain ensure --json && soldr cargo test -p bosn-service --lib ci::ui --locked && uv run --no-project --with pytest pytest -q -p no:cacheprovider tests/test_console_bridge.py"
 
-[task.rust-lint]
-stack = "test"
-cmd = "soldr toolchain ensure --json && python ci/local_gate.py --lane rust"
-
-[task.lint]
-stack = "test"
-cmd = ". ci/dev_profile.sh && soldr toolchain ensure --json && uv sync --frozen --all-groups --no-editable && uv run --no-sync python ci/lint.py"
+# No lint task: lint never runs under bosn. Lint on the host with
+# `python ci/local_gate.py --lane lint` (`soldr lint` plus the Python linters).
 
 # A focused compile for edits to the local CI engine; preserves the same
 # isolated, persistent Rust build state as rust-test without running suites.
@@ -57,7 +52,7 @@ cmd = "soldr toolchain ensure --json && soldr cargo test -p bosn-service --lib g
 # Focused isolated protocol-boundary tests; shares the existing Rust build state.
 [task.ci-capabilities-test]
 stack = "test"
-cmd = "soldr toolchain ensure --json && soldr cargo fmt --all --check && soldr cargo clippy -p bosn-service --all-targets --locked -- -D warnings && soldr cargo test -p bosn-service --lib ci::engine::act_capabilities --locked"
+cmd = "soldr toolchain ensure --json && soldr cargo test -p bosn-service --lib ci::engine::act_capabilities --locked"
 
 # Frozen source history is a protocol boundary; reuse the isolated test stack.
 [task.ci-snapshot-test]

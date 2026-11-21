@@ -179,6 +179,7 @@ def test_full_coverage_sentinel_waits_for_every_lane() -> None:
     assert set(job["needs"]) >= {
         "select-tier",
         "lint-no-macos-runners",
+        "lint",
         "rust",
         "linux",
         "native-wheel",
@@ -201,6 +202,7 @@ def test_main_push_and_schedule_run_the_full_tier() -> None:
     assert on["push"]["branches"] == ["main"]
     validation = (
         "lint-no-macos-runners",
+        "lint",
         "rust",
         "linux",
         "native-wheel",

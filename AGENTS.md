@@ -207,12 +207,13 @@ living implementation spec.
 
 The `rust` job compiles the workspace once per edit. Restructure it; never drop a check.
 
-- **Clippy runs inside the test build.** `cargo clippy` is cargo with clippy-driver as
-  `RUSTC_WORKSPACE_WRAPPER` and its `-- <args>` in `CLIPPY_ARGS`, so the `Clippy and test
-  Rust workspace` step wraps `cargo nextest run --workspace --all-targets` the same way
-  (`-D warnings`). It lints every target `clippy --all-targets` did (plus bosn-python) and
-  compiles each crate once instead of a check build then a full rebuild. Doctests run in
-  the same step with the same wrapper and features, so they reuse those library units.
+- **Lint never runs under bosn; `soldr lint` only.** The local gate replays the `rust`
+  and `linux` jobs in bosn, so neither holds a lint step: rustfmt, Clippy, ruff, pyright,
+  the repository guards and the shared policy lint run in the remote `lint` job, which
+  the host `lint` lane (`python ci/local_gate.py --lane lint`, `soldr lint rust --check`
+  with the test build's features plus `[workspace.metadata.soldr.lint]` extras) attests.
+  bosn.toml declares no lint task. The `Test Rust workspace` step compiles the tests
+  without the Clippy wrapper.
 - **One integration-test binary per crate.** bosn-core, bosn-registry and bosn-service set
   `autotests = false` and declare `tests/integration.rs`, whose modules are the former
   `tests/<name>.rs` files: an edit relinks one binary per crate, not one per file. Add a

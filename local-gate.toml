@@ -16,9 +16,14 @@ runner = ["bosn", "ci", "run"]
 proves-tree = true
 guard = "tests/conftest.py"
 
-# The two workflow selections preserve all former checks: Linux runs Python
-# static checks, repository guards, shared policy lint, unit and Docker tests;
-# Rust runs both rustfmt scopes, Clippy, boundary/metadata and workspace tests.
+# Lint never runs under bosn; soldr lint only. The two workflow selections
+# replay tests only: Linux runs unit and Docker tests; Rust runs
+# boundary/metadata checks and workspace tests. Every lint step (rustfmt,
+# Clippy, ruff, pyright, repository guards, shared policy lint) lives in the
+# remote `lint` job, which always runs remotely: the shared replay contract
+# makes every lane a slice of this `bosn ci run` command (GATE-007/009), so a
+# host lane cannot be declared here. Lint on the host before pushing with
+# `python ci/local_gate.py --lane lint` (`soldr lint` plus the Python linters).
 # The tests lane excludes only Rust test sources (bosn#503, see below); add
 # other exclusions only with measured input evidence.
 [gate.lanes.rust]
@@ -81,6 +86,6 @@ inputs = { tier = "test" }
 # Default-branch and release coverage remain remote.
 [gate.trust]
 mode = "enforce"
-skip = ["ci.yml:lint-no-macos-runners", "ci.yml:rust"]
-covered-by = { "ci.yml:lint-no-macos-runners" = ["tests"], "ci.yml:rust" = ["rust"] }
+skip = ["ci.yml:rust"]
+covered-by = { "ci.yml:rust" = ["rust"] }
 surfaces = []

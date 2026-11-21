@@ -23,7 +23,7 @@ def test_both_lint_drivers_require_full_widget_resolution() -> None:
     lint = runpy.run_path(str(ROOT / "ci/lint.py"))
     gate = runpy.run_path(str(ROOT / "ci/local_gate.py"))
     assert COMMAND in lint["CHECKS"]
-    assert COMMAND in gate["LANES"]["rust"]
+    assert COMMAND in gate["LANES"]["lint"]
     # --no-deps returns success on stale locks; it must never weaken this guard.
     assert "--no-deps" not in COMMAND
 

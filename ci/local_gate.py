@@ -4,10 +4,13 @@ Use the pinned shared `ci-lint local-gate run` in local-gate.toml to create
 attestations from source-bound Bosn workflow receipts. This helper only runs
 individual diagnostic commands and never proves or stamps a gate pass.
 
+- lint: the attested host lint lane. Lint never runs under bosn; `soldr lint`
+  only: rustfmt (both scopes), Clippy, then ruff, pyright, the repository
+  guards (ci/lint.py --no-rust), the kernal-api boundary, the locked
+  resolution and the local-gate definition itself.
 - py-static: ruff and pyright over the Python sources.
 - guards: the repository lints (CI policy, Ctrl-C handlers, vcpkg) and the
   local-gate definition itself.
-- rust: rustfmt, Clippy, the kernal-api boundary and the locked resolution.
 - tests: the Python and Rust suites, isolated in bosn (GATE-005): bosn's
   tests start bosn daemons and touch bosn state roots, so they never run on
   the developer's host.
@@ -33,7 +36,42 @@ SYNC = ["uv", "sync", "--frozen", "--all-groups", "--no-install-project"]
 TOOL = ["uv", "run", "--no-sync"]
 PY = ["uv", "run", "--no-project", "--python", "3.13", "--with", "pyyaml==6.0.2", "python"]
 
+# `soldr lint` on the host (soldr#3958): rustfmt, Clippy over every workspace
+# target (soldr adds --workspace --all-targets) with the test build's
+# features, then the `extra` commands of
+# Cargo.toml's [workspace.metadata.soldr.lint] (the excluded widget crate's
+# rustfmt). `--check` verifies; it never rewrites the tree it attests.
+SOLDR_LINT = [
+    "soldr",
+    "lint",
+    "rust",
+    "--check",
+    "--locked",
+    "--features",
+    "bosn-python/embedded-python-tests",
+]
+WIDGET_METADATA = [
+    "soldr",
+    "cargo",
+    "metadata",
+    "--locked",
+    "--format-version",
+    "1",
+    "--manifest-path",
+    "crates/bosn-widget/Cargo.toml",
+]
+
 LANES: dict[str, list[list[str]]] = {
+    "lint": [
+        SOLDR_LINT,
+        # Full resolution is essential: --no-deps accepts a stale widget lockfile.
+        WIDGET_METADATA,
+        ["python3", "ci/verify_kernel_boundary.py"],
+        ["soldr", "cargo", "metadata", "--locked", "--format-version", "1", "--no-deps"],
+        SYNC,
+        [*TOOL, "python", "ci/lint.py", "--no-rust"],
+        ["uvx", "--from", CI_LINT, "--with", "pyyaml==6.0.2", "ci-lint", "local-gate", "lint"],
+    ],
     "py-static": [
         SYNC,
         [*TOOL, "ruff", "format", "--check", "."],
@@ -46,36 +84,6 @@ LANES: dict[str, list[list[str]]] = {
         [*PY, "ci/lint_no_vcpkg_bootstrap.py"],
         ["uvx", "--from", CI_LINT, "--with", "pyyaml==6.0.2", "ci-lint", "local-gate", "lint"],
     ],
-    "rust": [
-        ["soldr", "cargo", "fmt", "--all", "--check"],
-        ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
-        # Full resolution is essential: --no-deps accepts a stale widget lockfile.
-        [
-            "soldr",
-            "cargo",
-            "metadata",
-            "--locked",
-            "--format-version",
-            "1",
-            "--manifest-path",
-            "crates/bosn-widget/Cargo.toml",
-        ],
-        [
-            "soldr",
-            "cargo",
-            "clippy",
-            "--workspace",
-            "--exclude",
-            "bosn-python",
-            "--all-targets",
-            "--locked",
-            "--",
-            "-D",
-            "warnings",
-        ],
-        ["python3", "ci/verify_kernel_boundary.py"],
-        ["soldr", "cargo", "metadata", "--locked", "--format-version", "1", "--no-deps"],
-    ],
     "tests": [
         ["bosn", "run", "--task", "test"],
         ["bosn", "run", "--task", "rust-test"],
@@ -85,10 +93,10 @@ LANES: dict[str, list[list[str]]] = {
 
 def run_lane(name: str) -> int:
     commands = LANES[name]
-    if name in {"rust", "tests"} and not (
+    if name == "tests" and not (
         os.environ.get("CI", "").lower() == "true" or os.environ.get("BOSN_TEST_ISOLATED") == "1"
     ):
-        print("Rust/test diagnostics require an isolated Bosn runner", file=sys.stderr)
+        print("Test diagnostics require an isolated Bosn runner", file=sys.stderr)
         return 1
     for command in commands:
         print(f"\n>>> [{name}] {' '.join(command)}", flush=True)
