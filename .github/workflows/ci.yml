@@ -85,7 +85,6 @@ jobs:
       # GATE-010: true only when the head passes [gate.trust] and attests
       # every gate ci-attestations.yml maps to the job (never in shadow).
       skip_rust: ${{ steps.verify.outputs.skip_rust }}
-      skip_lint-no-macos-runners: ${{ steps.verify.outputs.skip_lint-no-macos-runners }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -183,13 +182,12 @@ jobs:
           cargo-registry-cache: false
           prebuild-deps: none
           solo-toolchain-cache: "false"
-      # The rust lane's exact test build, compiled not run, and the lint
-      # job's exact Clippy: warms the rustc and clippy-driver zccache entries
-      # every PR restores.
+      # The rust lane's exact test build, compiled not run: warms the rustc
+      # zccache entries every PR restores. No Clippy here: lint never runs
+      # under bosn, and the gate replays this workflow through bosn.
       - name: Compile the workspace without running tests
         run: |
           PYO3_PYTHON="$(command -v python)" soldr cargo test --workspace --all-targets --locked --features bosn-python/embedded-python-tests --no-run
-          PYO3_PYTHON="$(command -v python)" soldr cargo clippy --workspace --all-targets --locked --features bosn-python/embedded-python-tests -- -D warnings
 
   cache-writer-linux:
     name: Cache writer (linux-gate suffix)
@@ -232,27 +230,6 @@ jobs:
       # stays with the queue.
       - name: Build the dev-profile wheel without testing
         run: ./install
-
-  lint-no-macos-runners:
-    # Hosted Macs are reserved for the gated release smoke job.
-    name: "CI policy (hosted macOS: release smoke only)"
-    needs: [verify]
-    # GATE-008/010: skipped only for an attested, trusted PR head.
-    # Main pushes and the nightly schedule run it too (full tier).
-    if: needs.verify.outputs.skip_lint-no-macos-runners != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - name: Check hosted macOS runner scope
-        # This policy needs only PyYAML.  Keep it independent from the Rust
-        # extension build so it can fail immediately before build capacity is
-        # spent on any wheel lane.
-        run: uv run --no-project --with pyyaml==6.0.2 python ci/lint_no_macos_runners.py
 
   rust:
     name: Rust workspace (locked tests)
@@ -341,7 +318,9 @@ jobs:
   # Every lint step, in one job the local gate never replays: lint never runs
   # under bosn (a bosn/act container breaks the host's lint caching), and the
   # shared bosn replay contract admits no host lane, so this job always runs.
-  # On the host, `python ci/local_gate.py --lane lint` (`soldr lint`) runs it.
+  # It includes the hosted-macOS runner policy (ci/lint_no_macos_runners.py,
+  # via ci/lint.py) and the widget's rustfmt and Clippy. On the host,
+  # `python ci/local_gate.py --lane lint` (`soldr lint`) runs it.
   lint:
     name: Lint (rustfmt, Clippy, Python, policy)
     needs: [verify]
@@ -389,6 +368,16 @@ jobs:
         run: >-
           PYO3_PYTHON="$(command -v python)" soldr cargo clippy --workspace --all-targets
           --locked --features bosn-python/embedded-python-tests -- -D warnings
+
+      # The widget crate the workspace excludes links WebKitGTK; its rustfmt
+      # check runs in ci/lint.py above.
+      - name: Install WebKitGTK development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev pkg-config libssl-dev
+
+      - name: Clippy (bosn-widget)
+        run: soldr cargo clippy --manifest-path crates/bosn-widget/Cargo.toml --locked --all-targets -- -D warnings
 
       - name: Validate shared local-gate policy
         run: uvx --from git+https://github.com/forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e --with pyyaml==6.0.2 ci-lint local-gate lint
@@ -694,11 +683,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev pkg-config libssl-dev
 
-      - name: Lint and test bosn-widget
-        run: |
-          soldr cargo fmt --check --manifest-path crates/bosn-widget/Cargo.toml
-          soldr cargo clippy --manifest-path crates/bosn-widget/Cargo.toml --locked --all-targets -- -D warnings
-          soldr cargo test --manifest-path crates/bosn-widget/Cargo.toml --locked
+      # Its rustfmt and Clippy run in the `lint` job (lint never runs under bosn).
+      - name: Test bosn-widget
+        run: soldr cargo test --manifest-path crates/bosn-widget/Cargo.toml --locked
 
       - name: Build and verify source-bound Linux desktop archive
         env:
@@ -718,7 +705,7 @@ jobs:
   full-coverage:
     name: Full CI coverage (exact candidate SHA)
     if: ${{ !cancelled() && needs.select-tier.outputs.full == 'true' }}
-    needs: [select-tier, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget]
+    needs: [select-tier, lint, rust, linux, native-wheel, darwin-cross-wheel, widget]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -748,7 +735,7 @@ jobs:
   ci-queue-timing:
     name: CI queue timing
     if: ${{ !cancelled() }}
-    needs: [select-tier, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage]
+    needs: [select-tier, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -776,7 +763,7 @@ jobs:
   ci-summary:
     name: CI summary
     if: ${{ always() }}
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -804,7 +791,7 @@ jobs:
   # non-cancelling `cache-janitor` group, so one sweep runs at a time.
   queue-cache-janitor:
     name: End-of-queue cache janitor
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint-no-macos-runners, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
     if: always() && github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

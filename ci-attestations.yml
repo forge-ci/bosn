@@ -16,7 +16,7 @@ version: 1
 gates:
   # Lint never runs under bosn; soldr lint only. No lane attests a lint gate:
   # rustfmt, Clippy, ruff, pyright and the policy guards run in the remote
-  # `lint` and `lint-no-macos-runners` jobs on every PR (and on the host via
+  # `lint` job on every PR (and on the host via
   # `python ci/local_gate.py --lane lint` before pushing).
   rust/all/boundary: {lane: rust}           # kernal-api boundary, locked resolution
   rust/x86_64-unknown-linux-gnu/test: {lane: rust}    # workspace + embedded-Python tests, in bosn

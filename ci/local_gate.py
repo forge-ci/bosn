@@ -5,7 +5,7 @@ attestations from source-bound Bosn workflow receipts. This helper only runs
 individual diagnostic commands and never proves or stamps a gate pass.
 
 - lint: the attested host lint lane. Lint never runs under bosn; `soldr lint`
-  only: rustfmt (both scopes), Clippy, then ruff, pyright, the repository
+  only: rustfmt and Clippy (both scopes), then ruff, pyright, the repository
   guards (ci/lint.py --no-rust), the kernal-api boundary, the locked
   resolution and the local-gate definition itself.
 - py-static: ruff and pyright over the Python sources.
@@ -65,6 +65,18 @@ LANES: dict[str, list[list[str]]] = {
         SOLDR_LINT,
         # The widget crate the workspace excludes (tests/test_rustfmt_coverage.py).
         ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
+        [
+            "soldr",
+            "cargo",
+            "clippy",
+            "--manifest-path",
+            "crates/bosn-widget/Cargo.toml",
+            "--locked",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
         # Full resolution is essential: --no-deps accepts a stale widget lockfile.
         WIDGET_METADATA,
         ["python3", "ci/verify_kernel_boundary.py"],

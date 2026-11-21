@@ -91,7 +91,7 @@ def test_required_wheel_matrix_cells_exist_on_every_tier() -> None:
 
 def test_required_status_names_remain() -> None:
     jobs = CI["jobs"]
-    assert jobs["lint-no-macos-runners"]["name"] == "CI policy (hosted macOS: release smoke only)"
+    assert "lint-no-macos-runners" not in jobs  # folded into `lint` (ci/lint.py)
     assert jobs["rust"]["name"] == "Rust workspace (locked tests)"
     # It always runs on PR, queue and dispatch events, except that an attested,
     # trusted PR head may skip it (GATE-008/010, ci-attestations.yml); a
@@ -178,7 +178,6 @@ def test_full_coverage_sentinel_waits_for_every_lane() -> None:
     assert "needs.select-tier.outputs.full == 'true'" in job["if"]
     assert set(job["needs"]) >= {
         "select-tier",
-        "lint-no-macos-runners",
         "lint",
         "rust",
         "linux",
@@ -201,7 +200,6 @@ def test_main_push_and_schedule_run_the_full_tier() -> None:
     assert on["schedule"] and on["schedule"][0]["cron"]
     assert on["push"]["branches"] == ["main"]
     validation = (
-        "lint-no-macos-runners",
         "lint",
         "rust",
         "linux",

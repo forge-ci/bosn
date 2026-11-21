@@ -21,10 +21,8 @@ def test_ci_schedules_no_hosted_mac() -> None:
     # proves Darwin wheels on Linux only, so no ci.yml job may name a Mac.
     root = Path(__file__).resolve().parents[1]
     ci = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
-    assert (
-        ci["jobs"]["lint-no-macos-runners"]["name"]
-        == "CI policy (hosted macOS: release smoke only)"
-    )
+    # The policy runs in the remote `lint` job (ci/lint.py), never under bosn.
+    assert "lint-no-macos-runners" not in ci["jobs"]
     assert "darwin-hosted-smoke" not in ci["jobs"]
     assert list(lint.offenders(ci)) == []
 
