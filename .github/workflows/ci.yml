@@ -172,7 +172,6 @@ jobs:
         uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.45"
           cache: true
           job-status: ${{ job.status }}
           save-cache: auto
@@ -214,7 +213,6 @@ jobs:
         uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.45"
           cache: true
           # Fork the restored Rust foundation so wheel units can be saved too.
           cache-key-suffix: linux-gate
@@ -284,7 +282,6 @@ jobs:
           # soldr has no `verdict` command: the probe resolves it as a missing
           # tool and retries the 404 for 36 s per job (#754, setup-soldr#602).
           verdicts: "off"
-          version: "0.9.45"
           cache: true
           job-status: ${{ job.status }}
           save-cache: auto
@@ -405,7 +402,6 @@ jobs:
         uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.45"
           cache: true
           # Fork the restored Rust foundation so wheel units can be saved too.
           cache-key-suffix: linux-gate
@@ -499,10 +495,9 @@ jobs:
 
       - name: Set up Soldr for the wheel backend
         if: needs.select-tier.outputs.full == 'true'
-        uses: forge-ci/setup-soldr@c6f5541a9a528a5bd3a4dfee911dee3d61cf6db0
+        uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.45"
           toolchain: "1.95.0"
           prebuild-deps: none
 
@@ -648,10 +643,9 @@ jobs:
           ref: ${{ inputs.commit_sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Soldr
-        uses: forge-ci/setup-soldr@c6f5541a9a528a5bd3a4dfee911dee3d61cf6db0
+        uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.45"
           toolchain: "1.95.0"
           prebuild-deps: none
           # clippy is installed on demand after setup; a restored solo
