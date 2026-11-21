@@ -15,7 +15,16 @@ GATE = tomllib.loads((ROOT / "local-gate.toml").read_text(encoding="utf-8"))["ga
 WORKFLOW = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
 
 
-LINT_WORDS = ("clippy", "cargo fmt", "dylint", "ruff", "pyright", "soldr lint", "./lint", "ci/lint.py")
+LINT_WORDS = (
+    "clippy",
+    "cargo fmt",
+    "dylint",
+    "ruff",
+    "pyright",
+    "soldr lint",
+    "./lint",
+    "ci/lint.py",
+)
 
 
 def test_lint_never_runs_under_bosn() -> None:
@@ -77,7 +86,11 @@ def test_python_guards_and_policy_validation_are_the_remote_lint_job() -> None:
     linux = [step.get("run", "") for step in WORKFLOW["jobs"]["linux"]["steps"]]
     assert "./test" in linux
     definition = yaml.safe_load((ROOT / "ci-attestations.yml").read_text(encoding="utf-8"))
-    assert set(definition["gates"]) == {"rust/all/boundary", "rust/x86_64-unknown-linux-gnu/test", "python/x86_64-unknown-linux-gnu/test"}
+    assert set(definition["gates"]) == {
+        "rust/all/boundary",
+        "rust/x86_64-unknown-linux-gnu/test",
+        "python/x86_64-unknown-linux-gnu/test",
+    }
 
 
 def test_the_isolation_guards_refuse_a_bare_host_and_the_image_lifts_them() -> None:
