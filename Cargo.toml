@@ -16,10 +16,8 @@ cognitive_complexity = "warn"
 too_many_lines = "warn"
 
 # `soldr lint` (soldr#3958) is bosn's one lint front door, on the host: lint
-# never runs under bosn. `extra` formats the widget crate the workspace
-# excludes (tests/test_rustfmt_coverage.py).
+# never runs under bosn. The widget crate the workspace excludes is formatted
+# by its own step in ci/local_gate.py's lint lane: an `extra` may not re-enter
+# soldr (SOLDR_REENTRANCY_GUARD).
 [workspace.metadata.soldr.lint]
 steps = ["fmt", "clippy"]
-extra = [
-    ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
-]

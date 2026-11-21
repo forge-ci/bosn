@@ -211,7 +211,7 @@ The `rust` job compiles the workspace once per edit. Restructure it; never drop 
   and `linux` jobs in bosn, so neither holds a lint step: rustfmt, Clippy, ruff, pyright,
   the repository guards and the shared policy lint run in the remote `lint` job, which
   the host `lint` lane (`python ci/local_gate.py --lane lint`, `soldr lint rust --check`
-  with the test build's features plus `[workspace.metadata.soldr.lint]` extras) attests.
+  with the test build's features, then the widget crate's rustfmt) attests.
   bosn.toml declares no lint task. The `Test Rust workspace` step compiles the tests
   without the Clippy wrapper.
 - **One integration-test binary per crate.** bosn-core, bosn-registry and bosn-service set

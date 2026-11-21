@@ -38,9 +38,8 @@ PY = ["uv", "run", "--no-project", "--python", "3.13", "--with", "pyyaml==6.0.2"
 
 # `soldr lint` on the host (soldr#3958): rustfmt, Clippy over every workspace
 # target (soldr adds --workspace --all-targets) with the test build's
-# features, then the `extra` commands of
-# Cargo.toml's [workspace.metadata.soldr.lint] (the excluded widget crate's
-# rustfmt). `--check` verifies; it never rewrites the tree it attests.
+# features (steps: Cargo.toml's [workspace.metadata.soldr.lint]). `--check`
+# verifies; it never rewrites the tree it attests.
 SOLDR_LINT = [
     "soldr",
     "lint",
@@ -64,6 +63,8 @@ WIDGET_METADATA = [
 LANES: dict[str, list[list[str]]] = {
     "lint": [
         SOLDR_LINT,
+        # The widget crate the workspace excludes (tests/test_rustfmt_coverage.py).
+        ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
         # Full resolution is essential: --no-deps accepts a stale widget lockfile.
         WIDGET_METADATA,
         ["python3", "ci/verify_kernel_boundary.py"],

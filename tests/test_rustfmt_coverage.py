@@ -74,7 +74,7 @@ def _assert_all_covered(commands: list[list[str]], where: str) -> None:
 
 
 def soldr_lint_fmt_commands(commands: list[list[str]]) -> list[list[str]]:
-    """`soldr lint rust` formats the workspace (`--all`) and runs the extras."""
+    """`soldr lint rust` formats the workspace (`--all`) and runs any extras."""
     if not any(c[:3] == ["soldr", "lint", "rust"] for c in commands):
         return commands
     root = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
