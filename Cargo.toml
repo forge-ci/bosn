@@ -28,5 +28,5 @@ extra = [
   ["python3", "ci/verify_kernel_boundary.py"],
   ["uv", "sync", "--frozen", "--all-groups", "--no-install-project"],
   ["uv", "run", "--no-sync", "python", "ci/lint.py", "--no-soldr"],
-  ["uvx", "--from", "git+https://github.com/forge-ci/ci.yml@47ebbdb987d10351f8c2297d4e6d9ec288845a50", "--with", "pyyaml==6.0.2", "ci-lint", "local-gate", "lint"],
+  ["uvx", "--from", "git+https://github.com/forge-ci/ci.yml@b761450a8eefc9390f97cd08e5f2d294da3d9100", "--with", "pyyaml==6.0.2", "ci-lint", "local-gate", "lint"],
 ]

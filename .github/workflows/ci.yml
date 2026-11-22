@@ -97,7 +97,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: forge-ci/ci.yml
-          ref: 47ebbdb987d10351f8c2297d4e6d9ec288845a50
+          ref: b761450a8eefc9390f97cd08e5f2d294da3d9100
           path: .ci-lint
           persist-credentials: false
           sparse-checkout: ci_lint

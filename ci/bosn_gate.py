@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-CI_LINT = "git+https://github.com/forge-ci/ci.yml@47ebbdb987d10351f8c2297d4e6d9ec288845a50"
+CI_LINT = "git+https://github.com/forge-ci/ci.yml@b761450a8eefc9390f97cd08e5f2d294da3d9100"
 ROOT = Path(__file__).resolve().parent.parent
 
 
