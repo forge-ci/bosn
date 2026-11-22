@@ -1,7 +1,8 @@
 {
   "pr_checks": {
     "commands": [
-      "uv run --no-project --with ruff --with pyright --with pyyaml==6.0.2 python ci/lint.py",
+      "uv run --no-project --with ruff ruff format --check .",
+      "uv run --no-project --with ruff ruff check .",
       "soldr cargo clippy --workspace --all-targets -- -D warnings"
     ]
   }
