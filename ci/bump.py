@@ -13,7 +13,9 @@ Cargo.toml. Everything else derives from it:
   - `bosn.__version__` is the loaded extension's own version;
   - uv.lock records the project as dynamic, so it never changes on a bump.
 
-This rewrites that one line and refreshes Cargo.lock's workspace entries, so
+This rewrites that one line and refreshes every lockfile that records the
+workspace version -- the root Cargo.lock and each separate workspace's own
+(`crates/bosn-widget/Cargo.lock`, which pins `bosn-service` by path) -- so
 CI's `--locked` checks pass. Commit both files and open a PR. Merging a
 version change to main releases nothing by itself: a release is an explicit
 request for the exact merged SHA through the pretag gate (AGENTS.md,
@@ -78,6 +80,14 @@ def write_version(manifest: str, version: str) -> str:
     return rewritten
 
 
+def lockfile_dirs(root: Path) -> list[Path]:
+    """Directories whose Cargo.lock must be refreshed after a bump: the root
+    workspace, then every separate workspace under `crates/` (one with its own
+    Cargo.lock). A path dependency on a bumped member records the new version
+    in that lockfile too, and `--locked` refuses a stale one."""
+    return [root] + sorted(lock.parent for lock in root.glob("crates/*/Cargo.lock"))
+
+
 def main(argv: list[str] | None = None, *, root: Path = ROOT, refresh_lock: bool = True) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
@@ -94,12 +104,18 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT, refresh_lock: bool
 
     manifest_path.write_text(write_version(manifest, new), encoding="utf-8")
     if refresh_lock:
-        # Rewrites only the workspace members' entries; no dependency moves.
-        subprocess.run(["cargo", "update", "--workspace", "--offline"], cwd=root, check=True)
+        # Rewrites only workspace members' and path dependencies' entries; no
+        # registry dependency moves.
+        for directory in lockfile_dirs(root):
+            subprocess.run(
+                ["soldr", "cargo", "update", "--workspace", "--offline"],
+                cwd=directory,
+                check=True,
+            )
     print(f"{current} -> {new}")
     if refresh_lock:
         print(
-            "next: commit Cargo.toml and Cargo.lock, open a PR; once merged, release v"
+            "next: commit Cargo.toml and every Cargo.lock, open a PR; once merged, release v"
             + new
             + " through the pretag gate (AGENTS.md)"
         )
