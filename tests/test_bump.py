@@ -70,3 +70,22 @@ def test_bump_rewrites_the_manifest_and_nothing_else(tmp_path: Path) -> None:
 def test_the_real_workspace_has_a_bumpable_version() -> None:
     version = bump.read_version(Path("Cargo.toml").read_text(encoding="utf-8"))
     assert bump.next_version(version, "patch") != version
+
+
+def test_every_separate_workspace_lockfile_is_refreshed(tmp_path: Path) -> None:
+    (tmp_path / "Cargo.lock").write_text("", encoding="utf-8")
+    for name in ("bosn-widget", "zeta"):
+        (tmp_path / "crates" / name).mkdir(parents=True)
+        (tmp_path / "crates" / name / "Cargo.lock").write_text("", encoding="utf-8")
+    (tmp_path / "crates" / "no-lock").mkdir()
+    assert bump.lockfile_dirs(tmp_path) == [
+        tmp_path,
+        tmp_path / "crates" / "bosn-widget",
+        tmp_path / "crates" / "zeta",
+    ]
+
+
+def test_the_widget_lockfile_is_refreshed_by_a_real_bump() -> None:
+    """The release-0.1.33 bump left crates/bosn-widget/Cargo.lock pinning
+    bosn-service 0.1.32, so the widget's `cargo metadata --locked` failed."""
+    assert bump.ROOT / "crates" / "bosn-widget" in bump.lockfile_dirs(bump.ROOT)
