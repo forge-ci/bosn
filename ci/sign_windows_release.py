@@ -145,11 +145,22 @@ def fetch_jsign(dest_dir: Path) -> Path:
     return jar
 
 
+def az_executable() -> str:
+    """The Azure CLI's full path. On Windows it is ``az.cmd``, and
+    ``CreateProcess`` never applies ``PATHEXT`` to a bare ``"az"``, so the
+    v0.1.33 release failed with ``FileNotFoundError: [WinError 2]``.
+    ``shutil.which`` does apply it."""
+    path = shutil.which("az")
+    if path is None:
+        raise SigningError("the Azure CLI (az) is not on PATH; azure/login must run first")
+    return path
+
+
 def access_token() -> str:
     """Mint an Artifact Signing token from the ``azure/login`` session."""
     completed = subprocess.run(
         [
-            "az",
+            az_executable(),
             "account",
             "get-access-token",
             "--resource",
