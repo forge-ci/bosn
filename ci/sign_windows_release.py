@@ -334,6 +334,16 @@ def sign_wheel(jar: Path, config: SigningConfig, wheel: Path) -> None:
     write_wheel(wheel, infos, members)
 
 
+def windows_powershell_env() -> dict[str, str]:
+    """The environment for a Windows PowerShell 5.1 child, minus an inherited
+    ``PSModulePath``. A PowerShell 7 parent (the runner's default ``pwsh``
+    shell) exports one naming its own module directories; 5.1 then cannot
+    autoload ``Get-AuthenticodeSignature`` (CouldNotAutoloadMatchingModule),
+    which failed the v0.1.33 release's wheel verification. Without it, 5.1
+    computes its own default module path."""
+    return {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
+
+
 def authenticode_status(binary: Path) -> str:
     """Windows' own verdict on a PE's signature (chain, timestamp, hash)."""
     literal = str(binary.resolve()).replace("'", "''")
@@ -343,11 +353,13 @@ def authenticode_status(binary: Path) -> str:
             "-NoProfile",
             "-NonInteractive",
             "-Command",
+            "Import-Module Microsoft.PowerShell.Security; "
             f"(Get-AuthenticodeSignature -LiteralPath '{literal}').Status",
         ],
         stdout=subprocess.PIPE,
         text=True,
         check=True,
+        env=windows_powershell_env(),
     )
     return completed.stdout.strip()
 
