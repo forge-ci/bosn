@@ -184,3 +184,26 @@ def test_release_signs_the_windows_wheel_before_smoke_and_upload() -> None:
         assert job["steps"][index]["if"] == "runner.os == 'Windows'"
     assert job["steps"][login]["with"]["allow-no-subscriptions"] is True
     assert "check-wheel" in job["steps"][check]["run"]
+
+
+def test_access_token_runs_az_by_its_resolved_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows ships the Azure CLI as az.cmd; CreateProcess cannot find a bare
+    "az" (the v0.1.33 release's WinError 2), so the resolved path is run."""
+    resolved = r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd"
+    monkeypatch.setattr(sign.shutil, "which", lambda name: resolved if name == "az" else None)
+    seen: list[list[str]] = []
+
+    def fake_az(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="tok\n")
+
+    monkeypatch.setattr(sign.subprocess, "run", fake_az)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert sign.access_token() == "tok"
+    assert seen[0][0] == resolved
+
+
+def test_a_missing_az_is_a_named_signing_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sign.shutil, "which", lambda name: None)
+    with pytest.raises(sign.SigningError, match="Azure CLI"):
+        sign.access_token()
