@@ -1,6 +1,6 @@
 # Shared CI tool policy for Bosn (forge-ci/ci.yml#362).
 # Run from a clean committed tree before pushing:
-# uvx --from git+https://github.com/forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e ci-lint local-gate run
+# uvx --from git+https://github.com/forge-ci/ci.yml@b761450a8eefc9390f97cd08e5f2d294da3d9100 ci-lint local-gate run
 # The shared verifier proves source checks and provider identity, then writes
 # Local-Gate and per-gate Ci-Attestation trailers. Bosn supplies raw receipts.
 [gate]
@@ -16,9 +16,22 @@ runner = ["bosn", "ci", "run"]
 proves-tree = true
 guard = "tests/conftest.py"
 
-# The two workflow selections preserve all former checks: Linux runs Python
-# static checks, repository guards, shared policy lint, unit and Docker tests;
-# Rust runs both rustfmt scopes, Clippy, boundary/metadata and workspace tests.
+# Lint never runs under bosn; soldr lint only. The two workflow selections
+# replay tests only: Linux runs unit and Docker tests; Rust runs
+# boundary/metadata checks and workspace tests. No replayed job lints
+# (GATE-016): every lint step lives in the remote `lint` job, which the two
+# host soldr lanes below run as the same commands and attest. `lint` is
+# rustfmt and Clippy plus its Cargo.toml extras (boundary, ruff, pyright, the
+# repository guards); `lint-widget` is the widget
+# crate the workspace excludes.
+[gate.lanes.lint]
+run = ["soldr", "lint", "rust", "--check", "--locked", "--features", "bosn-python/embedded-python-tests"]
+tools = ["soldr", "uv", "uvx", "python3"]
+
+[gate.lanes.lint-widget]
+run = ["soldr", "lint", "rust", "--check", "--locked", "--manifest-path", "crates/bosn-widget/Cargo.toml"]
+tools = ["soldr"]
+
 # The tests lane excludes only Rust test sources (bosn#503, see below); add
 # other exclusions only with measured input evidence.
 [gate.lanes.rust]
@@ -81,6 +94,6 @@ inputs = { tier = "test" }
 # Default-branch and release coverage remain remote.
 [gate.trust]
 mode = "enforce"
-skip = ["ci.yml:lint-no-macos-runners", "ci.yml:rust"]
-covered-by = { "ci.yml:lint-no-macos-runners" = ["tests"], "ci.yml:rust" = ["rust"] }
+skip = ["ci.yml:rust", "ci.yml:lint"]
+covered-by = { "ci.yml:rust" = ["rust"], "ci.yml:lint" = ["lint", "lint-widget"] }
 surfaces = []

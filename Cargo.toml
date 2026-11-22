@@ -14,3 +14,21 @@ version = "0.1.32"
 [workspace.lints.clippy]
 cognitive_complexity = "warn"
 too_many_lines = "warn"
+
+# `soldr lint` (soldr#3958) is bosn's one lint front door, on the host: lint
+# never runs under bosn. It is the local gate's host `lint` lane and the
+# remote `lint` job's command. The extras run the rest of that job: the
+# kernal-api boundary, ruff, pyright and the repository guards (ci/lint.py
+# --no-soldr). The shared local-gate policy (`ci-lint local-gate lint`) is
+# not an extra: `ci-lint local-gate run` already checks it with its own exit
+# semantics, and as a lane step it failed on findings main already has.
+# An `extra` may not re-enter
+# soldr (SOLDR_REENTRANCY_GUARD), so the widget crate the workspace excludes
+# is its own `lint-widget` lane (crates/bosn-widget/Cargo.toml).
+[workspace.metadata.soldr.lint]
+steps = ["fmt", "clippy"]
+extra = [
+  ["python3", "ci/verify_kernel_boundary.py"],
+  ["uv", "sync", "--frozen", "--all-groups", "--no-install-project"],
+  ["uv", "run", "--no-sync", "python", "ci/lint.py", "--no-soldr"],
+]

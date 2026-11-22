@@ -17,8 +17,9 @@ containers over ad-hoc `docker run` commands when the project has a `bosn.toml`.
 
    ```text
    bosn run --task test
-   bosn run --task lint
    ```
+
+   Lint never runs under bosn: run `soldr lint` on the host instead of a lint task.
 
    `bosn run --task NAME` ensures the task's stack, runs the declared task, streams its
    output, and exits with the task's status. `bosn run --stack NAME` only ensures.

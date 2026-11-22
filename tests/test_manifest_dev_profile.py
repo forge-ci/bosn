@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="the manifest test stack runs POSIX sh")
-@pytest.mark.parametrize("task", ["test", "lint"])
+# No `lint` task: lint never runs under bosn (soldr lint on the host).
+@pytest.mark.parametrize("task", ["test"])
 @pytest.mark.parametrize("profile", [None, "release"])
 def test_manifest_uv_commands_share_dev_profile_default(
     tmp_path: Path, task: str, profile: str | None
