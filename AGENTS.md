@@ -209,7 +209,7 @@ The `rust` job compiles the workspace once per edit. Restructure it; never drop 
 
 - **Lint never runs under bosn; `soldr lint` only.** The local gate replays the `rust`
   and `linux` jobs in bosn, so no replayed job holds a lint step (GATE-016): rustfmt,
-  Clippy, ruff, pyright, the repository guards and the shared policy lint run in the
+  Clippy, ruff, pyright and the repository guards run in the
   remote `lint` job. Its two commands are the gate's host soldr lanes, which attest it:
   `lint` (`soldr lint rust --check --locked` with the test build's features, plus the
   Cargo.toml `extra` commands) and `lint-widget` (the same over

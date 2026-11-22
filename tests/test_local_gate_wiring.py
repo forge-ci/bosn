@@ -87,7 +87,7 @@ def test_every_declared_lane_runs_a_source_bound_isolated_replay() -> None:
 
 def test_the_remote_lint_job_runs_the_host_lint_lanes() -> None:
     """GATE-001: the remote `lint` job runs each host lint lane's command, and
-    the root `soldr lint` extras carry the Python guards and policy lint."""
+    the root `soldr lint` extras carry the Python guards."""
     lint = WORKFLOW["jobs"]["lint"]
     commands = " ".join(" ".join(step.get("run", "").split()) for step in lint["steps"])
     for name in ("lint", "lint-widget"):
@@ -95,7 +95,8 @@ def test_the_remote_lint_job_runs_the_host_lint_lanes() -> None:
     root = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     extra = [" ".join(cmd) for cmd in root["workspace"]["metadata"]["soldr"]["lint"]["extra"]]
     assert any("ci/lint.py --no-soldr" in cmd for cmd in extra)
-    assert any("ci-lint local-gate lint" in cmd for cmd in extra)
+    # `ci-lint local-gate run` checks the shared policy itself.
+    assert not any("ci-lint" in cmd for cmd in extra)
     assert not any(cmd.startswith("soldr") for cmd in extra), "an extra may not re-enter soldr"
     linux = [step.get("run", "") for step in WORKFLOW["jobs"]["linux"]["steps"]]
     assert "./test" in linux
@@ -165,8 +166,3 @@ def test_ci_verifies_with_the_ci_lint_the_gate_runs() -> None:
     )
     assert checkout["with"]["ref"] == pin
     assert pin in (ROOT / "local-gate.toml").read_text(encoding="utf-8")
-    root = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
-    assert any(
-        any(pin in token for token in cmd) and "local-gate" in cmd
-        for cmd in root["workspace"]["metadata"]["soldr"]["lint"]["extra"]
-    )

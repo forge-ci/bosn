@@ -22,7 +22,7 @@ guard = "tests/conftest.py"
 # (GATE-016): every lint step lives in the remote `lint` job, which the two
 # host soldr lanes below run as the same commands and attest. `lint` is
 # rustfmt and Clippy plus its Cargo.toml extras (boundary, ruff, pyright, the
-# repository guards, the shared policy lint); `lint-widget` is the widget
+# repository guards); `lint-widget` is the widget
 # crate the workspace excludes.
 [gate.lanes.lint]
 run = ["soldr", "lint", "rust", "--check", "--locked", "--features", "bosn-python/embedded-python-tests"]
