@@ -66,6 +66,10 @@ source-job = "ci.yml:verify"
 lanes = ["rust", "tests"]
 
 [[gate.replay.jobs]]
+source-job = "ci.yml:pool"
+lanes = ["rust"]
+
+[[gate.replay.jobs]]
 source-job = "ci.yml:rust"
 lanes = ["rust"]
 
