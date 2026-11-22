@@ -1,0 +1,8 @@
+{
+  "pr_checks": {
+    "commands": [
+      "./lint",
+      "soldr cargo clippy --workspace --all-targets -- -D warnings"
+    ]
+  }
+}
