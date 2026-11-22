@@ -85,6 +85,7 @@ jobs:
       # GATE-010: true only when the head passes [gate.trust] and attests
       # every gate ci-attestations.yml maps to the job (never in shadow).
       skip_rust: ${{ steps.verify.outputs.skip_rust }}
+      skip_lint: ${{ steps.verify.outputs.skip_lint }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -96,7 +97,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: forge-ci/ci.yml
-          ref: 96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e
+          ref: 47ebbdb987d10351f8c2297d4e6d9ec288845a50
           path: .ci-lint
           persist-credentials: false
           sparse-checkout: ci_lint
@@ -315,15 +316,17 @@ jobs:
           PYO3_PYTHON="$(command -v python)" soldr cargo nextest run --workspace --all-targets --locked --features bosn-python/embedded-python-tests
           PYO3_PYTHON="$(command -v python)" soldr cargo test --workspace --doc --locked --features bosn-python/embedded-python-tests
 
-  # Every lint step, in one job the local gate never replays: lint never runs
-  # under bosn (a bosn/act container breaks the host's lint caching), and the
-  # shared bosn replay contract admits no host lane, so this job always runs.
-  # It includes the hosted-macOS runner policy (ci/lint_no_macos_runners.py,
-  # via ci/lint.py) and the widget's rustfmt and Clippy. On the host,
-  # `python ci/local_gate.py --lane lint` (`soldr lint`) runs it.
+  # Every lint step, in one job the local gate never replays through bosn:
+  # lint never runs under bosn (a bosn/act container breaks the host's lint
+  # caching). Its two commands are the local gate's host soldr lanes `lint`
+  # and `lint-widget`, so an attested, trusted PR head skips it (GATE-008/010).
+  # `soldr lint` runs rustfmt and Clippy, then its Cargo.toml extras: the
+  # kernal-api boundary, ruff, pyright, the repository guards (including the
+  # hosted-macOS runner policy) and the shared local-gate policy.
   lint:
     name: Lint (rustfmt, Clippy, Python, policy)
     needs: [verify]
+    if: needs.verify.outputs.skip_lint != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -345,7 +348,7 @@ jobs:
         uses: forge-ci/setup-soldr@v0
         with:
           verdicts: "off"
-          version: "0.9.45"
+          version: "0.9.54"  # soldr lint extras (>= 0.9.46); the host lanes run 0.9.54
           cache: true
           job-status: ${{ job.status }}
           save-cache: auto
@@ -356,31 +359,19 @@ jobs:
           # A restored solo snapshot can lack the on-demand Clippy binary.
           solo-toolchain-cache: "false"
 
-      # ruff, pyright, rustfmt (both scopes), the widget lockfile and the
-      # repository guards (ci/lint.py), without building bosn itself.
-      - name: Lint
-        run: |
-          uv sync --frozen --all-groups --no-install-project
-          . ci/dev_profile.sh
-          uv run --no-sync python ci/lint.py
-
-      - name: Clippy
-        run: >-
-          PYO3_PYTHON="$(command -v python)" soldr cargo clippy --workspace --all-targets
-          --locked --features bosn-python/embedded-python-tests -- -D warnings
-
-      # The widget crate the workspace excludes links WebKitGTK; its rustfmt
-      # check runs in ci/lint.py above.
+      # The widget crate the workspace excludes links WebKitGTK.
       - name: Install WebKitGTK development packages
         run: |
           sudo apt-get update
           sudo apt-get install --yes libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev pkg-config libssl-dev
 
-      - name: Clippy (bosn-widget)
-        run: soldr cargo clippy --manifest-path crates/bosn-widget/Cargo.toml --locked --all-targets -- -D warnings
+      - name: soldr lint (workspace)
+        run: >-
+          PYO3_PYTHON="$(command -v python)" soldr lint rust --check --locked
+          --features bosn-python/embedded-python-tests
 
-      - name: Validate shared local-gate policy
-        run: uvx --from git+https://github.com/forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e --with pyyaml==6.0.2 ci-lint local-gate lint
+      - name: soldr lint (bosn-widget)
+        run: soldr lint rust --check --locked --manifest-path crates/bosn-widget/Cargo.toml
 
   linux:
     name: Linux (lint + unit + docker)

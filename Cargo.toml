@@ -16,8 +16,17 @@ cognitive_complexity = "warn"
 too_many_lines = "warn"
 
 # `soldr lint` (soldr#3958) is bosn's one lint front door, on the host: lint
-# never runs under bosn. The widget crate the workspace excludes is formatted
-# by its own step in ci/local_gate.py's lint lane: an `extra` may not re-enter
-# soldr (SOLDR_REENTRANCY_GUARD).
+# never runs under bosn. It is the local gate's host `lint` lane and the
+# remote `lint` job's command. The extras run the rest of that job: the
+# kernal-api boundary, ruff, pyright and the repository guards (ci/lint.py
+# --no-soldr) and the shared local-gate policy. An `extra` may not re-enter
+# soldr (SOLDR_REENTRANCY_GUARD), so the widget crate the workspace excludes
+# is its own `lint-widget` lane (crates/bosn-widget/Cargo.toml).
 [workspace.metadata.soldr.lint]
 steps = ["fmt", "clippy"]
+extra = [
+  ["python3", "ci/verify_kernel_boundary.py"],
+  ["uv", "sync", "--frozen", "--all-groups", "--no-install-project"],
+  ["uv", "run", "--no-sync", "python", "ci/lint.py", "--no-soldr"],
+  ["uvx", "--from", "git+https://github.com/forge-ci/ci.yml@47ebbdb987d10351f8c2297d4e6d9ec288845a50", "--with", "pyyaml==6.0.2", "ci-lint", "local-gate", "lint"],
+]

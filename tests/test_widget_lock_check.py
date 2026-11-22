@@ -23,7 +23,10 @@ def test_both_lint_drivers_require_full_widget_resolution() -> None:
     lint = runpy.run_path(str(ROOT / "ci/lint.py"))
     gate = runpy.run_path(str(ROOT / "ci/local_gate.py"))
     assert COMMAND in lint["CHECKS"]
-    assert COMMAND in gate["LANES"]["lint"]
+    # The host `lint-widget` lane: `--locked` Clippy resolves the full graph.
+    widget = next(c for c in gate["LANES"]["lint"] if "crates/bosn-widget/Cargo.toml" in c)
+    assert widget[:3] == ["soldr", "lint", "rust"] and "--locked" in widget
+    assert "--no-deps" not in widget
     # --no-deps returns success on stale locks; it must never weaken this guard.
     assert "--no-deps" not in COMMAND
 

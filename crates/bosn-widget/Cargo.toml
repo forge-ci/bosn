@@ -10,6 +10,11 @@ description = "bosn's floating desktop widget: a bubble, a panel and a full-view
 # daemon, wheels and CI must not.
 [workspace]
 
+# The local gate's host `lint-widget` lane and the remote `lint` job run
+# `soldr lint rust --check --locked --manifest-path crates/bosn-widget/Cargo.toml`.
+[workspace.metadata.soldr.lint]
+steps = ["fmt", "clippy"]
+
 [lints.clippy]
 cognitive_complexity = "warn"
 too_many_lines = "warn"

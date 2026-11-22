@@ -4,10 +4,10 @@ Use the pinned shared `ci-lint local-gate run` in local-gate.toml to create
 attestations from source-bound Bosn workflow receipts. This helper only runs
 individual diagnostic commands and never proves or stamps a gate pass.
 
-- lint: the attested host lint lane. Lint never runs under bosn; `soldr lint`
-  only: rustfmt and Clippy (both scopes), then ruff, pyright, the repository
-  guards (ci/lint.py --no-rust), the kernal-api boundary, the locked
-  resolution and the local-gate definition itself.
+- lint: the attested host soldr lanes `lint` and `lint-widget`. Lint never
+  runs under bosn; `soldr lint` only: rustfmt and Clippy (both scopes), then
+  its Cargo.toml extras (the kernal-api boundary, ruff, pyright, the
+  repository guards and the local-gate definition itself).
 - py-static: ruff and pyright over the Python sources.
 - guards: the repository lints (CI policy, Ctrl-C handlers, vcpkg) and the
   local-gate definition itself.
@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # The forge-ci/ci.yml commit whose ci-lint this repository's gate is checked by.
-CI_LINT = "git+https://github.com/forge-ci/ci.yml@96ba9f2df5b6c16d4fc933ee9dc2dbab7c47b46e"
+CI_LINT = "git+https://github.com/forge-ci/ci.yml@47ebbdb987d10351f8c2297d4e6d9ec288845a50"
 
 # The locked environment without bosn itself (installing bosn is a full Rust
 # extension build the linters do not need), then the tools from it.
@@ -49,42 +49,21 @@ SOLDR_LINT = [
     "--features",
     "bosn-python/embedded-python-tests",
 ]
-WIDGET_METADATA = [
+# The widget crate the workspace excludes; `--locked` Clippy resolves its full
+# graph, so a stale widget lockfile fails here (tests/test_widget_lock_check.py).
+WIDGET_LINT = [
     "soldr",
-    "cargo",
-    "metadata",
+    "lint",
+    "rust",
+    "--check",
     "--locked",
-    "--format-version",
-    "1",
     "--manifest-path",
     "crates/bosn-widget/Cargo.toml",
 ]
 
 LANES: dict[str, list[list[str]]] = {
-    "lint": [
-        SOLDR_LINT,
-        # The widget crate the workspace excludes (tests/test_rustfmt_coverage.py).
-        ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
-        [
-            "soldr",
-            "cargo",
-            "clippy",
-            "--manifest-path",
-            "crates/bosn-widget/Cargo.toml",
-            "--locked",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ],
-        # Full resolution is essential: --no-deps accepts a stale widget lockfile.
-        WIDGET_METADATA,
-        ["python3", "ci/verify_kernel_boundary.py"],
-        ["soldr", "cargo", "metadata", "--locked", "--format-version", "1", "--no-deps"],
-        SYNC,
-        [*TOOL, "python", "ci/lint.py", "--no-rust"],
-        ["uvx", "--from", CI_LINT, "--with", "pyyaml==6.0.2", "ci-lint", "local-gate", "lint"],
-    ],
+    # The local gate's host soldr lanes `lint` and `lint-widget` (local-gate.toml).
+    "lint": [SOLDR_LINT, WIDGET_LINT],
     "py-static": [
         SYNC,
         [*TOOL, "ruff", "format", "--check", "."],

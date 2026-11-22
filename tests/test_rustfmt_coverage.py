@@ -74,13 +74,24 @@ def _assert_all_covered(commands: list[list[str]], where: str) -> None:
 
 
 def soldr_lint_fmt_commands(commands: list[list[str]]) -> list[list[str]]:
-    """`soldr lint rust` formats the workspace (`--all`) and runs any extras."""
-    if not any(c[:3] == ["soldr", "lint", "rust"] for c in commands):
-        return commands
-    root = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
-    config = root["workspace"]["metadata"]["soldr"]["lint"]
-    assert "fmt" in config["steps"]
-    return [*commands, ["soldr", "cargo", "fmt", "--all", "--check"], *config.get("extra", [])]
+    """`soldr lint rust [--manifest-path M]` formats that workspace (`--all`
+    over its members) when its manifest's lint steps include fmt."""
+    out = list(commands)
+    for command in commands:
+        if command[:3] != ["soldr", "lint", "rust"]:
+            continue
+        manifest = (
+            command[command.index("--manifest-path") + 1]
+            if "--manifest-path" in command
+            else "Cargo.toml"
+        )
+        config = tomllib.loads((ROOT / manifest).read_text(encoding="utf-8"))
+        assert "fmt" in config["workspace"]["metadata"]["soldr"]["lint"]["steps"], manifest
+        if manifest == "Cargo.toml":
+            out.append(["soldr", "cargo", "fmt", "--all", "--check"])
+        else:
+            out.append(["soldr", "cargo", "fmt", "--check", "--manifest-path", manifest])
+    return out
 
 
 def test_local_gate_lint_lane_formats_every_manifest() -> None:

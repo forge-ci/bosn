@@ -10,6 +10,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # rustfmt: the workspace, and every crate it excludes (tests/test_rustfmt_coverage.py).
 # `--no-rust` drops these: the host lint lane runs them through `soldr lint`.
+# `--no-soldr` drops every soldr command (these and the widget resolution, which
+# the `lint-widget` lane's `--locked` Clippy proves): it is a `soldr lint`
+# extra, and an extra may not re-enter soldr.
 RUST_FMT_CHECKS: list[list[str]] = [
     ["soldr", "cargo", "fmt", "--all", "--check"],
     ["soldr", "cargo", "fmt", "--check", "--manifest-path", "crates/bosn-widget/Cargo.toml"],
@@ -56,6 +59,9 @@ def main(argv: list[str] | None = None) -> int:
     if "--no-rust" in argv:
         argv.remove("--no-rust")
         checks = [check for check in CHECKS if check not in RUST_FMT_CHECKS]
+    if "--no-soldr" in argv:
+        argv.remove("--no-soldr")
+        checks = [check for check in checks if check[0] != "soldr"]
     failed: list[str] = []
     for check in checks:
         cmd = check + argv if argv else check

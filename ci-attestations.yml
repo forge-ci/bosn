@@ -14,12 +14,19 @@
 # release always ignores attestations.
 version: 1
 gates:
-  # Lint never runs under bosn; soldr lint only. No lane attests a lint gate:
-  # rustfmt, Clippy, ruff, pyright and the policy guards run in the remote
-  # `lint` job on every PR (and on the host via
-  # `python ci/local_gate.py --lane lint` before pushing).
+  # Lint never runs under bosn; soldr lint only. The host soldr lanes `lint`
+  # and `lint-widget` run the remote `lint` job's commands and attest it.
+  rust/all/fmt: {lane: lint}                          # rustfmt, workspace
+  rust/x86_64-unknown-linux-gnu/clippy: {lane: lint}  # Clippy, every target, test features
+  python/all/lint: {lane: lint}                       # ruff, pyright, repository guards, policy
+  rust/x86_64-unknown-linux-gnu/widget-lint: {lane: lint-widget}  # widget rustfmt + Clippy
   rust/all/boundary: {lane: rust}           # kernal-api boundary, locked resolution
   rust/x86_64-unknown-linux-gnu/test: {lane: rust}    # workspace + embedded-Python tests, in bosn
   python/x86_64-unknown-linux-gnu/test: {lane: tests}  # pytest (not docker-marked), in bosn
 jobs:
   ci.yml:rust: [rust/all/boundary, rust/x86_64-unknown-linux-gnu/test]
+  ci.yml:lint:
+    - rust/all/fmt
+    - rust/x86_64-unknown-linux-gnu/clippy
+    - python/all/lint
+    - rust/x86_64-unknown-linux-gnu/widget-lint
