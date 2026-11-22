@@ -138,9 +138,12 @@ pub fn act_artifact(architecture: &str) -> Option<ActArtifact> {
             // act2.34 waits for initial recovery catalog contention and names
             // the short enrollment selection catalog probe (act2#95, #96).
             // act2.36 retries contested native tool probes without holding leases (act2#99).
-            url: "https://github.com/forge-ci/act2/releases/download/v0.2.89-act2.36/act_Linux_x86_64.tar.gz",
-            sha256: "5faef9235421a5a15d20b0c366df3754f83f07b247d31d455cef2bb805b2fa49",
-            binary_sha256: "2ce98c3fb7a8c29fb63b1f963b4026196b6a8827929a61f22851c3ec1d07325b",
+            // act2.38 lets `cache tool-exec --timeout-secs` carry the engine's
+            // readiness budget into generation admission instead of a fixed
+            // 180 s that a loaded host outran on every run (act2#103).
+            url: "https://github.com/forge-ci/act2/releases/download/v0.2.89-act2.38/act_Linux_x86_64.tar.gz",
+            sha256: "612835ba10d51323aaff31c02c276c2dba09567e6b56b59aa214b53d88eec227",
+            binary_sha256: "8de107f6485aaf82683c96dca1ca17671bd02ff11d27d32672a0fdaae4057825",
         }),
         _ => None,
     }

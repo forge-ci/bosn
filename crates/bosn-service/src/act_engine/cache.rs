@@ -138,6 +138,11 @@ pub(super) fn engine_command_with_tools(
             generation.id.clone(),
             "--max-bytes".into(),
             generation.max_payload_bytes.to_string(),
+            // Admission hashes the whole generation; give it the engine's own
+            // readiness budget instead of act2's fixed 180 s, which a loaded
+            // host outran on every run (act2#103, act2.38).
+            "--timeout-secs".into(),
+            crate::ci::engine::PULL_DEADLINE.as_secs().to_string(),
             "--apply".into(),
             "--".into(),
         ]);
@@ -335,6 +340,11 @@ mod ownership_tests {
         assert!(
             args.windows(2)
                 .any(|pair| pair == ["--max-bytes", "33554432"])
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--timeout-secs", "1800"]),
+            "admission must get the engine's readiness budget, not act2's 180 s"
         );
         assert!(args.contains(&format!("{}/toolstore-v1", crate::ci::engine::ENGINE_CACHE)));
         let mut altered = intent.creation_profile.clone().unwrap();
