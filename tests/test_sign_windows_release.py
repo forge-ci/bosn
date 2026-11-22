@@ -207,3 +207,25 @@ def test_a_missing_az_is_a_named_signing_error(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(sign.shutil, "which", lambda name: None)
     with pytest.raises(sign.SigningError, match="Azure CLI"):
         sign.access_token()
+
+
+def test_authenticode_check_drops_an_inherited_psmodulepath(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A pwsh 7 parent's PSModulePath stops Windows PowerShell 5.1 autoloading
+    Get-AuthenticodeSignature (the v0.1.33 release failure), so the child runs
+    without it and imports the module explicitly."""
+    monkeypatch.setenv("PSModulePath", r"C:\Program Files\PowerShell\7\Modules")
+    seen: list[tuple[list[str], dict[str, str]]] = []
+
+    def fake_powershell(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append((command, kwargs["env"]))  # type: ignore[arg-type]
+        return subprocess.CompletedProcess(command, 0, stdout="Valid\n")
+
+    monkeypatch.setattr(sign.subprocess, "run", fake_powershell)
+    binary = tmp_path / "bosn.exe"
+    binary.write_bytes(b"MZ")
+    assert sign.authenticode_status(binary) == "Valid"
+    command, env = seen[0]
+    assert not any(key.upper() == "PSMODULEPATH" for key in env)
+    assert "Import-Module Microsoft.PowerShell.Security" in command[-1]
