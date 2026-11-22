@@ -364,7 +364,7 @@ const CONTROL_DEADLINE: Duration = Duration::from_secs(60);
 const CLEANUP_DEADLINE: Duration = Duration::from_secs(180);
 /// A storage sample holds up the run's log drain; it is short or skipped.
 const SAMPLE_DEADLINE: Duration = Duration::from_secs(10);
-const PULL_DEADLINE: Duration = Duration::from_secs(30 * 60);
+pub(crate) const PULL_DEADLINE: Duration = Duration::from_secs(30 * 60);
 const CONTROL_OUTPUT: usize = 1024 * 1024;
 const RUN_OUTPUT: usize = 1024 * 1024 * 1024;
 
