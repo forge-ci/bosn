@@ -169,14 +169,13 @@ def test_manual_and_main_tiers() -> None:
 
 
 def test_every_job_checks_out_exact_candidate() -> None:
-    # A reusable-workflow call (ci-pre) has no steps of its own. The forge pool
-    # selector reads only the signal API and never checks out source, so it
-    # has no candidate to pin.
-    assert not any(
-        "actions/checkout@" in step.get("uses", "") for step in CI["jobs"]["pool"]["steps"]
-    )
+    # Pool selectors read broker metadata without checking out the candidate.
+    selectors = {"pool", "reserve-pool"}
     for name, job in CI["jobs"].items():
-        if "uses" in job or name == "pool":
+        if name in selectors:
+            assert not any("actions/checkout@" in step.get("uses", "") for step in job["steps"])
+            continue
+        if "uses" in job:
             continue
         checkout = next(
             step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
