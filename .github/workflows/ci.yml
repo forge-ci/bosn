@@ -249,7 +249,7 @@ jobs:
     # GATE-002: verify before spending a runner. Local replay exercises the
     # signal path with routing unset, which selects hosted without a network call.
     needs: [verify]
-    if: ${{ vars.FORGE_POOL_LEASE_CLASS == '' }}
+    if: ${{ github.event_name != 'pull_request' && vars.FORGE_POOL_LEASE_CLASS == '' }}
     # forge-quick through the kill switch (RUN-004).
     runs-on: ${{ vars.FORGE_QUICK_LABELS != '' && fromJSON(vars.FORGE_QUICK_LABELS) || 'ubuntu-latest' }}
     timeout-minutes: 2
