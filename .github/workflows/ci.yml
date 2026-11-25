@@ -35,6 +35,11 @@ on:
         description: "RUN-005 canary: use the forge pool even while FORGE_POOL_LABELS is unset"
         type: boolean
         default: false
+      pool_route:
+        description: "Runner allocation for this manual run"
+        type: choice
+        options: [auto, hosted]
+        default: auto
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
@@ -235,20 +240,19 @@ jobs:
         run: ./install
 
   # Forge pool (forge-ci/gh-runner docs/pool.md): picks the self-hosted Dell
-  # pool for the Rust workspace job when the repo variable FORGE_POOL_LABELS is set
-  # and the pool has an idle runner, else hosted. pool-select keeps fork PRs
-  # and pull_request_target hosted (trusted-only, the default). Unset
+  # pool for the Rust workspace job when FORGE_POOL_LABELS is set.
+  # FORGE_POOL_LEASE_CLASS enables broker reservations for ready runners.
+  # pool-select keeps fork PRs and pull_request_target hosted. Unset
   # FORGE_POOL_LABELS to send the job back to hosted at once.
   pool:
     name: Select runner
-    # GATE-002: needs verify like every runner-spending job. No `if:` beyond
-    # that, so the local-gate replay proves it; with routing off it answers
-    # hosted at once, without a network call.
+    # GATE-002: verify before spending a runner. Local replay exercises the
+    # signal path with routing unset, which selects hosted without a network call.
     needs: [verify]
+    if: ${{ github.event_name != 'pull_request' && vars.FORGE_POOL_LEASE_CLASS == '' }}
     # forge-quick through the kill switch (RUN-004).
     runs-on: ${{ vars.FORGE_QUICK_LABELS != '' && fromJSON(vars.FORGE_QUICK_LABELS) || 'ubuntu-latest' }}
     timeout-minutes: 2
-    permissions: {}
     outputs:
       runs-on: ${{ steps.select.outputs.runs-on || '"ubuntu-latest"' }}
     steps:
@@ -257,16 +261,40 @@ jobs:
       # selector that never ran.
       - name: Select pool or hosted
         id: select
-        uses: forge-ci/ci.yml/actions/pool-select@a36bc81ad6ada5fb17398e3e7ba38435cc67a951 # ci.yml#550, tokenless signal source
+        uses: forge-ci/ci.yml/actions/pool-select@52f6ada3ed0cb8622e31f1a16d506fb853b731b0 # ci.yml#569
         with:
           # The variable is the kill switch; a manual `forge_pool` dispatch
           # proves one real job on the pool before the variable is set.
-          labels: ${{ vars.FORGE_POOL_LABELS || (inputs.forge_pool && '["self-hosted","forge-pool"]' || '') }}
+          labels: ${{ inputs.pool_route != 'hosted' && (vars.FORGE_POOL_LABELS || (inputs.forge_pool && '["self-hosted","forge-pool"]' || '')) || '' }}
           fallback: ubuntu-latest
+          source: signal
+          count-room: "false"
+
+  reserve-pool:
+    name: Reserve runner
+    needs: [verify]
+    # Local replay selects hosted because it has no GitHub OIDC issuer.
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.pool_route != 'hosted') && github.event_name != 'pull_request' && needs.verify.outputs.skip_rust != 'true' && vars.FORGE_POOL_LEASE_CLASS != '' && (vars.FORGE_POOL_LABELS != '' || inputs.forge_pool) }}
+    runs-on: ${{ vars.FORGE_QUICK_LABELS != '' && fromJSON(vars.FORGE_QUICK_LABELS) || 'ubuntu-latest' }}
+    timeout-minutes: 2
+    permissions:
+      id-token: write
+    outputs:
+      runs-on: ${{ steps.select.outputs.runs-on || '"ubuntu-latest"' }}
+    steps:
+      - name: Reserve pool or hosted
+        id: select
+        uses: forge-ci/ci.yml/actions/pool-select@52f6ada3ed0cb8622e31f1a16d506fb853b731b0 # ci.yml#569
+        with:
+          labels: ${{ vars.FORGE_POOL_LABELS || '["self-hosted","forge-pool"]' }}
+          fallback: ubuntu-latest
+          source: lease
+          lease-class: ${{ vars.FORGE_POOL_LEASE_CLASS }}
+          lease-job: rust
 
   rust:
     name: Rust workspace (locked tests)
-    needs: [verify, pool]
+    needs: [verify, pool, reserve-pool]
     # GATE-008/010: skipped only for an attested, trusted PR head.
     # Main pushes and the nightly schedule run it too (full tier).
     # Its remote cache save moved to the push-only `cache-writer` job.
@@ -275,7 +303,7 @@ jobs:
     if: ${{ !cancelled() && needs.verify.result == 'success' && needs.verify.outputs.skip_rust != 'true' }}
     # Read the selector only when it ran: act replays expose a skipped job's
     # unevaluated output template.
-    runs-on: ${{ needs.pool.result == 'success' && fromJSON(needs.pool.outputs.runs-on) || 'ubuntu-latest' }}
+    runs-on: ${{ vars.FORGE_POOL_LEASE_CLASS != '' && needs.reserve-pool.result == 'success' && fromJSON(needs.reserve-pool.outputs.runs-on) || needs.pool.result == 'success' && fromJSON(needs.pool.outputs.runs-on) || 'ubuntu-latest' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -786,7 +814,7 @@ jobs:
   ci-summary:
     name: CI summary
     if: ${{ always() }}
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint, pool, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint, pool, reserve-pool, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -814,7 +842,7 @@ jobs:
   # non-cancelling `cache-janitor` group, so one sweep runs at a time.
   queue-cache-janitor:
     name: End-of-queue cache janitor
-    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint, pool, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
+    needs: [cancel-superseded, verify, ci-pre, select-tier, cache-writer, cache-writer-linux, lint, pool, reserve-pool, rust, linux, native-wheel, darwin-cross-wheel, widget, full-coverage, ci-queue-timing, ci-summary]
     if: always() && github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
